@@ -1,0 +1,1 @@
+export { useDI } from './useRepository';
