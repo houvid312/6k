@@ -15,14 +15,15 @@ export default function TabLayout() {
         headerStyle: { backgroundColor: '#1A1A1A' },
         headerTintColor: '#F5F0EB',
         tabBarStyle: {
-          height: 64,
-          paddingBottom: 8,
-          paddingTop: 6,
+          height: 56,
+          paddingBottom: 6,
+          paddingTop: 4,
           backgroundColor: '#1A1A1A',
           borderTopColor: '#2E2E2E',
           borderTopWidth: 1,
         },
-        tabBarLabelStyle: { fontSize: 10, fontWeight: '600', letterSpacing: 0.3 },
+        tabBarLabelStyle: { fontSize: 9, fontWeight: '600', letterSpacing: 0.2 },
+        tabBarIconStyle: { marginBottom: -2 },
       }}
     >
       <Tabs.Screen

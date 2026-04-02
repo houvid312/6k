@@ -16,6 +16,7 @@ interface SaleRow {
   observations: string | null;
   is_paid: boolean;
   customer_note: string | null;
+  workers?: { name: string } | null;
 }
 
 interface SaleItemRow {
@@ -55,6 +56,7 @@ function saleRowToEntity(row: SaleRow, items: SaleItem[]): Sale {
     observations: row.observations ?? undefined,
     isPaid: row.is_paid ?? true,
     customerNote: row.customer_note ?? undefined,
+    workerName: row.workers?.name ?? undefined,
   };
 }
 
@@ -102,7 +104,7 @@ export class SupabaseSaleRepository implements ISaleRepository {
   async getUnpaid(storeId: string): Promise<Sale[]> {
     const { data, error } = await supabase
       .from('sales')
-      .select('*')
+      .select('*, workers(name)')
       .eq('store_id', storeId)
       .eq('is_paid', false)
       .order('created_at', { ascending: false });

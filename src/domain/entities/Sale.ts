@@ -14,4 +14,5 @@ export interface Sale {
   observations?: string;
   isPaid: boolean;
   customerNote?: string;
+  workerName?: string;
 }

@@ -1,7 +1,13 @@
 import React from 'react';
-import { FlatList, StyleSheet, View } from 'react-native';
-import { Card, Text, useTheme } from 'react-native-paper';
+import { StyleSheet, View, TouchableOpacity, Dimensions } from 'react-native';
+import { Text, useTheme } from 'react-native-paper';
 import { Product } from '../../domain/entities';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const GRID_PADDING = 12;
+const GRID_GAP = 8;
+const PIZZA_CARD_WIDTH = Math.floor((SCREEN_WIDTH - GRID_PADDING * 2 - GRID_GAP * 2) / 3);
+const BEV_CARD_WIDTH = Math.floor((SCREEN_WIDTH - GRID_PADDING * 2 - GRID_GAP * 3) / 4);
 
 const PIZZA_EMOJI: Record<string, string> = {
   'prod-hawaiana': '\uD83C\uDF4D',
@@ -37,82 +43,132 @@ interface Props {
 export function ProductGrid({ products, onSelect, selectedId }: Props) {
   const theme = useTheme();
 
-  const renderItem = ({ item }: { item: Product }) => {
-    const isSelected = item.id === selectedId;
+  const pizzas = products.filter((p) => p.category === 'PIZZA');
+  const beverages = products.filter((p) => p.category === 'BEBIDA');
+
+  if (products.length === 0) {
     return (
-      <Card
-        style={[
-          styles.card,
-          isSelected && { borderColor: theme.colors.primary, borderWidth: 2 },
-        ]}
-        mode="elevated"
-        onPress={() => onSelect(item.id)}
-      >
-        <Card.Content style={styles.cardContent}>
-          <Text style={styles.emoji}>{getEmoji(item)}</Text>
-          <Text
-            variant="titleSmall"
-            numberOfLines={2}
-            style={[styles.productName, { color: theme.colors.onSurface }]}
-          >
-            {item.name}
-          </Text>
-          <Text
-            variant="labelSmall"
-            style={{ color: theme.colors.onSurfaceVariant }}
-          >
-            {item.category === 'PIZZA' ? 'Pizza' : 'Bebida'}
-          </Text>
-        </Card.Content>
-      </Card>
+      <View style={styles.empty}>
+        <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+          No hay productos disponibles
+        </Text>
+      </View>
     );
-  };
+  }
 
   return (
-    <FlatList
-      data={products}
-      renderItem={renderItem}
-      keyExtractor={(item) => item.id}
-      numColumns={2}
-      columnWrapperStyle={styles.row}
-      contentContainerStyle={styles.list}
-      showsVerticalScrollIndicator={false}
-      ListEmptyComponent={
-        <View style={styles.empty}>
-          <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
-            No hay productos disponibles
+    <View>
+      {/* Pizzas - 3 columns */}
+      <View style={styles.grid}>
+        {pizzas.map((item) => {
+          const isSelected = item.id === selectedId;
+          return (
+            <TouchableOpacity
+              key={item.id}
+              style={[
+                styles.pizzaCard,
+                { backgroundColor: theme.colors.surface },
+                isSelected && { borderColor: theme.colors.primary },
+              ]}
+              onPress={() => onSelect(item.id)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.emoji}>{getEmoji(item)}</Text>
+              <Text
+                numberOfLines={2}
+                style={[styles.productName, { color: theme.colors.onSurface }]}
+              >
+                {item.name}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Beverages - 4 columns */}
+      {beverages.length > 0 && (
+        <>
+          <Text variant="labelMedium" style={[styles.sectionLabel, { color: theme.colors.onSurfaceVariant }]}>
+            Bebidas
           </Text>
-        </View>
-      }
-    />
+          <View style={styles.grid}>
+            {beverages.map((item) => {
+              const isSelected = item.id === selectedId;
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  style={[
+                    styles.bevCard,
+                    { backgroundColor: theme.colors.surface },
+                    isSelected && { borderColor: theme.colors.primary },
+                  ]}
+                  onPress={() => onSelect(item.id)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.bevEmoji}>{getEmoji(item)}</Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.bevName, { color: theme.colors.onSurface }]}
+                  >
+                    {item.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  list: {
-    paddingBottom: 8,
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: GRID_GAP,
   },
-  row: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  card: {
-    flex: 1,
+  pizzaCard: {
+    width: PIZZA_CARD_WIDTH,
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 4,
     borderRadius: 12,
     borderWidth: 2,
     borderColor: 'transparent',
   },
-  cardContent: {
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
   emoji: {
-    fontSize: 36,
-    marginBottom: 8,
+    fontSize: 28,
+    marginBottom: 4,
   },
   productName: {
     textAlign: 'center',
     fontWeight: '600',
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  sectionLabel: {
+    marginTop: 8,
+    marginBottom: 8,
+    fontWeight: '600',
+  },
+  bevCard: {
+    width: BEV_CARD_WIDTH,
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 2,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  bevEmoji: {
+    fontSize: 22,
+    marginBottom: 2,
+  },
+  bevName: {
+    textAlign: 'center',
+    fontWeight: '600',
+    fontSize: 9,
   },
   empty: {
     alignItems: 'center',

@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, StyleSheet, Pressable } from 'react-native';
 import { Text, IconButton, Divider, TextInput, useTheme } from 'react-native-paper';
 import { CartItem } from '../../stores/useSaleStore';
 import { formatCOP } from '../../utils/currency';
@@ -21,6 +21,7 @@ interface Props {
 
 export function CartSummary({ items, onRemove, onUpdateQuantity, onUpdateNote }: Props) {
   const theme = useTheme();
+  const [expandedNote, setExpandedNote] = useState<string | null>(null);
 
   if (items.length === 0) {
     return (
@@ -37,69 +38,82 @@ export function CartSummary({ items, onRemove, onUpdateQuantity, onUpdateNote }:
 
   return (
     <View>
-      {items.map((item, index) => (
-        <View key={item.cartItemId}>
-          <View style={styles.itemRow}>
-            <View style={styles.itemInfo}>
-              <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
-                {item.productName}
-              </Text>
-              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                {SIZE_SHORT[item.size]} - {item.portions} porc.
+      {items.map((item, index) => {
+        const showNote = expandedNote === item.cartItemId || item.customerNote.trim().length > 0;
+
+        return (
+          <View key={item.cartItemId}>
+            <View style={styles.itemRow}>
+              {/* Remove */}
+              <IconButton
+                icon="close-circle"
+                size={18}
+                iconColor={theme.colors.error}
+                onPress={() => onRemove(item.cartItemId)}
+                style={styles.iconBtn}
+              />
+
+              {/* Name + size */}
+              <Pressable
+                style={styles.itemInfo}
+                onPress={() => setExpandedNote(expandedNote === item.cartItemId ? null : item.cartItemId)}
+              >
+                <Text variant="bodyMedium" style={{ fontWeight: '600' }} numberOfLines={1}>
+                  {item.productName}
+                </Text>
+                <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                  {SIZE_SHORT[item.size]} · {item.portions} porc.
+                  {item.customerNote.trim() ? '  📝' : ''}
+                </Text>
+              </Pressable>
+
+              {/* Quantity controls inline */}
+              <View style={styles.qtyRow}>
+                <IconButton
+                  icon="minus-circle-outline"
+                  size={20}
+                  onPress={() => onUpdateQuantity(item.cartItemId, item.quantity - 1)}
+                  style={styles.iconBtn}
+                />
+                <Text variant="bodyMedium" style={styles.qtyText}>
+                  {item.quantity}
+                </Text>
+                <IconButton
+                  icon="plus-circle-outline"
+                  size={20}
+                  onPress={() => onUpdateQuantity(item.cartItemId, item.quantity + 1)}
+                  style={styles.iconBtn}
+                />
+              </View>
+
+              {/* Price */}
+              <Text variant="bodyMedium" style={{ fontWeight: '600', minWidth: 70, textAlign: 'right' }}>
+                {formatCOP(item.subtotal)}
               </Text>
             </View>
-            <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
-              {formatCOP(item.subtotal)}
-            </Text>
-            <IconButton
-              icon="close-circle"
-              size={20}
-              iconColor={theme.colors.error}
-              onPress={() => onRemove(item.cartItemId)}
-              style={styles.removeBtn}
-            />
+
+            {/* Collapsible note */}
+            {showNote && (
+              <TextInput
+                placeholder="Nota (ej: Mesa 3, Juan)"
+                value={item.customerNote}
+                onChangeText={(text) => onUpdateNote(item.cartItemId, text)}
+                mode="flat"
+                dense
+                style={styles.noteInput}
+              />
+            )}
+
+            {index < items.length - 1 && <Divider style={styles.itemDivider} />}
           </View>
-          {/* Quantity controls */}
-          <View style={styles.quantityControls}>
-            <IconButton
-              icon="minus-circle-outline"
-              size={22}
-              onPress={() => onUpdateQuantity(item.cartItemId, item.quantity - 1)}
-              style={styles.qtyBtn}
-            />
-            <Text variant="titleSmall" style={styles.qtyText}>
-              {item.quantity}
-            </Text>
-            <IconButton
-              icon="plus-circle-outline"
-              size={22}
-              onPress={() => onUpdateQuantity(item.cartItemId, item.quantity + 1)}
-              style={styles.qtyBtn}
-            />
-          </View>
-          {/* Customer note */}
-          <TextInput
-            placeholder="Cliente / nota (ej: Mesa 3, Juan)"
-            value={item.customerNote}
-            onChangeText={(text) => onUpdateNote(item.cartItemId, text)}
-            mode="flat"
-            dense
-            style={styles.noteInput}
-          />
-          {index < items.length - 1 && <Divider style={styles.itemDivider} />}
-        </View>
-      ))}
+        );
+      })}
       <Divider style={styles.totalDivider} />
       <View style={styles.totalRow}>
-        <View>
-          <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>
-            TOTAL
-          </Text>
-          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-            {totalPortions} porciones
-          </Text>
-        </View>
-        <Text variant="titleLarge" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+        <Text variant="titleSmall" style={{ fontWeight: 'bold' }}>
+          TOTAL · {totalPortions} porc.
+        </Text>
+        <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
           {formatCOP(totalAmount)}
         </Text>
       </View>
@@ -110,50 +124,49 @@ export function CartSummary({ items, onRemove, onUpdateQuantity, onUpdateNote }:
 const styles = StyleSheet.create({
   emptyContainer: {
     alignItems: 'center',
-    paddingVertical: 24,
+    paddingVertical: 16,
   },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 2,
+  },
+  iconBtn: {
+    margin: 0,
+    width: 28,
+    height: 28,
   },
   itemInfo: {
     flex: 1,
+    marginHorizontal: 4,
   },
-  removeBtn: {
-    margin: 0,
-  },
-  quantityControls: {
+  qtyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: 4,
-    marginBottom: 4,
-  },
-  qtyBtn: {
-    margin: 0,
   },
   qtyText: {
-    minWidth: 28,
+    minWidth: 20,
     textAlign: 'center',
     fontWeight: '700',
   },
   noteInput: {
-    marginBottom: 8,
+    marginLeft: 28,
+    marginBottom: 4,
     backgroundColor: 'transparent',
-    fontSize: 13,
-    height: 36,
+    fontSize: 12,
+    height: 32,
   },
   itemDivider: {
-    marginVertical: 4,
+    marginVertical: 2,
   },
   totalDivider: {
-    marginTop: 8,
+    marginTop: 6,
     height: 2,
   },
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 12,
+    paddingTop: 8,
   },
 });

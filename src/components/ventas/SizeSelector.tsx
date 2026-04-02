@@ -58,14 +58,16 @@ export function SizeSelector({ selected, onSelect }: Props) {
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
   button: {
+    minWidth: '45%',
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
   },
 });

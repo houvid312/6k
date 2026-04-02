@@ -11,9 +11,9 @@ export function HeaderLogo() {
       <View style={styles.logoRing}>
         <Text style={styles.logo}>6K</Text>
       </View>
-      <View>
-        <Text style={styles.brand}>6K Pizza</Text>
-        <Text style={styles.userName}>{userName}</Text>
+      <View style={styles.textContainer}>
+        <Text style={styles.brand} numberOfLines={1}>6K Pizza</Text>
+        <Text style={styles.userName} numberOfLines={1}>{userName}</Text>
       </View>
     </View>
   );
@@ -24,6 +24,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    flexShrink: 1,
+  },
+  textContainer: {
+    flexShrink: 1,
   },
   logoRing: {
     width: 32,

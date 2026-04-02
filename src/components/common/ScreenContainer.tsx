@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, View, StyleSheet, ViewStyle } from 'react-native';
+import { ScrollView, View, StyleSheet, ViewStyle, KeyboardAvoidingView, Platform } from 'react-native';
 import { useTheme } from 'react-native-paper';
 
 interface Props {
@@ -15,19 +15,31 @@ export function ScreenContainer({ children, style, scrollable = true, padded = t
 
   if (scrollable) {
     return (
-      <ScrollView
-        style={containerStyle}
-        contentContainerStyle={padded ? styles.content : undefined}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        {children}
-      </ScrollView>
+        <ScrollView
+          style={containerStyle}
+          contentContainerStyle={padded ? styles.content : undefined}
+          keyboardShouldPersistTaps="handled"
+        >
+          {children}
+        </ScrollView>
+      </KeyboardAvoidingView>
     );
   }
   return (
-    <View style={[containerStyle, padded && styles.content]}>
-      {children}
-    </View>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+    >
+      <View style={[containerStyle, padded && styles.content]}>
+        {children}
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 

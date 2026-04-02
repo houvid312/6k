@@ -1,19 +1,14 @@
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
-import { RadioButton, Text } from 'react-native-paper';
+import { View, StyleSheet, TouchableOpacity } from 'react-native';
+import { Text, useTheme } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { PaymentMethod } from '../../domain/enums';
 
-const PAYMENT_LABELS: Record<PaymentMethod, string> = {
-  [PaymentMethod.EFECTIVO]: 'Efectivo',
-  [PaymentMethod.TRANSFERENCIA]: 'Transferencia',
-  [PaymentMethod.MIXTO]: 'Mixto',
-};
-
-const PAYMENT_ICONS: Record<PaymentMethod, string> = {
-  [PaymentMethod.EFECTIVO]: 'cash',
-  [PaymentMethod.TRANSFERENCIA]: 'bank-transfer',
-  [PaymentMethod.MIXTO]: 'swap-horizontal',
-};
+const PAYMENT_OPTIONS: { method: PaymentMethod; label: string; icon: string }[] = [
+  { method: PaymentMethod.EFECTIVO, label: 'Efectivo', icon: 'cash' },
+  { method: PaymentMethod.TRANSFERENCIA, label: 'Transfer.', icon: 'bank-transfer' },
+  { method: PaymentMethod.MIXTO, label: 'Mixto', icon: 'swap-horizontal' },
+];
 
 interface Props {
   value: PaymentMethod;
@@ -21,20 +16,43 @@ interface Props {
 }
 
 export function PaymentMethodPicker({ value, onChange }: Props) {
+  const theme = useTheme();
+
   return (
-    <RadioButton.Group
-      onValueChange={(v) => onChange(v as PaymentMethod)}
-      value={value}
-    >
-      <View style={styles.container}>
-        {Object.values(PaymentMethod).map((method) => (
-          <View key={method} style={styles.option}>
-            <RadioButton value={method} />
-            <Text variant="bodyMedium">{PAYMENT_LABELS[method]}</Text>
-          </View>
-        ))}
-      </View>
-    </RadioButton.Group>
+    <View style={styles.container}>
+      {PAYMENT_OPTIONS.map(({ method, label, icon }) => {
+        const isSelected = method === value;
+        return (
+          <TouchableOpacity
+            key={method}
+            style={[
+              styles.option,
+              {
+                backgroundColor: isSelected ? theme.colors.primary : theme.colors.surfaceVariant,
+                borderColor: isSelected ? theme.colors.primary : 'transparent',
+              },
+            ]}
+            onPress={() => onChange(method)}
+            activeOpacity={0.7}
+          >
+            <MaterialCommunityIcons
+              name={icon as keyof typeof MaterialCommunityIcons.glyphMap}
+              size={18}
+              color={isSelected ? '#FFFFFF' : theme.colors.onSurfaceVariant}
+            />
+            <Text
+              variant="labelMedium"
+              style={{
+                color: isSelected ? '#FFFFFF' : theme.colors.onSurface,
+                fontWeight: isSelected ? '700' : '500',
+              }}
+            >
+              {label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
   );
 }
 
@@ -44,7 +62,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   option: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1.5,
   },
 });

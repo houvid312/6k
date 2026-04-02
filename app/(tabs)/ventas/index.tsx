@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, StyleSheet, Alert, ScrollView } from 'react-native';
+import { View, StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import {
   Text,
   FAB,
@@ -51,10 +51,13 @@ export default function VentasScreen() {
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [selectedSize, setSelectedSize] = useState<PizzaSize | null>(null);
   const [sizeModalVisible, setSizeModalVisible] = useState(false);
+  const [beverageModalVisible, setBeverageModalVisible] = useState(false);
+  const [beverageQuantity, setBeverageQuantity] = useState(1);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.EFECTIVO);
   const [cashAmount, setCashAmount] = useState(0);
   const [bankAmount, setBankAmount] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [readyToConfirm, setReadyToConfirm] = useState(false);
   const [isPaid, setIsPaid] = useState(false);
   const [observations, setObservations] = useState('');
   const [modalQuantity, setModalQuantity] = useState(1);
@@ -114,21 +117,16 @@ export default function VentasScreen() {
     if (!product) return;
 
     if (product.category === 'BEBIDA') {
-      const price = beveragePrices[product.id] ?? 0;
-      addToCart({
-        productId: product.id,
-        productName: product.name,
-        size: PizzaSize.INDIVIDUAL,
-        quantity: 1,
-        unitPrice: price,
-      });
+      setSelectedProductId(productId);
+      setBeverageQuantity(1);
+      setBeverageModalVisible(true);
     } else {
       setSelectedProductId(productId);
       setSelectedSize(null);
       setModalQuantity(1);
       setSizeModalVisible(true);
     }
-  }, [products, addToCart, beveragePrices]);
+  }, [products]);
 
   const handleSizeConfirm = useCallback(() => {
     if (!selectedProduct || !selectedSize) return;
@@ -147,7 +145,27 @@ export default function VentasScreen() {
     setModalQuantity(1);
   }, [selectedProduct, selectedSize, modalQuantity, addToCart, pricesBySize]);
 
+  const handleBeverageConfirm = useCallback(() => {
+    if (!selectedProduct) return;
+    const price = beveragePrices[selectedProduct.id] ?? 0;
+    addToCart({
+      productId: selectedProduct.id,
+      productName: selectedProduct.name,
+      size: PizzaSize.INDIVIDUAL,
+      quantity: beverageQuantity,
+      unitPrice: price,
+    });
+    setBeverageModalVisible(false);
+    setSelectedProductId(null);
+    setBeverageQuantity(1);
+  }, [selectedProduct, beverageQuantity, addToCart, beveragePrices]);
+
   const totalAmount = cart.reduce((sum, i) => sum + i.subtotal, 0);
+
+  // Reset confirm state when cart changes
+  useEffect(() => {
+    setReadyToConfirm(false);
+  }, [cart.length]);
 
   const scrollToBottom = useCallback(() => {
     setTimeout(() => {
@@ -164,11 +182,6 @@ export default function VentasScreen() {
   }, [cart, scrollToBottom]);
 
   const handleSubmitSale = useCallback(async () => {
-    if (cart.length === 0) {
-      Alert.alert('Error', 'Agrega productos al carrito primero');
-      return;
-    }
-
     const effectiveCash = paymentMethod === PaymentMethod.TRANSFERENCIA ? 0
       : paymentMethod === PaymentMethod.EFECTIVO ? totalAmount
       : cashAmount;
@@ -215,6 +228,7 @@ export default function VentasScreen() {
       setPaymentMethod(PaymentMethod.EFECTIVO);
       setObservations('');
       setIsPaid(false);
+      setReadyToConfirm(false);
 
       setSnackbar({
         visible: true,
@@ -235,6 +249,22 @@ export default function VentasScreen() {
       setSubmitting(false);
     }
   }, [cart, paymentMethod, cashAmount, bankAmount, totalAmount, selectedStoreId, saleService, clearCart, isPaid, observations, loadPendingSales]);
+
+  const handleFabPress = useCallback(() => {
+    if (cart.length === 0) {
+      Alert.alert('Error', 'Agrega productos al carrito primero');
+      return;
+    }
+
+    if (!readyToConfirm) {
+      setReadyToConfirm(true);
+      scrollToBottom();
+      return;
+    }
+
+    // Second press — actually submit
+    handleSubmitSale();
+  }, [cart, readyToConfirm, scrollToBottom, handleSubmitSale]);
 
   const handleMarkAsPaid = useCallback(async (sale: Sale) => {
     try {
@@ -261,7 +291,11 @@ export default function VentasScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <KeyboardAvoidingView
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+    >
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={styles.scrollContent}
@@ -297,38 +331,59 @@ export default function VentasScreen() {
 
         {/* Pending Sales Banner */}
         {pendingSales.length > 0 && (
-          <Card style={[styles.pendingCard, { backgroundColor: theme.colors.errorContainer }]} mode="elevated">
-            <Card.Content>
-              <Text
-                variant="titleMedium"
-                style={{ fontWeight: '600', color: theme.colors.onErrorContainer, marginBottom: 8 }}
-              >
-                Pendientes de pago ({pendingSales.length})
-              </Text>
-              {pendingSales.map((sale) => (
-                <View key={sale.id} style={styles.pendingRow}>
-                  <View style={styles.pendingInfo}>
-                    <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onErrorContainer }}>
-                      {formatCOP(sale.totalAmount)} - {sale.totalPortions} porc.
+          <View style={styles.pendingSection}>
+            <Text
+              variant="titleSmall"
+              style={{ fontWeight: '600', color: theme.colors.error, marginBottom: 8 }}
+            >
+              Pendientes de pago ({pendingSales.length})
+            </Text>
+            {pendingSales.map((sale) => {
+              const itemsSummary = sale.items
+                .map((i) => `${i.portions} porc. ${products.find((p) => p.id === i.productId)?.name ?? ''}`)
+                .join(', ');
+
+              return (
+                <View
+                  key={sale.id}
+                  style={[styles.pendingItem, { backgroundColor: theme.colors.errorContainer }]}
+                >
+                  <View style={styles.pendingTopRow}>
+                    <Text variant="titleSmall" style={{ fontWeight: '700', color: theme.colors.onErrorContainer }}>
+                      {formatCOP(sale.totalAmount)}
                     </Text>
-                    <Text variant="bodySmall" style={{ color: theme.colors.onErrorContainer }}>
+                    <Text variant="labelMedium" style={{ color: theme.colors.onErrorContainer }}>
                       {formatTime(sale.timestamp)}
-                      {sale.customerNote ? ` - ${sale.customerNote}` : ''}
                     </Text>
                   </View>
-                  <Button
-                    mode="contained"
-                    compact
-                    onPress={() => handleMarkAsPaid(sale)}
-                    buttonColor={theme.colors.primary}
-                    textColor={theme.colors.onPrimary}
-                  >
-                    Pagado
-                  </Button>
+                  <Text variant="bodySmall" style={{ color: theme.colors.onErrorContainer, marginTop: 4 }} numberOfLines={2}>
+                    {itemsSummary}
+                  </Text>
+                  {(sale.customerNote || sale.observations) ? (
+                    <Text variant="bodySmall" style={{ color: theme.colors.onErrorContainer, fontWeight: '700', marginTop: 6 }} numberOfLines={1}>
+                      {[sale.customerNote, sale.observations].filter(Boolean).join(' · ')}
+                    </Text>
+                  ) : null}
+                  <View style={styles.pendingBottomRow}>
+                    <Text variant="labelSmall" style={{ color: theme.colors.onErrorContainer, opacity: 0.6, fontSize: 10 }} numberOfLines={1}>
+                      {sale.workerName ?? ''}
+                    </Text>
+                    <Button
+                      mode="contained"
+                      compact
+                      onPress={() => handleMarkAsPaid(sale)}
+                      buttonColor="#388E3C"
+                      textColor="#FFFFFF"
+                      labelStyle={{ fontSize: 12 }}
+                      icon="check"
+                    >
+                      Ya pago
+                    </Button>
+                  </View>
                 </View>
-              ))}
-            </Card.Content>
-          </Card>
+              );
+            })}
+          </View>
         )}
 
         {/* Scroll to confirm shortcut */}
@@ -345,16 +400,13 @@ export default function VentasScreen() {
         )}
 
         {/* Product Grid */}
-        <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600' }]}>
-          Productos
-        </Text>
         <ProductGrid
           products={products}
           onSelect={handleProductSelect}
           selectedId={selectedProductId ?? undefined}
         />
 
-        {/* Cart */}
+        {/* Cart + Payment */}
         <Card style={styles.cartCard} mode="elevated">
           <Card.Content>
             <View style={styles.cartHeader}>
@@ -376,84 +428,82 @@ export default function VentasScreen() {
               onUpdateQuantity={updateQuantity}
               onUpdateNote={updateCustomerNote}
             />
+
+            {cart.length > 0 && (
+              <>
+                <Divider style={styles.divider} />
+
+                <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 8 }}>
+                  Metodo de Pago
+                </Text>
+                <PaymentMethodPicker value={paymentMethod} onChange={setPaymentMethod} />
+
+                {paymentMethod === PaymentMethod.MIXTO && (
+                  <View style={styles.mixtoInputs}>
+                    <CurrencyInput
+                      value={cashAmount}
+                      onChangeValue={setCashAmount}
+                      label="Efectivo"
+                      style={styles.halfInput}
+                    />
+                    <CurrencyInput
+                      value={bankAmount}
+                      onChangeValue={setBankAmount}
+                      label="Transferencia"
+                      style={styles.halfInput}
+                    />
+                  </View>
+                )}
+
+                <Divider style={styles.divider} />
+
+                {/* Paid toggle */}
+                <View style={styles.paidRow}>
+                  <Text variant="bodyMedium" style={{ flex: 1 }}>
+                    {isPaid ? 'Pagado' : 'Pendiente de pago'}
+                  </Text>
+                  <Chip
+                    selected={isPaid}
+                    onPress={() => setIsPaid(!isPaid)}
+                    mode="flat"
+                    selectedColor={isPaid ? theme.colors.primary : theme.colors.error}
+                    style={{
+                      backgroundColor: isPaid
+                        ? theme.colors.primaryContainer
+                        : theme.colors.errorContainer,
+                    }}
+                  >
+                    {isPaid ? 'Pagado' : 'No pagado'}
+                  </Chip>
+                </View>
+
+                <Divider style={styles.divider} />
+
+                <TextInput
+                  label="Observaciones (opcional)"
+                  value={observations}
+                  onChangeText={setObservations}
+                  mode="outlined"
+                  multiline
+                  numberOfLines={2}
+                  dense
+                  style={styles.observationsInput}
+                />
+              </>
+            )}
           </Card.Content>
         </Card>
 
-        {/* Payment */}
-        {cart.length > 0 && (
-          <Card style={styles.paymentCard} mode="elevated">
-            <Card.Content>
-              <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600' }]}>
-                Metodo de Pago
-              </Text>
-              <PaymentMethodPicker value={paymentMethod} onChange={setPaymentMethod} />
-
-              {paymentMethod === PaymentMethod.MIXTO && (
-                <View style={styles.mixtoInputs}>
-                  <CurrencyInput
-                    value={cashAmount}
-                    onChangeValue={setCashAmount}
-                    label="Efectivo"
-                    style={styles.halfInput}
-                  />
-                  <CurrencyInput
-                    value={bankAmount}
-                    onChangeValue={setBankAmount}
-                    label="Transferencia"
-                    style={styles.halfInput}
-                  />
-                </View>
-              )}
-
-              <Divider style={styles.divider} />
-
-              {/* Paid toggle */}
-              <View style={styles.paidRow}>
-                <Text variant="bodyMedium" style={{ flex: 1 }}>
-                  {isPaid ? 'Pagado' : 'Pendiente de pago'}
-                </Text>
-                <Chip
-                  selected={isPaid}
-                  onPress={() => setIsPaid(!isPaid)}
-                  mode="flat"
-                  selectedColor={isPaid ? theme.colors.primary : theme.colors.error}
-                  style={{
-                    backgroundColor: isPaid
-                      ? theme.colors.primaryContainer
-                      : theme.colors.errorContainer,
-                  }}
-                >
-                  {isPaid ? 'Pagado' : 'No pagado'}
-                </Chip>
-              </View>
-
-              <Divider style={styles.divider} />
-
-              <TextInput
-                label="Observaciones (opcional)"
-                value={observations}
-                onChangeText={setObservations}
-                mode="outlined"
-                multiline
-                numberOfLines={2}
-                style={styles.observationsInput}
-              />
-            </Card.Content>
-          </Card>
-        )}
-
-        {/* Spacer for FAB */}
-        <View style={{ height: 80 }} />
       </ScrollView>
 
       {/* Submit FAB */}
       {cart.length > 0 && (
         <FAB
-          icon="check"
-          label={`Registrar ${formatCOP(totalAmount)}`}
-          onPress={handleSubmitSale}
+          icon={readyToConfirm ? 'check-bold' : 'arrow-down-bold'}
+          label={readyToConfirm ? `Confirmar ${formatCOP(totalAmount)}` : `Registrar ${formatCOP(totalAmount)}`}
+          onPress={handleFabPress}
           loading={submitting}
-          style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+          style={[styles.fab, { backgroundColor: readyToConfirm ? '#388E3C' : theme.colors.primary }]}
           color="#FFFFFF"
         />
       )}
@@ -507,6 +557,43 @@ export default function VentasScreen() {
             </Button>
           </View>
         </Modal>
+
+        {/* Beverage Quantity Modal */}
+        <Modal
+          visible={beverageModalVisible}
+          onDismiss={() => setBeverageModalVisible(false)}
+          contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
+        >
+          <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 16 }}>
+            {selectedProduct?.name}
+          </Text>
+          <Text variant="bodyLarge" style={{ fontWeight: '600', textAlign: 'center' }}>
+            {formatCOP((beveragePrices[selectedProduct?.id ?? ''] ?? 0) * beverageQuantity)}
+          </Text>
+          <View style={styles.modalQuantityRow}>
+            <IconButton
+              icon="minus-circle"
+              size={28}
+              onPress={() => setBeverageQuantity((q) => Math.max(1, q - 1))}
+              disabled={beverageQuantity <= 1}
+            />
+            <Text variant="titleLarge" style={{ fontWeight: 'bold', minWidth: 40, textAlign: 'center' }}>
+              {beverageQuantity}
+            </Text>
+            <IconButton
+              icon="plus-circle"
+              size={28}
+              onPress={() => setBeverageQuantity((q) => q + 1)}
+            />
+          </View>
+          <Divider style={{ marginVertical: 16 }} />
+          <View style={styles.modalActions}>
+            <Button onPress={() => setBeverageModalVisible(false)}>Cancelar</Button>
+            <Button mode="contained" onPress={handleBeverageConfirm}>
+              Agregar al carrito
+            </Button>
+          </View>
+        </Modal>
       </Portal>
 
       {/* Snackbar Feedback */}
@@ -515,27 +602,24 @@ export default function VentasScreen() {
         onDismiss={() => setSnackbar((s) => ({ ...s, visible: false }))}
         duration={4000}
         style={{
-          backgroundColor: snackbar.success
-            ? theme.colors.primaryContainer
-            : theme.colors.errorContainer,
+          backgroundColor: snackbar.success ? '#4CAF50' : '#B71C1C',
           marginBottom: cart.length > 0 ? 70 : 0,
         }}
         action={{
           label: 'OK',
+          textColor: '#FFFFFF',
           onPress: () => setSnackbar((s) => ({ ...s, visible: false })),
         }}
       >
         <Text
           style={{
-            color: snackbar.success
-              ? theme.colors.onPrimaryContainer
-              : theme.colors.onErrorContainer,
+            color: '#FFFFFF',
           }}
         >
           {snackbar.message}
         </Text>
       </Snackbar>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -544,80 +628,85 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: 16,
+    padding: 12,
+    paddingBottom: 100,
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   navRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 16,
-  },
-  sectionTitle: {
     marginBottom: 12,
   },
-  pendingCard: {
+  sectionTitle: {
+    marginBottom: 8,
+  },
+  pendingSection: {
+    marginBottom: 12,
+  },
+  pendingItem: {
     borderRadius: 12,
-    marginBottom: 16,
+    padding: 12,
+    marginBottom: 8,
   },
-  pendingRow: {
+  pendingTopRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
   },
-  pendingInfo: {
-    flex: 1,
+  pendingBottomRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
   },
   topConfirmButton: {
-    marginBottom: 16,
+    marginBottom: 12,
     borderRadius: 8,
   },
   cartCard: {
     borderRadius: 12,
-    marginTop: 16,
+    marginTop: 12,
   },
   cartHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  paymentCard: {
-    borderRadius: 12,
-    marginTop: 12,
-  },
   mixtoInputs: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 12,
+    gap: 10,
+    marginTop: 10,
   },
   halfInput: {
     flex: 1,
   },
   divider: {
-    marginVertical: 12,
+    marginVertical: 10,
   },
   paidRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
   observationsInput: {
-    marginTop: 8,
+    marginTop: 6,
   },
   fab: {
     position: 'absolute',
-    bottom: 16,
-    left: 16,
-    right: 16,
+    bottom: 12,
+    left: 12,
+    right: 12,
     borderRadius: 28,
+    elevation: 8,
   },
   modal: {
-    margin: 20,
-    padding: 24,
+    margin: 16,
+    padding: 20,
     borderRadius: 16,
   },
   sizeInfo: {

@@ -128,9 +128,15 @@ export default function LoginScreen() {
 
           <View style={styles.hint}>
             <Text style={styles.hintTitle}>CUENTAS DE PRUEBA</Text>
+            
             <View style={styles.hintRow}>
               <Text style={styles.hintUser}>david</Text>
               <Text style={styles.hintPin}>600000</Text>
+              <View style={styles.hintBadge}><Text style={styles.hintBadgeText}>Admin</Text></View>
+            </View>
+            <View style={styles.hintRow}>
+              <Text style={styles.hintUser}>esteban</Text>
+              <Text style={styles.hintPin}>600100</Text>
               <View style={styles.hintBadge}><Text style={styles.hintBadgeText}>Admin</Text></View>
             </View>
             <View style={styles.hintRow}>
@@ -138,6 +144,7 @@ export default function LoginScreen() {
               <Text style={styles.hintPin}>567890</Text>
               <View style={[styles.hintBadge, { backgroundColor: '#3A3A3A' }]}><Text style={styles.hintBadgeText}>Cajero</Text></View>
             </View>
+            
           </View>
         </Surface>
       </View>
