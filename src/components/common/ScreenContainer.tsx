@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, View, StyleSheet, ViewStyle, KeyboardAvoidingView, Platform } from 'react-native';
+import { ScrollView, View, StyleSheet, ViewStyle, KeyboardAvoidingView, Platform, useWindowDimensions } from 'react-native';
 import { useTheme } from 'react-native-paper';
 
 interface Props {
@@ -11,18 +11,19 @@ interface Props {
 
 export function ScreenContainer({ children, style, scrollable = true, padded = true }: Props) {
   const theme = useTheme();
-  const containerStyle = [styles.container, { backgroundColor: theme.colors.background }, style];
+  const { height } = useWindowDimensions();
+  const containerStyle = [styles.container, { backgroundColor: theme.colors.background, minHeight: height }, style];
 
   if (scrollable) {
     return (
       <KeyboardAvoidingView
-        style={styles.container}
+        style={[styles.container, { minHeight: height }]}
         behavior={Platform.OS === 'web' ? undefined : Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         <ScrollView
-          style={containerStyle}
-          contentContainerStyle={padded ? styles.content : undefined}
+          style={[styles.container, { backgroundColor: theme.colors.background }, style]}
+          contentContainerStyle={[padded && styles.content, { minHeight: height }]}
           keyboardShouldPersistTaps="handled"
         >
           {children}
@@ -32,7 +33,7 @@ export function ScreenContainer({ children, style, scrollable = true, padded = t
   }
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { minHeight: height }]}
       behavior={Platform.OS === 'web' ? undefined : Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
@@ -44,6 +45,6 @@ export function ScreenContainer({ children, style, scrollable = true, padded = t
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, overflow: 'hidden' },
   content: { padding: 16 },
 });

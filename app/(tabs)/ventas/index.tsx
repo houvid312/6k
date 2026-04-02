@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform, useWindowDimensions } from 'react-native';
 import {
   Text,
   FAB,
@@ -290,15 +290,17 @@ export default function VentasScreen() {
     return d.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
   };
 
+  const { height: windowHeight } = useWindowDimensions();
+
   return (
     <KeyboardAvoidingView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      style={[styles.container, { backgroundColor: theme.colors.background, minHeight: windowHeight }]}
       behavior={Platform.OS === 'web' ? undefined : Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
       <ScrollView
         ref={scrollRef}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { minHeight: windowHeight }]}
         keyboardShouldPersistTaps="handled"
       >
         {/* Header */}
@@ -626,10 +628,11 @@ export default function VentasScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    overflow: 'hidden',
   },
   scrollContent: {
     padding: 12,
-    paddingBottom: 100,
+    paddingBottom: 160,
   },
   headerRow: {
     flexDirection: 'row',
