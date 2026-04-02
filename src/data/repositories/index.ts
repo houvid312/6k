@@ -12,3 +12,4 @@ export { SupabaseWorkerRepository } from './SupabaseWorkerRepository';
 export { SupabaseScheduleRepository } from './SupabaseScheduleRepository';
 export { SupabaseAttendanceRepository } from './SupabaseAttendanceRepository';
 export { SupabaseExpenseRepository } from './SupabaseExpenseRepository';
+export { SupabasePhysicalCountRepository } from './SupabasePhysicalCountRepository';

@@ -85,4 +85,29 @@ export class SupabaseRecipeRepository implements IRecipeRepository {
     const ingredients = (ingredientData as RecipeIngredientRow[]).map(ingredientRowToEntity);
     return recipeRowToEntity(row, ingredients);
   }
+
+  async updateIngredients(
+    recipeId: string,
+    ingredients: { supplyId: string; gramsPerPortion: number }[],
+  ): Promise<void> {
+    // Delete existing ingredients for this recipe
+    const { error: deleteError } = await supabase
+      .from('recipe_ingredients')
+      .delete()
+      .eq('recipe_id', recipeId);
+    if (deleteError) throw deleteError;
+
+    // Insert new ingredients
+    if (ingredients.length > 0) {
+      const rows = ingredients.map((i) => ({
+        recipe_id: recipeId,
+        supply_id: i.supplyId,
+        grams_per_portion: i.gramsPerPortion,
+      }));
+      const { error: insertError } = await supabase
+        .from('recipe_ingredients')
+        .insert(rows);
+      if (insertError) throw insertError;
+    }
+  }
 }

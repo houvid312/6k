@@ -13,6 +13,7 @@ import {
   SupabaseScheduleRepository,
   SupabaseAttendanceRepository,
   SupabaseExpenseRepository,
+  SupabasePhysicalCountRepository,
 } from '../data/repositories';
 import {
   SaleService,
@@ -24,6 +25,7 @@ import {
   PayrollService,
   DashboardService,
   SupabaseAuthService,
+  PhysicalCountService,
 } from '../services';
 
 // Repositories (Supabase)
@@ -41,6 +43,7 @@ const workerRepo = new SupabaseWorkerRepository();
 const scheduleRepo = new SupabaseScheduleRepository();
 const attendanceRepo = new SupabaseAttendanceRepository();
 const expenseRepo = new SupabaseExpenseRepository();
+const physicalCountRepo = new SupabasePhysicalCountRepository();
 
 // Services
 const saleService = new SaleService(saleRepo, inventoryRepo, recipeRepo);
@@ -52,6 +55,7 @@ const creditService = new CreditService(creditRepo);
 const payrollService = new PayrollService(workerRepo, attendanceRepo, creditRepo);
 const dashboardService = new DashboardService(saleRepo, inventoryRepo, supplyRepo, expenseRepo, purchaseRepo);
 const authService = new SupabaseAuthService();
+const physicalCountService = new PhysicalCountService(physicalCountRepo, inventoryRepo);
 
 export const container = {
   // Repositories
@@ -69,6 +73,7 @@ export const container = {
   scheduleRepo,
   attendanceRepo,
   expenseRepo,
+  physicalCountRepo,
 
   // Services
   saleService,
@@ -80,4 +85,5 @@ export const container = {
   payrollService,
   dashboardService,
   authService,
+  physicalCountService,
 };

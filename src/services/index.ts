@@ -7,3 +7,4 @@ export { CreditService } from './CreditService';
 export { PayrollService } from './PayrollService';
 export { DashboardService } from './DashboardService';
 export { SupabaseAuthService } from './SupabaseAuthService';
+export { PhysicalCountService } from './PhysicalCountService';

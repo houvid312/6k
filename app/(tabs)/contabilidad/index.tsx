@@ -26,16 +26,27 @@ export default function ContabilidadScreen() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const today = toISODate(new Date());
-      const summary = await dashboardService.getDailySummary(selectedStoreId, today);
-      setIngresos(summary.totalRevenue);
-      setEgresos(summary.totalExpenses);
+      // Resumen del mes actual (no solo hoy)
+      const now = new Date();
+      const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startDate = toISODate(firstOfMonth);
+      const endDate = toISODate(now);
 
-      const sales = await saleService.getSalesByStore(selectedStoreId);
-      setRecentSales(sales.slice(-5).reverse());
+      const sales = await saleService.getSalesByDateRange(selectedStoreId, startDate, endDate);
+      const totalRevenue = sales.reduce((sum, s) => sum + s.totalAmount, 0);
 
-      const expenses = await expenseRepo.getAll(selectedStoreId);
-      setRecentExpenses(expenses.slice(-5).reverse());
+      const allExpenses = await expenseRepo.getByDateRange(selectedStoreId, startDate, endDate + 'T23:59:59');
+      const totalExpenses = allExpenses.reduce((sum, e) => sum + e.amount, 0);
+
+      setIngresos(totalRevenue);
+      setEgresos(totalExpenses);
+
+      // Transacciones recientes (sin filtro de fecha, las últimas 5)
+      const recentSalesData = await saleService.getSalesByStore(selectedStoreId);
+      setRecentSales(recentSalesData.slice(-5).reverse());
+
+      const recentExpensesData = await expenseRepo.getAll(selectedStoreId);
+      setRecentExpenses(recentExpensesData.slice(-5).reverse());
     } catch {
       // keep defaults
     } finally {
@@ -99,13 +110,13 @@ export default function ContabilidadScreen() {
       {recentSales.map((sale) => (
         <Card key={sale.id} style={styles.txCard} mode="elevated">
           <Card.Content style={styles.txRow}>
-            <View>
+            <View style={{ flex: 1, marginRight: 8 }}>
               <Text variant="bodyMedium" style={{ fontWeight: '600' }}>Venta</Text>
               <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                 {formatDateTime(sale.timestamp)}
               </Text>
             </View>
-            <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#388E3C' }}>
+            <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#388E3C', flexShrink: 0 }}>
               +{formatCOP(sale.totalAmount)}
             </Text>
           </Card.Content>
@@ -115,20 +126,20 @@ export default function ContabilidadScreen() {
       {recentExpenses.map((expense) => (
         <Card key={expense.id} style={styles.txCard} mode="elevated">
           <Card.Content style={styles.txRow}>
-            <View>
+            <View style={{ flex: 1, marginRight: 8 }}>
               <Text variant="bodyMedium" style={{ fontWeight: '600' }}>{expense.category}</Text>
-              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={2}>
                 {expense.description}
               </Text>
             </View>
-            <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#D32F2F' }}>
+            <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#D32F2F', flexShrink: 0 }}>
               -{formatCOP(expense.amount)}
             </Text>
           </Card.Content>
         </Card>
       ))}
 
-      <View style={{ height: 32 }} />
+      <View style={{ height: 100 }} />
     </ScreenContainer>
   );
 }

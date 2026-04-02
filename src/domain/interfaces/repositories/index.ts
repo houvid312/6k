@@ -12,3 +12,4 @@ export type { IWorkerRepository } from './IWorkerRepository';
 export type { IScheduleRepository } from './IScheduleRepository';
 export type { IAttendanceRepository } from './IAttendanceRepository';
 export type { IExpenseRepository } from './IExpenseRepository';
+export type { IPhysicalCountRepository } from './IPhysicalCountRepository';

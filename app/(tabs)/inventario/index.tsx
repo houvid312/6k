@@ -79,6 +79,9 @@ export default function InventarioScreen() {
           <Button mode="outlined" compact icon="alert" onPress={() => router.push('/(tabs)/inventario/validaciones')}>
             Valid.
           </Button>
+          <Button mode="outlined" compact icon="book-open-variant" onPress={() => router.push('/(tabs)/inventario/recetas')}>
+            Recetas
+          </Button>
         </View>
       </View>
 

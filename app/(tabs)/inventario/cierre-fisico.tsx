@@ -20,7 +20,7 @@ interface CountEntry {
 
 export default function CierreFisicoScreen() {
   const theme = useTheme();
-  const { supplyRepo, inventoryRepo } = useDI();
+  const { supplyRepo, physicalCountService } = useDI();
   const { selectedStoreId } = useAppStore();
 
   const [supplies, setSupplies] = useState<Supply[]>([]);
@@ -67,18 +67,17 @@ export default function CierreFisicoScreen() {
         totalGrams: c.bags * c.gramsPerBag + c.looseGrams,
       }));
 
-      // In a real implementation this would call a physicalCountService
-      // For now we just show confirmation
+      const count = await physicalCountService.submitCount(selectedStoreId!, items);
       Alert.alert(
         'Cierre Fisico Registrado',
-        `Se registraron ${items.length} insumos.\nTotal: ${items.reduce((s, i) => s + i.totalGrams, 0)}g`,
+        `Se registraron ${count.items.length} insumos.\nInventario actualizado.`,
       );
     } catch {
       Alert.alert('Error', 'No se pudo registrar el cierre fisico');
     } finally {
       setSubmitting(false);
     }
-  }, [counts]);
+  }, [counts, selectedStoreId, physicalCountService]);
 
   if (loading) {
     return <LoadingIndicator message="Cargando insumos..." />;
@@ -121,7 +120,7 @@ export default function CierreFisicoScreen() {
         Registrar Cierre Fisico
       </Button>
 
-      <View style={{ height: 32 }} />
+      <View style={{ height: 100 }} />
     </ScreenContainer>
   );
 }

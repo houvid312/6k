@@ -26,6 +26,7 @@ export default function InventarioLayout() {
       <Stack.Screen name="traslados" options={{ title: 'Traslados' }} />
       <Stack.Screen name="cierre-fisico" options={{ title: 'Cierre Fisico' }} />
       <Stack.Screen name="validaciones" options={{ title: 'Validaciones' }} />
+      <Stack.Screen name="recetas" options={{ title: 'Recetas' }} />
     </Stack>
   );
 }

@@ -4,4 +4,5 @@ export enum WorkerRole {
   CAJERO = 'CAJERO',
   HORNERO = 'HORNERO',
   ESTIRADOR = 'ESTIRADOR',
+  COORDINADOR = 'COORDINADOR',
 }
