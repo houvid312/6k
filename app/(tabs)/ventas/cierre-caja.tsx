@@ -19,9 +19,11 @@ export default function CierreCajaScreen() {
     denominations,
     bankTotal,
     expenses,
+    cashBase,
     setDenomination,
     setBankTotal,
     setExpenses,
+    setCashBase,
     getTotal,
     reset,
   } = useCashClosingStore();
@@ -32,7 +34,7 @@ export default function CierreCajaScreen() {
 
   const today = toISODate(new Date());
   const actualTotal = getTotal();
-  const discrepancy = actualTotal - (expectedTotal - expenses);
+  const discrepancy = actualTotal - cashBase - (expectedTotal - expenses);
 
   useEffect(() => {
     (async () => {
@@ -116,9 +118,15 @@ export default function CierreCajaScreen() {
         </Card.Content>
       </Card>
 
-      {/* Bank & Expenses */}
+      {/* Base, Bank & Expenses */}
       <Card style={styles.card} mode="elevated">
         <Card.Content>
+          <CurrencyInput
+            value={cashBase}
+            onChangeValue={setCashBase}
+            label="Base de Apertura"
+          />
+          <View style={{ height: 12 }} />
           <CurrencyInput
             value={bankTotal}
             onChangeValue={setBankTotal}
@@ -140,6 +148,12 @@ export default function CierreCajaScreen() {
             Resumen
           </Text>
           <View style={styles.summaryRow}>
+            <Text variant="bodyMedium">Base de apertura</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurfaceVariant }}>
+              {formatCOP(cashBase)}
+            </Text>
+          </View>
+          <View style={styles.summaryRow}>
             <Text variant="bodyMedium">Efectivo contado</Text>
             <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
               {formatCOP(cashTotal)}
@@ -152,9 +166,9 @@ export default function CierreCajaScreen() {
             </Text>
           </View>
           <View style={styles.summaryRow}>
-            <Text variant="bodyMedium">Total real</Text>
+            <Text variant="bodyMedium">Total real (- base)</Text>
             <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>
-              {formatCOP(actualTotal)}
+              {formatCOP(actualTotal - cashBase)}
             </Text>
           </View>
           <Divider style={{ marginVertical: 8 }} />
@@ -201,7 +215,7 @@ export default function CierreCajaScreen() {
         Limpiar formulario
       </Button>
 
-      <View style={{ height: 32 }} />
+      <View style={{ height: 100 }} />
     </ScreenContainer>
   );
 }

@@ -5,10 +5,12 @@ interface CashClosingState {
   denominations: DenominationCount;
   bankTotal: number;
   expenses: number;
+  cashBase: number;
 
   setDenomination: (key: keyof DenominationCount, count: number) => void;
   setBankTotal: (amount: number) => void;
   setExpenses: (amount: number) => void;
+  setCashBase: (amount: number) => void;
   reset: () => void;
 
   getTotal: () => number;
@@ -28,6 +30,7 @@ export const useCashClosingStore = create<CashClosingState>((set, get) => ({
   denominations: { ...initialDenominations },
   bankTotal: 0,
   expenses: 0,
+  cashBase: 0,
 
   setDenomination: (key: keyof DenominationCount, count: number) =>
     set((state) => ({
@@ -41,11 +44,14 @@ export const useCashClosingStore = create<CashClosingState>((set, get) => ({
 
   setExpenses: (amount: number) => set({ expenses: amount }),
 
+  setCashBase: (amount: number) => set({ cashBase: amount }),
+
   reset: () =>
     set({
       denominations: { ...initialDenominations },
       bankTotal: 0,
       expenses: 0,
+      cashBase: 0,
     }),
 
   getTotal: () => {

@@ -87,7 +87,7 @@ export default function VentasScreen() {
           if (product?.category === 'BEBIDA') {
             bevMap[p.product_id] = p.price;
           } else if (p.size) {
-            sizeMap[p.size] = p.price;
+            sizeMap[`${p.product_id}_${p.size}`] = p.price;
           }
         }
         setPricesBySize(sizeMap);
@@ -131,7 +131,7 @@ export default function VentasScreen() {
   const handleSizeConfirm = useCallback(() => {
     if (!selectedProduct || !selectedSize) return;
 
-    const price = pricesBySize[selectedSize] ?? 0;
+    const price = pricesBySize[`${selectedProduct.id}_${selectedSize}`] ?? 0;
     addToCart({
       productId: selectedProduct.id,
       productName: selectedProduct.name,
@@ -527,7 +527,7 @@ export default function VentasScreen() {
           {selectedSize && (
             <View style={styles.sizeInfo}>
               <Text variant="bodyLarge" style={{ fontWeight: '600' }}>
-                {formatCOP((pricesBySize[selectedSize] ?? 0) * modalQuantity)} - {PORTIONS_PER_SIZE[selectedSize] * modalQuantity} porciones
+                {formatCOP((pricesBySize[`${selectedProduct?.id}_${selectedSize}`] ?? 0) * modalQuantity)} - {PORTIONS_PER_SIZE[selectedSize] * modalQuantity} porciones
               </Text>
               <View style={styles.modalQuantityRow}>
                 <IconButton
