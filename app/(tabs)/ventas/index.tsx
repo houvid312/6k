@@ -574,16 +574,18 @@ export default function VentasScreen() {
       </ScrollView>
 
       {/* Submit FAB */}
-      {cart.length > 0 && (
-        <FAB
-          icon={readyToConfirm ? 'check-bold' : 'arrow-down-bold'}
-          label={readyToConfirm ? `Confirmar ${formatCOP(totalAmount)}` : `Registrar ${formatCOP(totalAmount)}`}
-          onPress={handleFabPress}
-          loading={submitting}
-          style={[styles.fab, { backgroundColor: readyToConfirm ? '#388E3C' : theme.colors.primary }]}
-          color="#FFFFFF"
-        />
-      )}
+      <Portal>
+        {cart.length > 0 && (
+          <FAB
+            icon={readyToConfirm ? 'check-bold' : 'arrow-down-bold'}
+            label={readyToConfirm ? `Confirmar ${formatCOP(totalAmount)}` : `Registrar ${formatCOP(totalAmount)}`}
+            onPress={handleFabPress}
+            loading={submitting}
+            style={[styles.fab, { backgroundColor: readyToConfirm ? '#388E3C' : theme.colors.primary }]}
+            color="#FFFFFF"
+          />
+        )}
+      </Portal>
 
       {/* Size Selector Modal */}
       <Portal>
@@ -774,7 +776,6 @@ export default function VentasScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    overflow: 'hidden',
   },
   scrollContent: {
     padding: 12,
@@ -847,11 +848,12 @@ const styles = StyleSheet.create({
   },
   fab: {
     position: 'absolute',
-    bottom: 12,
+    bottom: 80,
     left: 12,
     right: 12,
     borderRadius: 28,
     elevation: 8,
+    zIndex: 10,
   },
   modal: {
     margin: 16,
