@@ -69,6 +69,46 @@ export default function VentasScreen() {
     message: '',
   });
 
+  // Porciones disponibles por tipo de pizza
+  const [portionsModalVisible, setPortionsModalVisible] = useState(false);
+  const [availablePortions, setAvailablePortions] = useState<Record<string, number>>({});
+  const [portionsInput, setPortionsInput] = useState<Record<string, string>>({});
+  const portionsSet = Object.keys(availablePortions).length > 0;
+
+  // Cargar porciones del día desde BD
+  useEffect(() => {
+    if (!selectedStoreId) return;
+    (async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data } = await supabase
+        .from('shift_portions')
+        .select('product_id, portions')
+        .eq('store_id', selectedStoreId)
+        .eq('date', today);
+      if (data && data.length > 0) {
+        const map: Record<string, number> = {};
+        for (const row of data) map[row.product_id] = row.portions;
+        setAvailablePortions(map);
+      }
+    })();
+  }, [selectedStoreId]);
+
+  // Guardar porciones en BD
+  const savePortionsToDB = useCallback(async (portions: Record<string, number>) => {
+    if (!selectedStoreId) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = Object.entries(portions).map(([productId, count]) => ({
+      store_id: selectedStoreId,
+      product_id: productId,
+      date: today,
+      portions: count,
+    }));
+    // Upsert: insertar o actualizar si ya existe (store_id, product_id, date) es UNIQUE
+    await supabase
+      .from('shift_portions')
+      .upsert(rows, { onConflict: 'store_id,product_id,date' });
+  }, [selectedStoreId]);
+
   useEffect(() => {
     (async () => {
       const all = await productRepo.getAll();
@@ -147,6 +187,7 @@ export default function VentasScreen() {
 
   const handleBeverageConfirm = useCallback(() => {
     if (!selectedProduct) return;
+
     const price = beveragePrices[selectedProduct.id] ?? 0;
     addToCart({
       productId: selectedProduct.id,
@@ -236,6 +277,18 @@ export default function VentasScreen() {
         message: `Venta registrada: ${totalPortions} porc. por ${formatCOP(sale.totalAmount)}${paidLabel}`,
       });
 
+      // Descontar porciones vendidas
+      if (portionsSet) {
+        const updated = { ...availablePortions };
+        for (const c of cart) {
+          if (updated[c.productId] !== undefined) {
+            updated[c.productId] = Math.max(0, updated[c.productId] - c.portions);
+          }
+        }
+        setAvailablePortions(updated);
+        savePortionsToDB(updated);
+      }
+
       if (!isPaid) {
         loadPendingSales();
       }
@@ -248,7 +301,7 @@ export default function VentasScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [cart, paymentMethod, cashAmount, bankAmount, totalAmount, selectedStoreId, saleService, clearCart, isPaid, observations, loadPendingSales]);
+  }, [cart, paymentMethod, cashAmount, bankAmount, totalAmount, selectedStoreId, saleService, clearCart, isPaid, observations, loadPendingSales, portionsSet, availablePortions, savePortionsToDB]);
 
   const handleFabPress = useCallback(() => {
     if (cart.length === 0) {
@@ -401,11 +454,33 @@ export default function VentasScreen() {
           </Button>
         )}
 
+        {/* Porciones disponibles */}
+        <Button
+          mode={portionsSet ? 'contained' : 'outlined'}
+          icon="pizza"
+          onPress={() => {
+            // Siempre empieza en 0 — lo ingresado se SUMA al disponible actual
+            const input: Record<string, string> = {};
+            for (const p of products.filter((pr) => pr.category === 'PIZZA')) {
+              input[p.id] = '0';
+            }
+            setPortionsInput(input);
+            setPortionsModalVisible(true);
+          }}
+          style={{ marginBottom: 12, borderRadius: 8 }}
+          compact
+        >
+          {portionsSet
+            ? `Porciones: ${Object.values(availablePortions).reduce((s, v) => s + v, 0)} disponibles`
+            : 'Cargar porciones disponibles'}
+        </Button>
+
         {/* Product Grid */}
         <ProductGrid
           products={products}
           onSelect={handleProductSelect}
           selectedId={selectedProductId ?? undefined}
+          availablePortions={portionsSet ? availablePortions : undefined}
         />
 
         {/* Cart + Payment */}
@@ -593,6 +668,77 @@ export default function VentasScreen() {
             <Button onPress={() => setBeverageModalVisible(false)}>Cancelar</Button>
             <Button mode="contained" onPress={handleBeverageConfirm}>
               Agregar al carrito
+            </Button>
+          </View>
+        </Modal>
+      </Portal>
+
+      {/* Portions Modal */}
+      <Portal>
+        <Modal
+          visible={portionsModalVisible}
+          onDismiss={() => setPortionsModalVisible(false)}
+          contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface, maxHeight: '80%' }]}
+        >
+          <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 4 }}>
+            Porciones Disponibles
+          </Text>
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>
+            Ingresa las porciones que llegan. Se suman al disponible actual.
+          </Text>
+          <ScrollView>
+            {products.filter((p) => p.category === 'PIZZA').map((pizza) => {
+              const current = availablePortions[pizza.id] ?? 0;
+              return (
+                <View key={pizza.id} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text variant="bodyMedium" style={{ color: '#F5F0EB' }} numberOfLines={1}>
+                      {pizza.name}
+                    </Text>
+                    {current > 0 && (
+                      <Text variant="bodySmall" style={{ color: '#888', fontSize: 11 }}>
+                        Disponible: {current}
+                      </Text>
+                    )}
+                  </View>
+                  <TextInput
+                    value={portionsInput[pizza.id] ?? '0'}
+                    onChangeText={(v) => setPortionsInput((prev) => ({ ...prev, [pizza.id]: v.replace(/[^0-9]/g, '') }))}
+                    keyboardType="numeric"
+                    mode="outlined"
+                    dense
+                    style={{ width: 80, backgroundColor: '#111111' }}
+                    outlineColor="#333"
+                    activeOutlineColor="#E63946"
+                    textColor="#F5F0EB"
+                  />
+                </View>
+              );
+            })}
+          </ScrollView>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 }}>
+            <Button mode="text" onPress={() => setPortionsModalVisible(false)}>
+              Cancelar
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor="#E63946"
+              textColor="#FFFFFF"
+              onPress={() => {
+                // Sumar lo ingresado al disponible actual
+                const updated = { ...availablePortions };
+                for (const [id, val] of Object.entries(portionsInput)) {
+                  const n = parseInt(val, 10);
+                  if (n > 0) {
+                    updated[id] = (updated[id] ?? 0) + n;
+                  }
+                }
+                setAvailablePortions(updated);
+                savePortionsToDB(updated);
+                setPortionsModalVisible(false);
+              }}
+            >
+              Guardar
             </Button>
           </View>
         </Modal>

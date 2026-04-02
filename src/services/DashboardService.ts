@@ -1,4 +1,6 @@
 import { ISaleRepository, IInventoryRepository, ISupplyRepository, IExpenseRepository, IPurchaseRepository } from '../domain/interfaces/repositories';
+import { IRecipeRepository } from '../domain/interfaces/repositories/IRecipeRepository';
+import { IProductRepository } from '../domain/interfaces/repositories/IProductRepository';
 
 export interface DailySummary {
   date: string;
@@ -20,6 +22,16 @@ export interface TopProduct {
   totalRevenue: number;
 }
 
+export interface ProductMargin {
+  productId: string;
+  productName: string;
+  revenue: number;
+  ingredientCost: number;
+  margin: number;
+  marginPercent: number;
+  portionsSold: number;
+}
+
 export class DashboardService {
   constructor(
     private saleRepo: ISaleRepository,
@@ -27,6 +39,8 @@ export class DashboardService {
     private supplyRepo: ISupplyRepository,
     private expenseRepo: IExpenseRepository,
     private purchaseRepo: IPurchaseRepository,
+    private recipeRepo?: IRecipeRepository,
+    private productRepo?: IProductRepository,
   ) {}
 
   /**
@@ -123,5 +137,80 @@ export class DashboardService {
       }))
       .sort((a, b) => b.totalRevenue - a.totalRevenue)
       .slice(0, limit);
+  }
+
+  /**
+   * Calculates product margins by comparing revenue vs ingredient cost.
+   */
+  async getProductMargins(
+    storeId: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<ProductMargin[]> {
+    const sales = await this.saleRepo.getByDateRange(storeId, startDate, endDate);
+
+    // Aggregate revenue and portions per product
+    const productData = new Map<string, { revenue: number; portions: number }>();
+    for (const sale of sales) {
+      for (const item of sale.items) {
+        const existing = productData.get(item.productId) ?? { revenue: 0, portions: 0 };
+        existing.revenue += item.subtotal;
+        existing.portions += item.portions;
+        productData.set(item.productId, existing);
+      }
+    }
+
+    // Get product names
+    const products = this.productRepo ? await this.productRepo.getAll() : [];
+    const productNameMap = new Map(products.map((p) => [p.id, p.name]));
+
+    // Get recipes for cost calculation
+    const recipes = this.recipeRepo ? await this.recipeRepo.getAll() : [];
+    const recipeByProduct = new Map(recipes.map((r) => [r.productId, r]));
+
+    // Calculate average cost per gram from purchases
+    const purchases = await this.purchaseRepo.getByDateRange(startDate, endDate);
+    const supplyCost = new Map<string, { totalCost: number; totalGrams: number }>();
+    for (const purchase of purchases) {
+      const existing = supplyCost.get(purchase.supplyId) ?? { totalCost: 0, totalGrams: 0 };
+      existing.totalCost += purchase.priceCOP;
+      existing.totalGrams += purchase.quantityGrams;
+      supplyCost.set(purchase.supplyId, existing);
+    }
+
+    const DEFAULT_COST_PER_GRAM = 5; // COP/gram fallback
+
+    const results: ProductMargin[] = [];
+
+    for (const [productId, data] of productData.entries()) {
+      const recipe = recipeByProduct.get(productId);
+      let costPerPortion = 0;
+
+      if (recipe) {
+        for (const ingredient of recipe.ingredients) {
+          const sc = supplyCost.get(ingredient.supplyId);
+          const costPerGram = sc && sc.totalGrams > 0
+            ? sc.totalCost / sc.totalGrams
+            : DEFAULT_COST_PER_GRAM;
+          costPerPortion += ingredient.gramsPerPortion * costPerGram;
+        }
+      }
+
+      const ingredientCost = costPerPortion * data.portions;
+      const margin = data.revenue - ingredientCost;
+      const marginPercent = data.revenue > 0 ? (margin / data.revenue) * 100 : 0;
+
+      results.push({
+        productId,
+        productName: productNameMap.get(productId) ?? productId,
+        revenue: Math.round(data.revenue),
+        ingredientCost: Math.round(ingredientCost),
+        margin: Math.round(margin),
+        marginPercent: Math.round(marginPercent * 10) / 10,
+        portionsSold: data.portions,
+      });
+    }
+
+    return results.sort((a, b) => b.revenue - a.revenue);
   }
 }

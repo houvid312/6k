@@ -53,7 +53,7 @@ const transferService = new TransferService(transferRepo, inventoryRepo, supplyR
 const validationService = new ValidationService(saleRepo, recipeRepo, inventoryRepo);
 const creditService = new CreditService(creditRepo);
 const payrollService = new PayrollService(workerRepo, attendanceRepo, creditRepo);
-const dashboardService = new DashboardService(saleRepo, inventoryRepo, supplyRepo, expenseRepo, purchaseRepo);
+const dashboardService = new DashboardService(saleRepo, inventoryRepo, supplyRepo, expenseRepo, purchaseRepo, recipeRepo, productRepo);
 const authService = new SupabaseAuthService();
 const physicalCountService = new PhysicalCountService(physicalCountRepo, inventoryRepo);
 

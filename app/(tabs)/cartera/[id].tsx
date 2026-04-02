@@ -10,6 +10,39 @@ import { CreditEntry } from '../../../src/domain/entities';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate } from '../../../src/utils/dates';
 
+/** Calculate days since a date string */
+function daysSince(dateStr: string): number {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+}
+
+/** Get color for days pending: green < 7, orange 7-14, red > 14 */
+function getDaysColor(days: number): string {
+  if (days <= 7) return '#388E3C';
+  if (days <= 14) return '#E65100';
+  return '#D32F2F';
+}
+
+/** Get background color for days pending chip */
+function getDaysBgColor(days: number): string {
+  if (days <= 7) return '#E8F5E9';
+  if (days <= 14) return '#FFF3E0';
+  return '#FFEBEE';
+}
+
+/** Calculate next follow-up date (every 7 days from creation) */
+function getNextFollowUp(dateStr: string): { daysUntil: number; label: string } {
+  const days = daysSince(dateStr);
+  const nextMultiple = Math.ceil((days + 1) / 7) * 7;
+  const daysUntil = nextMultiple - days;
+
+  if (daysUntil === 0) return { daysUntil: 0, label: 'Hoy' };
+  if (daysUntil === 1) return { daysUntil: 1, label: 'Manana' };
+  return { daysUntil, label: `En ${daysUntil} dias` };
+}
+
 export default function DebtorDetailScreen() {
   const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -132,36 +165,65 @@ export default function DebtorDetailScreen() {
         Historial de Creditos
       </Text>
 
-      {relatedCredits.map((c) => (
-        <Card key={c.id} style={styles.historyCard} mode="elevated">
-          <Card.Content>
-            <View style={styles.historyRow}>
-              <View>
-                <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
-                  {c.concept}
-                </Text>
-                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  {formatDate(c.date)}
-                </Text>
-              </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
-                  {formatCOP(c.amount)}
-                </Text>
-                <Chip
-                  compact
-                  textStyle={{ fontSize: 10, color: c.isPaid ? '#388E3C' : '#D32F2F' }}
-                  style={{ backgroundColor: c.isPaid ? '#E8F5E9' : '#FFEBEE' }}
-                >
-                  {c.isPaid ? 'Pagado' : `Debe: ${formatCOP(c.balance)}`}
-                </Chip>
-              </View>
-            </View>
-          </Card.Content>
-        </Card>
-      ))}
+      {relatedCredits.map((c) => {
+        const days = daysSince(c.date);
+        const daysColor = getDaysColor(days);
+        const daysBgColor = getDaysBgColor(days);
+        const followUp = !c.isPaid ? getNextFollowUp(c.date) : null;
 
-      <View style={{ height: 32 }} />
+        return (
+          <Card key={c.id} style={styles.historyCard} mode="elevated">
+            <Card.Content>
+              <View style={styles.historyRow}>
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
+                    {c.concept}
+                  </Text>
+                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                    {formatDate(c.date)}
+                  </Text>
+
+                  {/* Days pending indicator */}
+                  <View style={styles.indicatorRow}>
+                    <Chip
+                      compact
+                      textStyle={{ fontSize: 10, color: c.isPaid ? '#388E3C' : daysColor }}
+                      style={{ backgroundColor: c.isPaid ? '#E8F5E9' : daysBgColor }}
+                    >
+                      {c.isPaid ? 'Pagado' : `${days} dia${days !== 1 ? 's' : ''} pendiente`}
+                    </Chip>
+
+                    {/* Next follow-up indicator */}
+                    {followUp && (
+                      <Chip
+                        compact
+                        icon="calendar-clock"
+                        textStyle={{ fontSize: 10, color: '#F5F0EB' }}
+                        style={{ backgroundColor: 'rgba(245, 240, 235, 0.1)' }}
+                      >
+                        {followUp.label}
+                      </Chip>
+                    )}
+                  </View>
+                </View>
+
+                <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
+                  <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
+                    {formatCOP(c.amount)}
+                  </Text>
+                  {!c.isPaid && (
+                    <Text variant="labelSmall" style={{ color: '#D32F2F' }}>
+                      Debe: {formatCOP(c.balance)}
+                    </Text>
+                  )}
+                </View>
+              </View>
+            </Card.Content>
+          </Card>
+        );
+      })}
+
+      <View style={{ height: 100 }} />
     </ScreenContainer>
   );
 }
@@ -195,6 +257,13 @@ const styles = StyleSheet.create({
   historyRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  indicatorRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    flexWrap: 'wrap',
   },
 });

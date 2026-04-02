@@ -100,6 +100,13 @@ export default function ContabilidadScreen() {
         >
           Bancos
         </Button>
+        <Button
+          mode="outlined"
+          icon="calendar-check"
+          onPress={() => router.push('/(tabs)/contabilidad/cierres')}
+        >
+          Cierres
+        </Button>
       </View>
 
       {/* Recent transactions */}
@@ -155,6 +162,7 @@ const styles = StyleSheet.create({
   },
   navRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     marginBottom: 16,
   },

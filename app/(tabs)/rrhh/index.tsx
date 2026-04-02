@@ -147,6 +147,9 @@ export default function RRHHScreen() {
         <Button mode="outlined" compact icon="currency-usd" onPress={() => router.push('/(tabs)/rrhh/nomina')}>
           Nomina
         </Button>
+        <Button mode="outlined" compact icon="file-document" onPress={() => router.push('/(tabs)/rrhh/reporte')}>
+          Reporte
+        </Button>
       </View>
 
       {loading ? (

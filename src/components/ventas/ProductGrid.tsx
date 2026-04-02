@@ -38,9 +38,17 @@ interface Props {
   products: Product[];
   onSelect: (productId: string) => void;
   selectedId?: string;
+  availablePortions?: Record<string, number>;
 }
 
-export function ProductGrid({ products, onSelect, selectedId }: Props) {
+function getPortionColor(count: number): string {
+  if (count <= 0) return '#B71C1C';
+  if (count <= 5) return '#D32F2F';
+  if (count <= 10) return '#FF9800';
+  return '#388E3C';
+}
+
+export function ProductGrid({ products, onSelect, selectedId, availablePortions }: Props) {
   const theme = useTheme();
 
   const pizzas = products.filter((p) => p.category === 'PIZZA');
@@ -62,6 +70,8 @@ export function ProductGrid({ products, onSelect, selectedId }: Props) {
       <View style={styles.grid}>
         {pizzas.map((item) => {
           const isSelected = item.id === selectedId;
+          const portions = availablePortions?.[item.id];
+          const hasPortions = portions !== undefined;
           return (
             <TouchableOpacity
               key={item.id}
@@ -73,6 +83,11 @@ export function ProductGrid({ products, onSelect, selectedId }: Props) {
               onPress={() => onSelect(item.id)}
               activeOpacity={0.7}
             >
+              {hasPortions && (
+                <View style={[styles.portionBadge, { backgroundColor: getPortionColor(portions) }]}>
+                  <Text style={styles.portionBadgeText}>{portions}</Text>
+                </View>
+              )}
               <Text style={styles.emoji}>{getEmoji(item)}</Text>
               <Text
                 numberOfLines={2}
@@ -136,6 +151,24 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 2,
     borderColor: 'transparent',
+    position: 'relative',
+  },
+  portionBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    zIndex: 1,
+  },
+  portionBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
   },
   emoji: {
     fontSize: 28,
