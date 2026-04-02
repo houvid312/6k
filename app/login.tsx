@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, StyleSheet, KeyboardAvoidingView, Platform, useWindowDimensions } from 'react-native';
 import {
   Text,
   Button,
@@ -43,12 +43,14 @@ export default function LoginScreen() {
     }
   };
 
+  const { height } = useWindowDimensions();
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'web' ? undefined : Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={styles.inner}>
+      <View style={[styles.inner, { height }]}>
         {/* Decorative circles */}
         <View style={styles.decorCircle1} />
         <View style={styles.decorCircle2} />
@@ -156,48 +158,49 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#111111',
+    overflow: 'hidden',
   },
   inner: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: 20,
+    overflow: 'hidden',
   },
   decorCircle1: {
     position: 'absolute',
-    top: -60,
-    right: -60,
-    width: 200,
-    height: 200,
-    borderRadius: 100,
+    top: -40,
+    right: -40,
+    width: 140,
+    height: 140,
+    borderRadius: 70,
     backgroundColor: 'rgba(230, 57, 70, 0.08)',
   },
   decorCircle2: {
     position: 'absolute',
-    bottom: -40,
-    left: -40,
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    bottom: -30,
+    left: -30,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     backgroundColor: 'rgba(212, 168, 67, 0.06)',
   },
   header: {
     alignItems: 'center',
-    marginBottom: 36,
+    marginBottom: 24,
   },
   logoRing: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: 'rgba(230, 57, 70, 0.12)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
     borderWidth: 2,
     borderColor: '#D4A843',
   },
   logo: {
-    fontSize: 42,
+    fontSize: 32,
     fontWeight: '900',
     color: '#F5F0EB',
     letterSpacing: 2,
@@ -211,8 +214,8 @@ const styles = StyleSheet.create({
   taglineRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 12,
-    gap: 12,
+    marginTop: 8,
+    gap: 10,
   },
   taglineLine: {
     height: 1,
@@ -227,8 +230,8 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 400,
-    borderRadius: 20,
-    padding: 28,
+    borderRadius: 16,
+    padding: 20,
     backgroundColor: '#1E1E1E',
     borderWidth: 1,
     borderColor: '#2E2E2E',
@@ -242,19 +245,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 13,
     color: '#8B8178',
-    marginBottom: 24,
+    marginBottom: 16,
     marginTop: 4,
   },
   input: {
-    marginBottom: 14,
+    marginBottom: 12,
     backgroundColor: '#242424',
   },
   button: {
-    marginTop: 8,
+    marginTop: 6,
     borderRadius: 12,
   },
   buttonContent: {
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
   buttonLabel: {
     fontSize: 15,
@@ -262,8 +265,8 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   hint: {
-    marginTop: 24,
-    padding: 16,
+    marginTop: 16,
+    padding: 12,
     backgroundColor: '#242424',
     borderRadius: 12,
     borderWidth: 1,
