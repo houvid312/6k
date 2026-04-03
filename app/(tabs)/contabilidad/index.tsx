@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, FlatList } from 'react-native';
-import { Card, Text, Button, Divider, useTheme } from 'react-native-paper';
+import { View, StyleSheet, Alert } from 'react-native';
+import { Card, Text, Button, Divider, IconButton, Portal, Modal, TextInput, useTheme } from 'react-native-paper';
 import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { KpiCard } from '../../../src/components/common/KpiCard';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
+import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { Sale, Expense } from '../../../src/domain/entities';
@@ -14,7 +15,7 @@ import { formatDateTime, toISODate } from '../../../src/utils/dates';
 
 export default function ContabilidadScreen() {
   const theme = useTheme();
-  const { dashboardService, saleService, expenseRepo } = useDI();
+  const { dashboardService, saleService, expenseRepo, saleRepo } = useDI();
   const { selectedStoreId } = useAppStore();
 
   const [ingresos, setIngresos] = useState(0);
@@ -22,6 +23,12 @@ export default function ContabilidadScreen() {
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [recentExpenses, setRecentExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Edit expense modal
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [editDescription, setEditDescription] = useState('');
+  const [editAmount, setEditAmount] = useState(0);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -59,6 +66,72 @@ export default function ContabilidadScreen() {
   }, [loadData]);
 
   const utilidad = ingresos - egresos;
+
+  const handleDeleteSale = useCallback((sale: Sale) => {
+    Alert.alert(
+      'Eliminar venta',
+      `¿Seguro que deseas eliminar esta venta de ${formatCOP(sale.totalAmount)}?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await saleRepo.delete(sale.id);
+              loadData();
+            } catch {
+              Alert.alert('Error', 'No se pudo eliminar la venta');
+            }
+          },
+        },
+      ],
+    );
+  }, [saleRepo, loadData]);
+
+  const handleDeleteExpense = useCallback((expense: Expense) => {
+    Alert.alert(
+      'Eliminar gasto',
+      `¿Seguro que deseas eliminar "${expense.description}" (${formatCOP(expense.amount)})?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await expenseRepo.delete(expense.id);
+              loadData();
+            } catch {
+              Alert.alert('Error', 'No se pudo eliminar el gasto');
+            }
+          },
+        },
+      ],
+    );
+  }, [expenseRepo, loadData]);
+
+  const handleEditExpense = useCallback((expense: Expense) => {
+    setEditingExpense(expense);
+    setEditDescription(expense.description);
+    setEditAmount(expense.amount);
+    setEditModalVisible(true);
+  }, []);
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editingExpense) return;
+    try {
+      await expenseRepo.update(editingExpense.id, {
+        description: editDescription,
+        amount: editAmount,
+      });
+      setEditModalVisible(false);
+      setEditingExpense(null);
+      loadData();
+    } catch {
+      Alert.alert('Error', 'No se pudo actualizar el gasto');
+    }
+  }, [editingExpense, editDescription, editAmount, expenseRepo, loadData]);
 
   if (loading) {
     return <LoadingIndicator message="Cargando datos contables..." />;
@@ -123,9 +196,16 @@ export default function ContabilidadScreen() {
                 {formatDateTime(sale.timestamp)}
               </Text>
             </View>
-            <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#388E3C', flexShrink: 0 }}>
+            <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#388E3C', flexShrink: 0, marginRight: 4 }}>
               +{formatCOP(sale.totalAmount)}
             </Text>
+            <IconButton
+              icon="delete-outline"
+              size={18}
+              iconColor="#D32F2F"
+              onPress={() => handleDeleteSale(sale)}
+              style={{ margin: 0 }}
+            />
           </Card.Content>
         </Card>
       ))}
@@ -139,14 +219,69 @@ export default function ContabilidadScreen() {
                 {expense.description}
               </Text>
             </View>
-            <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#D32F2F', flexShrink: 0 }}>
+            <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#D32F2F', flexShrink: 0, marginRight: 4 }}>
               -{formatCOP(expense.amount)}
             </Text>
+            <IconButton
+              icon="pencil-outline"
+              size={18}
+              iconColor="#FF9800"
+              onPress={() => handleEditExpense(expense)}
+              style={{ margin: 0 }}
+            />
+            <IconButton
+              icon="delete-outline"
+              size={18}
+              iconColor="#D32F2F"
+              onPress={() => handleDeleteExpense(expense)}
+              style={{ margin: 0 }}
+            />
           </Card.Content>
         </Card>
       ))}
 
       <View style={{ height: 100 }} />
+
+      {/* Edit Expense Modal */}
+      <Portal>
+        <Modal
+          visible={editModalVisible}
+          onDismiss={() => setEditModalVisible(false)}
+          contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
+        >
+          <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 4 }}>
+            Editar Gasto
+          </Text>
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>
+            {editingExpense?.category}
+          </Text>
+          <TextInput
+            label="Descripcion"
+            value={editDescription}
+            onChangeText={setEditDescription}
+            mode="outlined"
+            style={{ marginBottom: 12 }}
+          />
+          <CurrencyInput
+            value={editAmount}
+            onChangeValue={setEditAmount}
+            label="Monto"
+          />
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 }}>
+            <Button mode="text" onPress={() => setEditModalVisible(false)}>
+              Cancelar
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor="#E63946"
+              textColor="#FFFFFF"
+              onPress={handleSaveEdit}
+            >
+              Guardar
+            </Button>
+          </View>
+        </Modal>
+      </Portal>
     </ScreenContainer>
   );
 }
@@ -177,5 +312,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  modal: {
+    margin: 16,
+    padding: 20,
+    borderRadius: 16,
   },
 });

@@ -162,7 +162,7 @@ export default function VentasScreen() {
       setBeverageModalVisible(true);
     } else {
       setSelectedProductId(productId);
-      setSelectedSize(null);
+      setSelectedSize(PizzaSize.INDIVIDUAL);
       setModalQuantity(1);
       setSizeModalVisible(true);
     }

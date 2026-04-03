@@ -13,5 +13,6 @@ export interface ISaleRepository {
   getUnpaid(storeId: string): Promise<Sale[]>;
   create(sale: Omit<Sale, 'id'>): Promise<Sale>;
   markAsPaid(saleId: string): Promise<void>;
+  delete(saleId: string): Promise<void>;
   getDailySummary(storeId: string, date: string): Promise<DailySummary>;
 }

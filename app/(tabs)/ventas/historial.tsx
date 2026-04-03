@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { FlatList, View, StyleSheet } from 'react-native';
-import { Button, Card, Text, Chip, Snackbar, useTheme, Searchbar } from 'react-native-paper';
+import { Button, Card, Text, Chip, Divider, Snackbar, useTheme, Searchbar } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
-import { Sale } from '../../../src/domain/entities';
-import { PaymentMethod } from '../../../src/domain/enums';
+import { Sale, Product } from '../../../src/domain/entities';
+import { PaymentMethod, PizzaSize } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDateTime, toISODate } from '../../../src/utils/dates';
 
@@ -17,14 +17,26 @@ const PAYMENT_ICONS: Record<PaymentMethod, string> = {
   [PaymentMethod.MIXTO]: 'swap-horizontal',
 };
 
+const SIZE_SHORT: Record<PizzaSize, string> = {
+  [PizzaSize.INDIVIDUAL]: 'Ind.',
+  [PizzaSize.DIAMANTE]: 'Diam.',
+  [PizzaSize.MEDIANA]: 'Med.',
+  [PizzaSize.FAMILIAR]: 'Fam.',
+};
+
 export default function HistorialScreen() {
   const theme = useTheme();
-  const { saleService } = useDI();
+  const { saleService, productRepo } = useDI();
   const { selectedStoreId } = useAppStore();
 
   const [sales, setSales] = useState<Sale[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'hoy' | 'semana' | 'mes'>('hoy');
+
+  useEffect(() => {
+    productRepo.getAll().then(setProducts).catch(() => {});
+  }, [productRepo]);
 
   const loadSales = useCallback(async () => {
     setLoading(true);
@@ -79,9 +91,13 @@ export default function HistorialScreen() {
     }
   }, [saleService]);
 
+  const getProductName = (productId: string) =>
+    products.find((p) => p.id === productId)?.name ?? productId;
+
   const renderSale = ({ item }: { item: Sale }) => (
     <Card style={styles.saleCard} mode="elevated">
       <Card.Content>
+        {/* Header: fecha + chips */}
         <View style={styles.saleHeader}>
           <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
             {formatDateTime(item.timestamp)}
@@ -92,7 +108,7 @@ export default function HistorialScreen() {
               textStyle={{ fontSize: 11 }}
               style={{
                 backgroundColor: item.isPaid
-                  ? theme.colors.primaryContainer
+                  ? '#1C3D2A'
                   : theme.colors.errorContainer,
               }}
             >
@@ -107,35 +123,66 @@ export default function HistorialScreen() {
             </Chip>
           </View>
         </View>
-        {item.customerNote ? (
-          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 4 }}>
-            {item.customerNote}
+
+        {/* Items detail */}
+        <View style={styles.itemsList}>
+          {item.items.map((si) => (
+            <View key={si.id} style={styles.itemRow}>
+              <Text variant="bodySmall" style={{ flex: 1, color: theme.colors.onSurface }}>
+                {getProductName(si.productId)}
+              </Text>
+              <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, minWidth: 40 }}>
+                {SIZE_SHORT[si.size]}
+              </Text>
+              <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, minWidth: 20, textAlign: 'center' }}>
+                x{si.quantity}
+              </Text>
+              <Text variant="bodySmall" style={{ fontWeight: '600', minWidth: 65, textAlign: 'right' }}>
+                {formatCOP(si.subtotal)}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Notes */}
+        {(item.customerNote || item.observations) ? (
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontStyle: 'italic', marginTop: 4 }} numberOfLines={2}>
+            {[item.customerNote, item.observations].filter(Boolean).join(' · ')}
           </Text>
         ) : null}
-        <View style={styles.saleDetails}>
+
+        {/* Worker */}
+        {item.workerName ? (
+          <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, opacity: 0.6, fontSize: 10, marginTop: 2 }}>
+            {item.workerName}
+          </Text>
+        ) : null}
+
+        <Divider style={{ marginVertical: 8 }} />
+
+        {/* Footer: total + action */}
+        <View style={styles.saleFooter}>
           <View>
-            <Text variant="bodyMedium">
-              {item.items.length} producto{item.items.length !== 1 ? 's' : ''}
-            </Text>
-            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-              {item.totalPortions} porciones
-            </Text>
-          </View>
-          <View style={styles.saleRight}>
             <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
               {formatCOP(item.totalAmount)}
             </Text>
-            {!item.isPaid && (
-              <Button
-                mode="contained-tonal"
-                compact
-                onPress={() => handleMarkAsPaid(item)}
-                style={styles.paidBtn}
-              >
-                Marcar pagado
-              </Button>
-            )}
+            <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
+              {item.totalPortions} porciones
+            </Text>
           </View>
+          {!item.isPaid && (
+            <Button
+              mode="contained"
+              compact
+              onPress={() => handleMarkAsPaid(item)}
+              buttonColor="#388E3C"
+              textColor="#FFFFFF"
+              icon="check"
+              labelStyle={{ fontSize: 12 }}
+            >
+              Ya pago
+            </Button>
+          )}
         </View>
       </Card.Content>
     </Card>
@@ -181,18 +228,10 @@ export default function HistorialScreen() {
         onDismiss={() => setSnackbar((s) => ({ ...s, visible: false }))}
         duration={3000}
         style={{
-          backgroundColor: snackbar.success
-            ? theme.colors.primaryContainer
-            : theme.colors.errorContainer,
+          backgroundColor: snackbar.success ? '#4CAF50' : '#B71C1C',
         }}
       >
-        <Text
-          style={{
-            color: snackbar.success
-              ? theme.colors.onPrimaryContainer
-              : theme.colors.onErrorContainer,
-          }}
-        >
+        <Text style={{ color: '#FFFFFF' }}>
           {snackbar.message}
         </Text>
       </Snackbar>
@@ -224,20 +263,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
-  saleDetails: {
+  itemsList: {
+    gap: 4,
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  saleFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  saleRight: {
-    alignItems: 'flex-end',
-    gap: 4,
-  },
   chipsRow: {
     flexDirection: 'row',
     gap: 6,
-  },
-  paidBtn: {
-    marginTop: 2,
   },
 });

@@ -63,6 +63,29 @@ export class SupabaseExpenseRepository implements IExpenseRepository {
     return toEntity(data as ExpenseRow);
   }
 
+  async delete(id: string): Promise<void> {
+    const { error } = await supabase.from('expenses').delete().eq('id', id);
+    if (error) throw error;
+  }
+
+  async update(id: string, expense: Partial<Omit<Expense, 'id'>>): Promise<Expense> {
+    const row: Record<string, unknown> = {};
+    if (expense.category !== undefined) row.category = expense.category;
+    if (expense.description !== undefined) row.description = expense.description;
+    if (expense.amount !== undefined) row.amount = expense.amount;
+    if (expense.paymentMethod !== undefined) row.payment_method = expense.paymentMethod;
+    if (expense.date !== undefined) row.date = expense.date;
+
+    const { data, error } = await supabase
+      .from('expenses')
+      .update(row)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return toEntity(data as ExpenseRow);
+  }
+
   async getByDateRange(
     storeId: string,
     from: string,

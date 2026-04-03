@@ -91,7 +91,7 @@ export class SupabaseSaleRepository implements ISaleRepository {
   async getByDateRange(storeId: string, from: string, to: string): Promise<Sale[]> {
     const { data, error } = await supabase
       .from('sales')
-      .select('*')
+      .select('*, workers(name)')
       .eq('store_id', storeId)
       .gte('created_at', from)
       .lte('created_at', to)
@@ -127,6 +127,12 @@ export class SupabaseSaleRepository implements ISaleRepository {
         `No se pudo actualizar la venta ${saleId}. Verifica permisos RLS o que el registro exista.`
       );
     }
+  }
+
+  async delete(saleId: string): Promise<void> {
+    // sale_items are deleted by CASCADE
+    const { error } = await supabase.from('sales').delete().eq('id', saleId);
+    if (error) throw error;
   }
 
   async create(sale: Omit<Sale, 'id'>): Promise<Sale> {
