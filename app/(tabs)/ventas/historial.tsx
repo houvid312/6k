@@ -252,6 +252,7 @@ const styles = StyleSheet.create({
   list: {
     padding: 16,
     paddingTop: 0,
+    paddingBottom: 80,
   },
   saleCard: {
     marginBottom: 8,

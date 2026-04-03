@@ -41,7 +41,7 @@ export default function HorariosScreen() {
         <ScheduleGrid workers={activeWorkers} schedules={schedules} />
       )}
 
-      <View style={{ height: 32 }} />
+      <View style={{ height: 80 }} />
     </ScreenContainer>
   );
 }

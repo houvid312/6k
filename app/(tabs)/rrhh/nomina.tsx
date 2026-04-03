@@ -115,7 +115,7 @@ export default function NominaScreen() {
         <EmptyState icon="currency-usd-off" title="Sin datos" subtitle="No se pudo calcular la nomina" />
       )}
 
-      <View style={{ height: 32 }} />
+      <View style={{ height: 80 }} />
     </ScreenContainer>
   );
 }

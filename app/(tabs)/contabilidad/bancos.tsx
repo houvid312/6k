@@ -80,7 +80,7 @@ export default function BancosScreen() {
         ))
       )}
 
-      <View style={{ height: 32 }} />
+      <View style={{ height: 80 }} />
     </ScreenContainer>
   );
 }
