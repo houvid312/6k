@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
-import { Text, Button, Card, Divider, useTheme } from 'react-native-paper';
+import { View, StyleSheet } from 'react-native';
+import { Text, Button, Card, Divider, Portal, Snackbar, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { BagCounter } from '../../../src/components/inventario/BagCounter';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useSnackbar } from '../../../src/hooks';
 import { Supply } from '../../../src/domain/entities';
 import { PhysicalCountItem } from '../../../src/domain/entities';
 
@@ -22,6 +23,7 @@ export default function CierreFisicoScreen() {
   const theme = useTheme();
   const { supplyRepo, physicalCountService } = useDI();
   const { selectedStoreId } = useAppStore();
+  const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [supplies, setSupplies] = useState<Supply[]>([]);
   const [counts, setCounts] = useState<CountEntry[]>([]);
@@ -68,16 +70,13 @@ export default function CierreFisicoScreen() {
       }));
 
       const count = await physicalCountService.submitCount(selectedStoreId!, items);
-      Alert.alert(
-        'Cierre Fisico Registrado',
-        `Se registraron ${count.items.length} insumos.\nInventario actualizado.`,
-      );
+      showSuccess(`${count.items.length} insumos registrados. Inventario actualizado.`);
     } catch {
-      Alert.alert('Error', 'No se pudo registrar el cierre fisico');
+      showError('No se pudo registrar el cierre fisico');
     } finally {
       setSubmitting(false);
     }
-  }, [counts, selectedStoreId, physicalCountService]);
+  }, [counts, selectedStoreId, physicalCountService, showSuccess, showError]);
 
   if (loading) {
     return <LoadingIndicator message="Cargando insumos..." />;
@@ -114,6 +113,7 @@ export default function CierreFisicoScreen() {
         mode="contained"
         onPress={handleSubmit}
         loading={submitting}
+        disabled={submitting}
         style={styles.submitBtn}
         icon="clipboard-check"
       >
@@ -121,6 +121,17 @@ export default function CierreFisicoScreen() {
       </Button>
 
       <View style={{ height: 100 }} />
+
+      <Portal>
+        <Snackbar
+          visible={snackbar.visible}
+          onDismiss={hideSnackbar}
+          duration={3000}
+          style={{ backgroundColor: snackbar.error ? '#B00020' : '#2E7D32', marginBottom: 80 }}
+        >
+          {snackbar.message}
+        </Snackbar>
+      </Portal>
     </ScreenContainer>
   );
 }

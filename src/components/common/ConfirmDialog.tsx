@@ -9,6 +9,7 @@ interface Props {
   onDismiss: () => void;
   confirmLabel?: string;
   destructive?: boolean;
+  confirmLoading?: boolean;
 }
 
 export function ConfirmDialog({
@@ -19,18 +20,21 @@ export function ConfirmDialog({
   onDismiss,
   confirmLabel = 'Confirmar',
   destructive = false,
+  confirmLoading = false,
 }: Props) {
   return (
     <Portal>
-      <Dialog visible={visible} onDismiss={onDismiss}>
+      <Dialog visible={visible} onDismiss={confirmLoading ? undefined : onDismiss}>
         <Dialog.Title>{title}</Dialog.Title>
         <Dialog.Content>
           <Text variant="bodyMedium">{message}</Text>
         </Dialog.Content>
         <Dialog.Actions>
-          <Button onPress={onDismiss}>Cancelar</Button>
+          <Button onPress={onDismiss} disabled={confirmLoading}>Cancelar</Button>
           <Button
             onPress={onConfirm}
+            loading={confirmLoading}
+            disabled={confirmLoading}
             textColor={destructive ? '#D32F2F' : undefined}
           >
             {confirmLabel}

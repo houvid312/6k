@@ -4,6 +4,7 @@ import { Card, Text, TextInput, Button, Divider, Snackbar, Portal, useTheme } fr
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { useDI } from '../../../src/di/providers';
+import { useSnackbar } from '../../../src/hooks';
 import { Product } from '../../../src/domain/entities/Product';
 import { Recipe } from '../../../src/domain/entities/Recipe';
 import { Supply } from '../../../src/domain/entities/Supply';
@@ -28,11 +29,7 @@ export default function RecetasScreen() {
   const [loading, setLoading] = useState(true);
   const [cards, setCards] = useState<RecipeCardState[]>([]);
   const [supplies, setSupplies] = useState<Supply[]>([]);
-  const [snackbar, setSnackbar] = useState<{ visible: boolean; message: string; error: boolean }>({
-    visible: false,
-    message: '',
-    error: false,
-  });
+  const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -67,7 +64,7 @@ export default function RecetasScreen() {
 
       setCards(cardStates);
     } catch {
-      setSnackbar({ visible: true, message: 'Error al cargar recetas', error: true });
+      showError('Error al cargar recetas');
     } finally {
       setLoading(false);
     }
@@ -108,7 +105,7 @@ export default function RecetasScreen() {
 
     const invalid = parsed.some((p) => isNaN(p.gramsPerPortion) || p.gramsPerPortion <= 0);
     if (invalid) {
-      setSnackbar({ visible: true, message: 'Todos los gramajes deben ser numeros positivos', error: true });
+      showError('Todos los gramajes deben ser numeros positivos');
       return;
     }
 
@@ -126,9 +123,9 @@ export default function RecetasScreen() {
         updated[cardIndex] = { ...current, originalIngredients: current.ingredients.map((i) => ({ ...i })) };
         return updated;
       });
-      setSnackbar({ visible: true, message: `Receta de ${card.product.name} guardada`, error: false });
+      showSuccess(`Receta de ${card.product.name} guardada`);
     } catch {
-      setSnackbar({ visible: true, message: 'Error al guardar receta', error: true });
+      showError('Error al guardar receta');
     } finally {
       setCards((prev) => {
         const updated = [...prev];
@@ -210,7 +207,7 @@ export default function RecetasScreen() {
       <Portal>
         <Snackbar
           visible={snackbar.visible}
-          onDismiss={() => setSnackbar((s) => ({ ...s, visible: false }))}
+          onDismiss={hideSnackbar}
           duration={3000}
           style={{ backgroundColor: snackbar.error ? '#B00020' : '#2E7D32', marginBottom: 80 }}
         >

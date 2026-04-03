@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, FlatList, Alert } from 'react-native';
-import { TextInput, Button, Text, Card, Menu, Divider, useTheme } from 'react-native-paper';
+import { View, StyleSheet } from 'react-native';
+import { TextInput, Button, Text, Card, Menu, Divider, Portal, Snackbar, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { PaymentMethodPicker } from '../../../src/components/ventas/PaymentMethodPicker';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useSnackbar } from '../../../src/hooks';
 import { Expense } from '../../../src/domain/entities';
 import { PaymentMethod } from '../../../src/domain/enums';
 import { EXPENSE_CATEGORIES } from '../../../src/utils/constants';
@@ -17,6 +18,7 @@ export default function GastosScreen() {
   const theme = useTheme();
   const { expenseRepo } = useDI();
   const { selectedStoreId } = useAppStore();
+  const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [category, setCategory] = useState('');
@@ -41,11 +43,11 @@ export default function GastosScreen() {
 
   const handleSubmit = useCallback(async () => {
     if (!category) {
-      Alert.alert('Error', 'Selecciona una categoria');
+      showError('Selecciona una categoria');
       return;
     }
     if (amount <= 0) {
-      Alert.alert('Error', 'Ingresa un monto valido');
+      showError('Ingresa un monto valido');
       return;
     }
 
@@ -62,14 +64,14 @@ export default function GastosScreen() {
       setCategory('');
       setDescription('');
       setAmount(0);
-      Alert.alert('Gasto registrado', `${category}: ${formatCOP(amount)}`);
+      showSuccess(`${category}: ${formatCOP(amount)} registrado`);
       loadExpenses();
     } catch {
-      Alert.alert('Error', 'No se pudo registrar el gasto');
+      showError('No se pudo registrar el gasto');
     } finally {
       setSubmitting(false);
     }
-  }, [category, description, amount, paymentMethod, selectedStoreId, expenseRepo, loadExpenses]);
+  }, [category, description, amount, paymentMethod, selectedStoreId, expenseRepo, loadExpenses, showSuccess, showError]);
 
   return (
     <ScreenContainer>
@@ -128,6 +130,7 @@ export default function GastosScreen() {
         mode="contained"
         onPress={handleSubmit}
         loading={submitting}
+        disabled={submitting}
         style={styles.submitBtn}
         icon="check"
       >
@@ -160,7 +163,18 @@ export default function GastosScreen() {
         ))
       )}
 
-      <View style={{ height: 32 }} />
+      <View style={{ height: 80 }} />
+
+      <Portal>
+        <Snackbar
+          visible={snackbar.visible}
+          onDismiss={hideSnackbar}
+          duration={3000}
+          style={{ backgroundColor: snackbar.error ? '#B00020' : '#2E7D32', marginBottom: 80 }}
+        >
+          {snackbar.message}
+        </Snackbar>
+      </Portal>
     </ScreenContainer>
   );
 }

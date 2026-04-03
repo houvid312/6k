@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { FlatList, View, StyleSheet, Alert } from 'react-native';
-import { Button, Text, useTheme } from 'react-native-paper';
+import { FlatList, View, StyleSheet } from 'react-native';
+import { Button, Text, Portal, Snackbar, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
@@ -8,6 +8,7 @@ import { ConfirmDialog } from '../../../src/components/common/ConfirmDialog';
 import { TransferOrderCard } from '../../../src/components/inventario/TransferOrderCard';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useSnackbar } from '../../../src/hooks';
 import { Transfer } from '../../../src/domain/entities';
 import { TransferStatus } from '../../../src/domain/enums';
 
@@ -15,9 +16,12 @@ export default function TrasladosScreen() {
   const theme = useTheme();
   const { transferService } = useDI();
   const { selectedStoreId, stores } = useAppStore();
+  const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null);
   const [confirmVisible, setConfirmVisible] = useState(false);
 
@@ -39,34 +43,39 @@ export default function TrasladosScreen() {
 
   const handleExecute = useCallback(async () => {
     if (!selectedTransfer) return;
+    setConfirming(true);
     try {
       await transferService.executeTransfer(selectedTransfer.id);
-      Alert.alert('Traslado recibido', 'El inventario ha sido actualizado');
+      showSuccess('Traslado recibido. Inventario actualizado.');
       loadTransfers();
-    } catch (err) {
-      Alert.alert('Error', 'No se pudo procesar el traslado');
+    } catch {
+      showError('No se pudo procesar el traslado');
     } finally {
+      setConfirming(false);
       setConfirmVisible(false);
       setSelectedTransfer(null);
     }
-  }, [selectedTransfer, transferService, loadTransfers]);
+  }, [selectedTransfer, transferService, loadTransfers, showSuccess, showError]);
 
   const handleCreateTransfer = useCallback(async () => {
     const productionCenter = stores.find((s) => s.isProductionCenter);
     if (!productionCenter) {
-      Alert.alert('Error', 'No hay centro de produccion configurado');
+      showError('No hay centro de produccion configurado');
       return;
     }
 
+    setCreating(true);
     try {
       const minTargets: Record<string, number> = {};
       await transferService.generateTransferOrder(productionCenter.id, selectedStoreId, minTargets);
-      Alert.alert('Traslado creado', 'Se genero una orden de traslado');
+      showSuccess('Orden de traslado generada');
       loadTransfers();
     } catch {
-      Alert.alert('Error', 'No se pudo crear el traslado');
+      showError('No se pudo crear el traslado');
+    } finally {
+      setCreating(false);
     }
-  }, [stores, selectedStoreId, transferService, loadTransfers]);
+  }, [stores, selectedStoreId, transferService, loadTransfers, showSuccess, showError]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -75,6 +84,8 @@ export default function TrasladosScreen() {
           mode="contained"
           icon="plus"
           onPress={handleCreateTransfer}
+          loading={creating}
+          disabled={creating}
           style={{ borderRadius: 8 }}
         >
           Nuevo Traslado
@@ -115,7 +126,19 @@ export default function TrasladosScreen() {
           setSelectedTransfer(null);
         }}
         confirmLabel="Recibir"
+        confirmLoading={confirming}
       />
+
+      <Portal>
+        <Snackbar
+          visible={snackbar.visible}
+          onDismiss={hideSnackbar}
+          duration={3000}
+          style={{ backgroundColor: snackbar.error ? '#B00020' : '#2E7D32', marginBottom: 80 }}
+        >
+          {snackbar.message}
+        </Snackbar>
+      </Portal>
     </View>
   );
 }

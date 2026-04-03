@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
-import { Text, Card, Button, Divider, useTheme } from 'react-native-paper';
+import { View, StyleSheet } from 'react-native';
+import { Text, Card, Button, Divider, Portal, Snackbar, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { DenominationCounter } from '../../../src/components/ventas/DenominationCounter';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useSnackbar } from '../../../src/hooks';
 import { useCashClosingStore } from '../../../src/stores/useCashClosingStore';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate, toISODate } from '../../../src/utils/dates';
@@ -15,6 +16,7 @@ export default function CierreCajaScreen() {
   const theme = useTheme();
   const { cashClosingService } = useDI();
   const { selectedStoreId } = useAppStore();
+  const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
   const {
     denominations,
     bankTotal,
@@ -63,13 +65,13 @@ export default function CierreCajaScreen() {
         expenses,
       );
       setClosed(true);
-      Alert.alert('Cierre completado', `Discrepancia: ${formatCOP(discrepancy)}`);
+      showSuccess(`Cierre completado. Discrepancia: ${formatCOP(discrepancy)}`);
     } catch {
-      Alert.alert('Error', 'No se pudo registrar el cierre');
+      showError('No se pudo registrar el cierre');
     } finally {
       setSubmitting(false);
     }
-  }, [selectedStoreId, today, denominations, bankTotal, expenses, cashClosingService, discrepancy]);
+  }, [selectedStoreId, today, denominations, bankTotal, expenses, cashClosingService, discrepancy, showSuccess, showError]);
 
   const cashTotal = actualTotal - bankTotal;
 
@@ -200,6 +202,7 @@ export default function CierreCajaScreen() {
           mode="contained"
           onPress={handleSubmit}
           loading={submitting}
+          disabled={submitting}
           style={styles.submitBtn}
           icon="lock-check"
         >
@@ -216,6 +219,17 @@ export default function CierreCajaScreen() {
       </Button>
 
       <View style={{ height: 100 }} />
+
+      <Portal>
+        <Snackbar
+          visible={snackbar.visible}
+          onDismiss={hideSnackbar}
+          duration={3000}
+          style={{ backgroundColor: snackbar.error ? '#B00020' : '#2E7D32', marginBottom: 80 }}
+        >
+          {snackbar.message}
+        </Snackbar>
+      </Portal>
     </ScreenContainer>
   );
 }

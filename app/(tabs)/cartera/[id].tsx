@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
-import { Card, Text, Button, Divider, Chip, useTheme } from 'react-native-paper';
+import { View, StyleSheet } from 'react-native';
+import { Card, Text, Button, Divider, Chip, Portal, Snackbar, useTheme } from 'react-native-paper';
 import { useLocalSearchParams, router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { useDI } from '../../../src/di/providers';
+import { useSnackbar } from '../../../src/hooks';
 import { CreditEntry } from '../../../src/domain/entities';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate } from '../../../src/utils/dates';
@@ -47,6 +48,7 @@ export default function DebtorDetailScreen() {
   const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { creditService } = useDI();
+  const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [credit, setCredit] = useState<CreditEntry | null>(null);
   const [relatedCredits, setRelatedCredits] = useState<CreditEntry[]>([]);
@@ -78,22 +80,22 @@ export default function DebtorDetailScreen() {
 
   const handlePayment = useCallback(async () => {
     if (!credit || paymentAmount <= 0) {
-      Alert.alert('Error', 'Ingresa un monto valido');
+      showError('Ingresa un monto valido');
       return;
     }
 
     setSubmitting(true);
     try {
       await creditService.registerPayment(credit.id, paymentAmount);
-      Alert.alert('Pago registrado', `${formatCOP(paymentAmount)} aplicado a ${credit.debtorName}`);
+      showSuccess(`${formatCOP(paymentAmount)} aplicado a ${credit.debtorName}`);
       setPaymentAmount(0);
       loadData();
     } catch {
-      Alert.alert('Error', 'No se pudo registrar el pago');
+      showError('No se pudo registrar el pago');
     } finally {
       setSubmitting(false);
     }
-  }, [credit, paymentAmount, creditService, loadData]);
+  }, [credit, paymentAmount, creditService, loadData, showSuccess, showError]);
 
   if (loading) {
     return <LoadingIndicator message="Cargando deuda..." />;
@@ -151,6 +153,7 @@ export default function DebtorDetailScreen() {
               mode="contained"
               onPress={handlePayment}
               loading={submitting}
+              disabled={submitting}
               style={styles.payBtn}
               icon="cash"
             >
@@ -224,6 +227,17 @@ export default function DebtorDetailScreen() {
       })}
 
       <View style={{ height: 100 }} />
+
+      <Portal>
+        <Snackbar
+          visible={snackbar.visible}
+          onDismiss={hideSnackbar}
+          duration={3000}
+          style={{ backgroundColor: snackbar.error ? '#B00020' : '#2E7D32', marginBottom: 80 }}
+        >
+          {snackbar.message}
+        </Snackbar>
+      </Portal>
     </ScreenContainer>
   );
 }

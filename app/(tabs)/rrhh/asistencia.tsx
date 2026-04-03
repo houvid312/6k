@@ -1,18 +1,20 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
-import { Text, Button, Card, Chip, useTheme } from 'react-native-paper';
+import { View, StyleSheet } from 'react-native';
+import { Text, Button, Card, Chip, Portal, Snackbar, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { AttendanceRow } from '../../../src/components/rrhh/AttendanceRow';
 import { useWorkerStore } from '../../../src/stores/useWorkerStore';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useSnackbar } from '../../../src/hooks';
 import { formatDate, toISODate } from '../../../src/utils/dates';
 
 export default function AsistenciaScreen() {
   const theme = useTheme();
   const { workers, schedules, loading, loadWorkers, loadSchedules } = useWorkerStore();
   const { selectedStoreId } = useAppStore();
+  const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [hoursMap, setHoursMap] = useState<Record<string, number>>({});
   const [absentMap, setAbsentMap] = useState<Record<string, boolean>>({});
@@ -93,24 +95,23 @@ export default function AsistenciaScreen() {
       .filter((e) => e.hours > 0 || absentMap[e.workerId]);
 
     if (entries.length === 0) {
-      Alert.alert('Error', 'Ingresa las horas de al menos un trabajador');
+      showError('Ingresa las horas de al menos un trabajador');
       return;
     }
 
     setSubmitting(true);
     try {
-      Alert.alert(
-        'Asistencia registrada',
-        `${entries.filter((e) => e.hours > 0).length} presentes, ${entries.filter((e) => e.hours === 0).length} ausentes para ${formatDate(today)}`,
-      );
+      const presentes = entries.filter((e) => e.hours > 0).length;
+      const ausentes = entries.filter((e) => e.hours === 0).length;
+      showSuccess(`${presentes} presentes, ${ausentes} ausentes — ${formatDate(today)}`);
       setHoursMap({});
       setAbsentMap({});
     } catch {
-      Alert.alert('Error', 'No se pudo registrar la asistencia');
+      showError('No se pudo registrar la asistencia');
     } finally {
       setSubmitting(false);
     }
-  }, [activeWorkers, hoursMap, absentMap, scheduledHoursMap, today]);
+  }, [activeWorkers, hoursMap, absentMap, scheduledHoursMap, today, showSuccess, showError]);
 
   if (loading) {
     return <LoadingIndicator message="Cargando trabajadores..." />;
@@ -178,6 +179,7 @@ export default function AsistenciaScreen() {
         mode="contained"
         onPress={handleSubmit}
         loading={submitting}
+        disabled={submitting}
         style={styles.submitBtn}
         icon="clipboard-check"
       >
@@ -185,6 +187,17 @@ export default function AsistenciaScreen() {
       </Button>
 
       <View style={{ height: 100 }} />
+
+      <Portal>
+        <Snackbar
+          visible={snackbar.visible}
+          onDismiss={hideSnackbar}
+          duration={3000}
+          style={{ backgroundColor: snackbar.error ? '#B00020' : '#2E7D32', marginBottom: 80 }}
+        >
+          {snackbar.message}
+        </Snackbar>
+      </Portal>
     </ScreenContainer>
   );
 }

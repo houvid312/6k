@@ -1,10 +1,11 @@
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
-import { TextInput, Button, Text, SegmentedButtons, useTheme } from 'react-native-paper';
+import { View, StyleSheet } from 'react-native';
+import { TextInput, Button, Text, SegmentedButtons, Portal, Snackbar, useTheme } from 'react-native-paper';
 import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { useDI } from '../../../src/di/providers';
+import { useSnackbar } from '../../../src/hooks';
 import { DebtorType } from '../../../src/domain/entities';
 import { formatCOP } from '../../../src/utils/currency';
 import { toISODate } from '../../../src/utils/dates';
@@ -12,6 +13,7 @@ import { toISODate } from '../../../src/utils/dates';
 export default function NuevoCreditoScreen() {
   const theme = useTheme();
   const { creditService } = useDI();
+  const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [debtorName, setDebtorName] = useState('');
   const [debtorType, setDebtorType] = useState<string>('CLIENTE');
@@ -21,11 +23,11 @@ export default function NuevoCreditoScreen() {
 
   const handleSubmit = useCallback(async () => {
     if (!debtorName.trim()) {
-      Alert.alert('Error', 'Ingresa el nombre del deudor');
+      showError('Ingresa el nombre del deudor');
       return;
     }
     if (amount <= 0) {
-      Alert.alert('Error', 'Ingresa un monto valido');
+      showError('Ingresa un monto valido');
       return;
     }
 
@@ -38,17 +40,14 @@ export default function NuevoCreditoScreen() {
         amount,
         toISODate(new Date()),
       );
-      Alert.alert(
-        'Credito registrado',
-        `${debtorName}: ${formatCOP(amount)}`,
-        [{ text: 'OK', onPress: () => router.back() }],
-      );
+      showSuccess(`Credito de ${formatCOP(amount)} registrado para ${debtorName.trim()}`);
+      setTimeout(() => router.back(), 1200);
     } catch {
-      Alert.alert('Error', 'No se pudo registrar el credito');
+      showError('No se pudo registrar el credito');
     } finally {
       setSubmitting(false);
     }
-  }, [debtorName, debtorType, concept, amount, creditService]);
+  }, [debtorName, debtorType, concept, amount, creditService, showSuccess, showError]);
 
   return (
     <ScreenContainer>
@@ -96,11 +95,23 @@ export default function NuevoCreditoScreen() {
         mode="contained"
         onPress={handleSubmit}
         loading={submitting}
+        disabled={submitting}
         style={styles.submitBtn}
         icon="check"
       >
         Registrar Credito
       </Button>
+
+      <Portal>
+        <Snackbar
+          visible={snackbar.visible}
+          onDismiss={hideSnackbar}
+          duration={3000}
+          style={{ backgroundColor: snackbar.error ? '#B00020' : '#2E7D32', marginBottom: 80 }}
+        >
+          {snackbar.message}
+        </Snackbar>
+      </Portal>
     </ScreenContainer>
   );
 }
