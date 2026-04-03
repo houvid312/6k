@@ -9,9 +9,9 @@ export class PhysicalCountService {
     private inventoryRepo: IInventoryRepository,
   ) {}
 
-  async submitCount(storeId: string, items: PhysicalCountItem[]): Promise<PhysicalCount> {
+  async submitCount(storeId: string, items: PhysicalCountItem[], workerId?: string): Promise<PhysicalCount> {
     // 1. Save the physical count
-    const count = await this.physicalCountRepo.create({ storeId, items });
+    const count = await this.physicalCountRepo.create({ storeId, workerId, items });
 
     // 2. Update inventory with the actual counted values
     for (const item of items) {

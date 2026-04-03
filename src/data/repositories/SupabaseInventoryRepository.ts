@@ -72,10 +72,24 @@ export class SupabaseInventoryRepository implements IInventoryRepository {
     return toEntity(data as InventoryRow);
   }
 
-  async deductGrams(storeId: string, supplyId: string, grams: number): Promise<InventoryItem> {
-    const current = await this.getBySupply(supplyId, storeId, InventoryLevel.STORE);
+  async deductGrams(storeId: string, supplyId: string, grams: number, level: InventoryLevel = InventoryLevel.RAW): Promise<InventoryItem> {
+    const current = await this.getBySupply(supplyId, storeId, level);
+
     if (!current) {
-      throw new Error(`Inventory not found for supply ${supplyId} at store ${storeId}`);
+      // Create inventory record with negative balance (deduction without prior stock)
+      const { data, error } = await supabase
+        .from('inventory')
+        .insert({
+          store_id: storeId,
+          supply_id: supplyId,
+          level: LEVEL_TO_DB[level],
+          quantity_grams: -grams,
+          last_updated: new Date().toISOString(),
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return toEntity(data as InventoryRow);
     }
 
     const { data, error } = await supabase

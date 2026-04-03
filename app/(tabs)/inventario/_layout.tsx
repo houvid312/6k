@@ -27,6 +27,11 @@ export default function InventarioLayout() {
       <Stack.Screen name="cierre-fisico" options={{ title: 'Cierre Fisico' }} />
       <Stack.Screen name="validaciones" options={{ title: 'Validaciones' }} />
       <Stack.Screen name="recetas" options={{ title: 'Recetas' }} />
+      <Stack.Screen name="produccion" options={{ title: 'Produccion' }} />
+      <Stack.Screen name="recetas-produccion" options={{ title: 'Recetas de Produccion' }} />
+      <Stack.Screen name="sugerencia-envio" options={{ title: 'Sugerencia de Envio' }} />
+      <Stack.Screen name="demanda" options={{ title: 'Demanda Estimada' }} />
+      <Stack.Screen name="insumos" options={{ title: 'Insumos' }} />
     </Stack>
   );
 }

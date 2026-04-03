@@ -1,23 +1,26 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { TextInput, Button, Text, Menu, Portal, Snackbar, useTheme } from 'react-native-paper';
+import { TextInput, Button, Text, Portal, Snackbar, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
+import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
 import { PaymentMethodPicker } from '../../../src/components/ventas/PaymentMethodPicker';
 import { useDI } from '../../../src/di/providers';
 import { useSnackbar } from '../../../src/hooks';
 import { Supply } from '../../../src/domain/entities';
 import { PaymentMethod } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
+import { useAppStore } from '../../../src/stores/useAppStore';
 
 export default function ComprasScreen() {
   const theme = useTheme();
   const { supplyRepo, purchaseRepo } = useDI();
+  const { stores } = useAppStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
+  const productionCenterId = stores.find((s) => s.isProductionCenter)?.id ?? '';
 
   const [supplies, setSupplies] = useState<Supply[]>([]);
-  const [selectedSupply, setSelectedSupply] = useState<Supply | null>(null);
-  const [menuVisible, setMenuVisible] = useState(false);
+  const [selectedSupplyId, setSelectedSupplyId] = useState<string>('');
   const [quantityGrams, setQuantityGrams] = useState('');
   const [priceCOP, setPriceCOP] = useState(0);
   const [supplier, setSupplier] = useState('');
@@ -31,12 +34,19 @@ export default function ComprasScreen() {
     })();
   }, [supplyRepo]);
 
+  const supplyOptions = useMemo(
+    () => supplies.map((s) => ({ value: s.id, label: s.name, subtitle: `${s.gramsPerBag}g/bolsa` })),
+    [supplies],
+  );
+
+  const selectedSupply = supplies.find((s) => s.id === selectedSupplyId);
+
   const handleSubmit = useCallback(async () => {
     if (!selectedSupply) {
       showError('Selecciona un insumo');
       return;
     }
-    const grams = parseInt(quantityGrams, 10);
+    const grams = parseFloat(quantityGrams);
     if (isNaN(grams) || grams <= 0) {
       showError('Ingresa una cantidad valida');
       return;
@@ -50,6 +60,7 @@ export default function ComprasScreen() {
     try {
       await purchaseRepo.create({
         timestamp: new Date().toISOString(),
+        storeId: productionCenterId,
         supplyId: selectedSupply.id,
         quantityGrams: grams,
         priceCOP,
@@ -58,7 +69,7 @@ export default function ComprasScreen() {
       });
 
       showSuccess(`${selectedSupply.name}: ${grams}g por ${formatCOP(priceCOP)} registrado`);
-      setSelectedSupply(null);
+      setSelectedSupplyId('');
       setQuantityGrams('');
       setPriceCOP(0);
       setSupplier('');
@@ -75,40 +86,19 @@ export default function ComprasScreen() {
         Nueva Compra de Insumo
       </Text>
 
-      {/* Supply selector */}
-      <Menu
-        visible={menuVisible}
-        onDismiss={() => setMenuVisible(false)}
-        anchor={
-          <Button
-            mode="outlined"
-            onPress={() => setMenuVisible(true)}
-            icon="package-variant"
-            style={styles.supplyBtn}
-            contentStyle={{ justifyContent: 'flex-start' }}
-          >
-            {selectedSupply?.name ?? 'Seleccionar insumo'}
-          </Button>
-        }
-        style={styles.menu}
-      >
-        {supplies.map((s) => (
-          <Menu.Item
-            key={s.id}
-            onPress={() => {
-              setSelectedSupply(s);
-              setMenuVisible(false);
-            }}
-            title={`${s.name} (${s.gramsPerBag}g/bolsa)`}
-          />
-        ))}
-      </Menu>
+      <SearchableSelect
+        options={supplyOptions}
+        selectedValue={selectedSupplyId}
+        placeholder="Seleccionar insumo"
+        icon="package-variant"
+        onSelect={setSelectedSupplyId}
+      />
 
       <TextInput
         label="Cantidad (gramos)"
         value={quantityGrams}
         onChangeText={setQuantityGrams}
-        keyboardType="numeric"
+        keyboardType="decimal-pad"
         mode="outlined"
         style={styles.input}
         right={<TextInput.Affix text="g" />}
@@ -162,12 +152,6 @@ export default function ComprasScreen() {
 const styles = StyleSheet.create({
   sectionTitle: {
     marginBottom: 16,
-  },
-  supplyBtn: {
-    marginBottom: 12,
-  },
-  menu: {
-    width: 300,
   },
   input: {
     marginBottom: 12,

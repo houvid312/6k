@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { FlatList, View, StyleSheet } from 'react-native';
 import { Button, Text, Portal, Snackbar, useTheme } from 'react-native-paper';
+import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
@@ -80,16 +81,26 @@ export default function TrasladosScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <View style={styles.header}>
-        <Button
-          mode="contained"
-          icon="plus"
-          onPress={handleCreateTransfer}
-          loading={creating}
-          disabled={creating}
-          style={{ borderRadius: 8 }}
-        >
-          Nuevo Traslado
-        </Button>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Button
+            mode="contained"
+            icon="plus"
+            onPress={handleCreateTransfer}
+            loading={creating}
+            disabled={creating}
+            style={{ borderRadius: 8, flex: 1 }}
+          >
+            Nuevo Traslado
+          </Button>
+          <Button
+            mode="outlined"
+            icon="calculator"
+            onPress={() => router.push('/(tabs)/inventario/sugerencia-envio')}
+            style={{ borderRadius: 8, flex: 1 }}
+          >
+            Sugerencia
+          </Button>
+        </View>
       </View>
 
       {loading ? (

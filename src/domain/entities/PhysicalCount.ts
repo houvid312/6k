@@ -9,5 +9,6 @@ export interface PhysicalCount {
   id: string;
   timestamp: string;
   storeId: string;
+  workerId?: string;
   items: PhysicalCountItem[];
 }

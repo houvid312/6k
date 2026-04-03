@@ -14,6 +14,11 @@ import {
   SupabaseAttendanceRepository,
   SupabaseExpenseRepository,
   SupabasePhysicalCountRepository,
+  SupabaseProductionRecipeRepository,
+  SupabaseProductionRecordRepository,
+  SupabaseDemandEstimateRepository,
+  SupabaseDailyAlertRepository,
+  SupabaseStockMinimumRepository,
 } from '../data/repositories';
 import {
   SaleService,
@@ -26,6 +31,9 @@ import {
   DashboardService,
   SupabaseAuthService,
   PhysicalCountService,
+  ProductionService,
+  DemandEstimationService,
+  AlertService,
 } from '../services';
 
 // Repositories (Supabase)
@@ -44,11 +52,15 @@ const scheduleRepo = new SupabaseScheduleRepository();
 const attendanceRepo = new SupabaseAttendanceRepository();
 const expenseRepo = new SupabaseExpenseRepository();
 const physicalCountRepo = new SupabasePhysicalCountRepository();
+const productionRecipeRepo = new SupabaseProductionRecipeRepository();
+const productionRecordRepo = new SupabaseProductionRecordRepository();
+const demandEstimateRepo = new SupabaseDemandEstimateRepository();
+const dailyAlertRepo = new SupabaseDailyAlertRepository();
+const stockMinimumRepo = new SupabaseStockMinimumRepository();
 
 // Services
 const saleService = new SaleService(saleRepo, inventoryRepo, recipeRepo);
 const inventoryService = new InventoryService(inventoryRepo, supplyRepo);
-const cashClosingService = new CashClosingService(cashClosingRepo, saleRepo, expenseRepo);
 const transferService = new TransferService(transferRepo, inventoryRepo, supplyRepo);
 const validationService = new ValidationService(saleRepo, recipeRepo, inventoryRepo);
 const creditService = new CreditService(creditRepo);
@@ -56,6 +68,10 @@ const payrollService = new PayrollService(workerRepo, attendanceRepo, creditRepo
 const dashboardService = new DashboardService(saleRepo, inventoryRepo, supplyRepo, expenseRepo, purchaseRepo, recipeRepo, productRepo);
 const authService = new SupabaseAuthService();
 const physicalCountService = new PhysicalCountService(physicalCountRepo, inventoryRepo);
+const productionService = new ProductionService(productionRecipeRepo, productionRecordRepo, inventoryRepo);
+const demandEstimationService = new DemandEstimationService(demandEstimateRepo, recipeRepo, inventoryRepo, supplyRepo);
+const alertService = new AlertService(dailyAlertRepo, validationService, physicalCountRepo, supplyRepo);
+const cashClosingService = new CashClosingService(cashClosingRepo, saleRepo, expenseRepo, alertService);
 
 export const container = {
   // Repositories
@@ -74,6 +90,11 @@ export const container = {
   attendanceRepo,
   expenseRepo,
   physicalCountRepo,
+  productionRecipeRepo,
+  productionRecordRepo,
+  demandEstimateRepo,
+  dailyAlertRepo,
+  stockMinimumRepo,
 
   // Services
   saleService,
@@ -86,4 +107,7 @@ export const container = {
   dashboardService,
   authService,
   physicalCountService,
+  productionService,
+  demandEstimationService,
+  alertService,
 };

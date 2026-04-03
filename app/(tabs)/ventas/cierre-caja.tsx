@@ -10,7 +10,7 @@ import { useAppStore } from '../../../src/stores/useAppStore';
 import { useSnackbar } from '../../../src/hooks';
 import { useCashClosingStore } from '../../../src/stores/useCashClosingStore';
 import { formatCOP } from '../../../src/utils/currency';
-import { formatDate, toISODate } from '../../../src/utils/dates';
+import { formatDate, todayColombia } from '../../../src/utils/dates';
 
 export default function CierreCajaScreen() {
   const theme = useTheme();
@@ -34,7 +34,7 @@ export default function CierreCajaScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [closed, setClosed] = useState(false);
 
-  const today = toISODate(new Date());
+  const today = todayColombia();
   const actualTotal = getTotal();
   const discrepancy = actualTotal - cashBase - (expectedTotal - expenses);
 

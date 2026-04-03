@@ -170,7 +170,7 @@ export default function RecetasScreen() {
                     <TextInput
                       mode="outlined"
                       dense
-                      keyboardType="numeric"
+                      keyboardType="decimal-pad"
                       value={ing.gramsPerPortion}
                       onChangeText={(v) => handleGramsChange(cardIndex, ingIndex, v)}
                       style={styles.gramsInput}

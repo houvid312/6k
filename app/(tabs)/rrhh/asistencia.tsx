@@ -8,7 +8,7 @@ import { AttendanceRow } from '../../../src/components/rrhh/AttendanceRow';
 import { useWorkerStore } from '../../../src/stores/useWorkerStore';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useSnackbar } from '../../../src/hooks';
-import { formatDate, toISODate } from '../../../src/utils/dates';
+import { formatDate, todayColombia, nowColombia } from '../../../src/utils/dates';
 
 export default function AsistenciaScreen() {
   const theme = useTheme();
@@ -20,8 +20,8 @@ export default function AsistenciaScreen() {
   const [absentMap, setAbsentMap] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
 
-  const today = toISODate(new Date());
-  const todayDayOfWeek = new Date().getDay();
+  const today = todayColombia();
+  const todayDayOfWeek = nowColombia().getDay();
 
   useEffect(() => {
     loadWorkers();

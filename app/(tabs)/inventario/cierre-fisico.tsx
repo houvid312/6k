@@ -4,11 +4,12 @@ import { Text, Button, Card, Divider, Portal, Snackbar, useTheme } from 'react-n
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
+import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
 import { BagCounter } from '../../../src/components/inventario/BagCounter';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useSnackbar } from '../../../src/hooks';
-import { Supply } from '../../../src/domain/entities';
+import { Supply, Worker } from '../../../src/domain/entities';
 import { PhysicalCountItem } from '../../../src/domain/entities';
 
 interface CountEntry {
@@ -21,11 +22,13 @@ interface CountEntry {
 
 export default function CierreFisicoScreen() {
   const theme = useTheme();
-  const { supplyRepo, physicalCountService } = useDI();
+  const { supplyRepo, physicalCountService, workerRepo } = useDI();
   const { selectedStoreId } = useAppStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [supplies, setSupplies] = useState<Supply[]>([]);
+  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [selectedWorkerId, setSelectedWorkerId] = useState<string>('');
   const [counts, setCounts] = useState<CountEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -34,8 +37,12 @@ export default function CierreFisicoScreen() {
     (async () => {
       setLoading(true);
       try {
-        const all = await supplyRepo.getAll();
+        const [all, allWorkers] = await Promise.all([
+          supplyRepo.getAll(),
+          workerRepo.getAll(),
+        ]);
         setSupplies(all);
+        setWorkers(allWorkers.filter((w) => w.isActive));
         setCounts(
           all.map((s) => ({
             supplyId: s.id,
@@ -69,7 +76,7 @@ export default function CierreFisicoScreen() {
         totalGrams: c.bags * c.gramsPerBag + c.looseGrams,
       }));
 
-      const count = await physicalCountService.submitCount(selectedStoreId!, items);
+      const count = await physicalCountService.submitCount(selectedStoreId!, items, selectedWorkerId || undefined);
       showSuccess(`${count.items.length} insumos registrados. Inventario actualizado.`);
     } catch {
       showError('No se pudo registrar el cierre fisico');
@@ -94,6 +101,14 @@ export default function CierreFisicoScreen() {
       <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>
         Ingresa las bolsas y gramos sueltos de cada insumo
       </Text>
+
+      <SearchableSelect
+        options={workers.map((w) => ({ value: w.id, label: w.name, subtitle: w.role }))}
+        selectedValue={selectedWorkerId}
+        placeholder="Quien hace el conteo?"
+        icon="account"
+        onSelect={setSelectedWorkerId}
+      />
 
       {counts.map((entry, index) => (
         <View key={entry.supplyId}>

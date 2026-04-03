@@ -6,6 +6,7 @@ import { PaymentMethod } from '../../domain/enums';
 interface PurchaseRow {
   id: string;
   created_at: string;
+  store_id: string;
   supply_id: string;
   quantity_grams: number;
   price_cop: number;
@@ -17,6 +18,7 @@ function toEntity(row: PurchaseRow): Purchase {
   return {
     id: row.id,
     timestamp: row.created_at,
+    storeId: row.store_id,
     supplyId: row.supply_id,
     quantityGrams: row.quantity_grams,
     priceCOP: row.price_cop,
@@ -27,6 +29,7 @@ function toEntity(row: PurchaseRow): Purchase {
 
 function toRow(purchase: Omit<Purchase, 'id'>): Record<string, unknown> {
   return {
+    store_id: purchase.storeId,
     supply_id: purchase.supplyId,
     quantity_grams: purchase.quantityGrams,
     price_cop: purchase.priceCOP,

@@ -53,12 +53,12 @@ export function BagCounter({ label, bags, looseGrams, gramsPerBag, onBagsChange,
         </View>
         <View style={styles.gramsControl}>
           <TextInput
-            value={String(Math.round(looseGrams))}
+            value={String(looseGrams)}
             onChangeText={(text) => {
-              const v = parseInt(text, 10);
+              const v = parseFloat(text);
               onGramsChange(isNaN(v) ? 0 : Math.max(0, v));
             }}
-            keyboardType="numeric"
+            keyboardType="decimal-pad"
             mode="outlined"
             style={styles.gramsInput}
             dense

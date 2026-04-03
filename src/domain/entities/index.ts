@@ -16,3 +16,8 @@ export type { Schedule } from './Schedule';
 export type { Attendance } from './Attendance';
 export type { PayrollEntry } from './PayrollEntry';
 export type { Expense } from './Expense';
+export type { ProductionRecipe, ProductionRecipeInput } from './ProductionRecipe';
+export type { ProductionRecord, ProductionRecordItem } from './ProductionRecord';
+export type { DemandEstimate } from './DemandEstimate';
+export type { DailyAlert } from './DailyAlert';
+export type { StockMinimum } from './StockMinimum';

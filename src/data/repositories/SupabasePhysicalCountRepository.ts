@@ -7,6 +7,7 @@ import { IPhysicalCountRepository } from '../../domain/interfaces/repositories/I
 interface PhysicalCountRow {
   id: string;
   store_id: string;
+  worker_id: string | null;
   created_at: string;
 }
 
@@ -25,6 +26,7 @@ function toEntity(row: PhysicalCountRow, itemRows: PhysicalCountItemRow[]): Phys
   return {
     id: row.id,
     storeId: row.store_id,
+    workerId: row.worker_id ?? undefined,
     timestamp: row.created_at,
     items: itemRows.map(toItemEntity),
   };
@@ -45,7 +47,7 @@ export class SupabasePhysicalCountRepository implements IPhysicalCountRepository
   async create(count: Omit<PhysicalCount, 'id' | 'timestamp'>): Promise<PhysicalCount> {
     const { data: countRow, error: countError } = await supabase
       .from('physical_counts')
-      .insert({ store_id: count.storeId })
+      .insert({ store_id: count.storeId, worker_id: count.workerId ?? null })
       .select()
       .single();
     if (countError) throw countError;

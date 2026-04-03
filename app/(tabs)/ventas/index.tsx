@@ -29,7 +29,7 @@ import { Product, Sale } from '../../../src/domain/entities';
 import { PizzaSize, PaymentMethod, PORTIONS_PER_SIZE } from '../../../src/domain/enums';
 import { supabase } from '../../../src/lib/supabase';
 import { formatCOP } from '../../../src/utils/currency';
-import { formatDate } from '../../../src/utils/dates';
+import { formatDate, todayColombia } from '../../../src/utils/dates';
 
 export default function VentasScreen() {
   const theme = useTheme();
@@ -79,7 +79,7 @@ export default function VentasScreen() {
   useEffect(() => {
     if (!selectedStoreId) return;
     (async () => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = todayColombia();
       const { data } = await supabase
         .from('shift_portions')
         .select('product_id, portions')
@@ -96,7 +96,7 @@ export default function VentasScreen() {
   // Guardar porciones en BD
   const savePortionsToDB = useCallback(async (portions: Record<string, number>) => {
     if (!selectedStoreId) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayColombia();
     const rows = Object.entries(portions).map(([productId, count]) => ({
       store_id: selectedStoreId,
       product_id: productId,

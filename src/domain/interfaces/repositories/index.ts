@@ -13,3 +13,8 @@ export type { IScheduleRepository } from './IScheduleRepository';
 export type { IAttendanceRepository } from './IAttendanceRepository';
 export type { IExpenseRepository } from './IExpenseRepository';
 export type { IPhysicalCountRepository } from './IPhysicalCountRepository';
+export type { IProductionRecipeRepository } from './IProductionRecipeRepository';
+export type { IProductionRecordRepository } from './IProductionRecordRepository';
+export type { IDemandEstimateRepository } from './IDemandEstimateRepository';
+export type { IDailyAlertRepository } from './IDailyAlertRepository';
+export type { IStockMinimumRepository } from './IStockMinimumRepository';

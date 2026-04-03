@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { DataTable, Text, useTheme } from 'react-native-paper';
+import { DataTable, Text, Button, SegmentedButtons, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { EmptyState } from '../../../src/components/common/EmptyState';
-import { ValidationAlert } from '../../../src/components/inventario/ValidationAlert';
+import { ValidationAlert as ValidationAlertComponent } from '../../../src/components/inventario/ValidationAlert';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
-import { toISODate } from '../../../src/utils/dates';
-import { ValidationAlert as ValidationAlertType } from '../../../src/services/ValidationService';
+import { DailyAlert } from '../../../src/domain/entities';
+import { toISODate, nowColombia } from '../../../src/utils/dates';
 
 const ALERT_COLORS: Record<string, string> = {
   LOSS: '#FFEBEE',
@@ -17,106 +17,145 @@ const ALERT_COLORS: Record<string, string> = {
   OK: '#E8F5E9',
 };
 
+const RANGE_BUTTONS = [
+  { value: 'today', label: 'Hoy' },
+  { value: 'week', label: '7 dias' },
+  { value: 'month', label: '30 dias' },
+];
+
 export default function ValidacionesScreen() {
   const theme = useTheme();
-  const { validationService, inventoryService } = useDI();
+  const { alertService, supplyRepo } = useDI();
   const { selectedStoreId } = useAppStore();
 
-  const [alerts, setAlerts] = useState<ValidationAlertType[]>([]);
+  const [alerts, setAlerts] = useState<DailyAlert[]>([]);
+  const [supplyNames, setSupplyNames] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState('today');
 
   const loadValidations = useCallback(async () => {
+    if (!selectedStoreId) return;
     setLoading(true);
     try {
-      const now = new Date();
-      const endDate = toISODate(now);
-      const startDate = toISODate(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000));
+      const supplies = await supplyRepo.getAll();
+      setSupplyNames(new Map(supplies.map((s) => [s.id, s.name])));
 
-      // For demo purposes, use empty inventory maps
-      // In a real app these would come from physical counts
-      const data = await validationService.getAlerts(
-        selectedStoreId,
-        startDate,
-        endDate,
-        {},
-        {},
-        5,
-      );
-      setAlerts(data);
+      const now = nowColombia();
+      const endDate = toISODate(now);
+
+      let startDate: string;
+      if (range === 'today') {
+        startDate = endDate;
+      } else if (range === 'week') {
+        startDate = toISODate(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000));
+      } else {
+        startDate = toISODate(new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000));
+      }
+
+      if (range === 'today') {
+        const data = await alertService.getDailyAlerts(selectedStoreId, endDate);
+        setAlerts(data);
+      } else {
+        const data = await alertService.getAlertHistory(selectedStoreId, startDate, endDate);
+        setAlerts(data);
+      }
     } catch {
       setAlerts([]);
     } finally {
       setLoading(false);
     }
-  }, [selectedStoreId, validationService]);
+  }, [selectedStoreId, range, alertService, supplyRepo]);
 
   useEffect(() => {
     loadValidations();
   }, [loadValidations]);
 
-  if (loading) {
-    return <LoadingIndicator message="Calculando validaciones..." />;
-  }
+  const anomalies = alerts.filter((a) => a.alertType !== 'OK');
 
   return (
-    <ScreenContainer>
-      <View style={styles.header}>
-        <StoreSelector />
-      </View>
+    <ScreenContainer scrollable padded>
+      <StoreSelector />
 
       <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600' }]}>
         Validaciones de Inventario
       </Text>
-      <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>
-        Comparacion teorica vs real (ultimos 7 dias)
+      <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 12 }}>
+        Comparacion inventario teorico vs conteo fisico
       </Text>
 
-      {alerts.length > 0 && alerts.filter((a) => a.alertType !== 'OK').length > 0 && (
-        <ValidationAlert
-          type="LOSS"
-          message={`Se encontraron ${alerts.filter((a) => a.alertType !== 'OK').length} alertas de inventario`}
-        />
-      )}
+      <SegmentedButtons
+        value={range}
+        onValueChange={setRange}
+        buttons={RANGE_BUTTONS}
+        style={styles.segments}
+      />
 
-      {alerts.length === 0 ? (
-        <EmptyState
-          icon="check-circle"
-          title="Sin alertas"
-          subtitle="No se encontraron discrepancias significativas"
-        />
+      {loading ? (
+        <LoadingIndicator message="Cargando validaciones..." />
       ) : (
-        <DataTable>
-          <DataTable.Header>
-            <DataTable.Title>Insumo</DataTable.Title>
-            <DataTable.Title numeric>Teorico</DataTable.Title>
-            <DataTable.Title numeric>Real</DataTable.Title>
-            <DataTable.Title numeric>Diff %</DataTable.Title>
-          </DataTable.Header>
+        <>
+          {anomalies.length > 0 && (
+            <ValidationAlertComponent
+              type="LOSS"
+              message={`Se encontraron ${anomalies.length} discrepancia(s) de inventario`}
+            />
+          )}
 
-          {alerts.map((alert, index) => (
-            <DataTable.Row
-              key={index}
-              style={{ backgroundColor: ALERT_COLORS[alert.alertType] ?? 'transparent' }}
-            >
-              <DataTable.Cell>{alert.supplyName || `Insumo ${index + 1}`}</DataTable.Cell>
-              <DataTable.Cell numeric>{Math.round(alert.theoreticalGrams)}g</DataTable.Cell>
-              <DataTable.Cell numeric>{Math.round(alert.realGrams)}g</DataTable.Cell>
-              <DataTable.Cell numeric>
-                <Text
-                  variant="bodySmall"
-                  style={{
-                    color: alert.alertType === 'LOSS' ? '#D32F2F'
-                      : alert.alertType === 'SURPLUS' ? '#F57C00'
-                      : '#388E3C',
-                    fontWeight: '600',
-                  }}
+          {alerts.length === 0 ? (
+            <EmptyState
+              icon="check-circle"
+              title="Sin alertas"
+              subtitle="No se encontraron validaciones para este periodo. Las alertas se generan automaticamente al hacer cierre de caja."
+            />
+          ) : (
+            <DataTable>
+              <DataTable.Header>
+                <DataTable.Title>Insumo</DataTable.Title>
+                <DataTable.Title numeric>Teorico</DataTable.Title>
+                <DataTable.Title numeric>Real</DataTable.Title>
+                <DataTable.Title numeric>Diff %</DataTable.Title>
+              </DataTable.Header>
+
+              {alerts.map((alert) => (
+                <DataTable.Row
+                  key={alert.id}
+                  style={{ backgroundColor: ALERT_COLORS[alert.alertType] ?? 'transparent' }}
                 >
-                  {alert.differencePercent > 0 ? '+' : ''}{alert.differencePercent.toFixed(1)}%
-                </Text>
-              </DataTable.Cell>
-            </DataTable.Row>
-          ))}
-        </DataTable>
+                  <DataTable.Cell>
+                    {supplyNames.get(alert.supplyId) ?? 'Insumo'}
+                  </DataTable.Cell>
+                  <DataTable.Cell numeric>{Math.round(alert.theoreticalGrams)}g</DataTable.Cell>
+                  <DataTable.Cell numeric>{Math.round(alert.realGrams)}g</DataTable.Cell>
+                  <DataTable.Cell numeric>
+                    <Text
+                      variant="bodySmall"
+                      style={{
+                        color:
+                          alert.alertType === 'LOSS'
+                            ? '#D32F2F'
+                            : alert.alertType === 'SURPLUS'
+                              ? '#F57C00'
+                              : '#388E3C',
+                        fontWeight: '600',
+                      }}
+                    >
+                      {alert.differencePercent > 0 ? '+' : ''}
+                      {alert.differencePercent.toFixed(1)}%
+                    </Text>
+                  </DataTable.Cell>
+                </DataTable.Row>
+              ))}
+            </DataTable>
+          )}
+
+          {alerts.length > 0 && (
+            <View style={styles.summary}>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                Total alertas: {alerts.length} | Perdidas: {alerts.filter((a) => a.alertType === 'LOSS').length} | Sobrantes: {alerts.filter((a) => a.alertType === 'SURPLUS').length} | OK: {alerts.filter((a) => a.alertType === 'OK').length}
+              </Text>
+            </View>
+          )}
+        </>
       )}
 
       <View style={{ height: 80 }} />
@@ -125,10 +164,17 @@ export default function ValidacionesScreen() {
 }
 
 const styles = StyleSheet.create({
-  header: {
+  sectionTitle: {
+    marginTop: 16,
+    marginBottom: 4,
+  },
+  segments: {
     marginBottom: 16,
   },
-  sectionTitle: {
-    marginBottom: 4,
+  summary: {
+    marginTop: 16,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#1E1E1E',
   },
 });

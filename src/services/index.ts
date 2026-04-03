@@ -8,3 +8,6 @@ export { PayrollService } from './PayrollService';
 export { DashboardService } from './DashboardService';
 export { SupabaseAuthService } from './SupabaseAuthService';
 export { PhysicalCountService } from './PhysicalCountService';
+export { ProductionService } from './ProductionService';
+export { DemandEstimationService } from './DemandEstimationService';
+export { AlertService } from './AlertService';

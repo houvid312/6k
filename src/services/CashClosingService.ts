@@ -1,5 +1,6 @@
 import { CashClosing, DenominationCount } from '../domain/entities';
 import { ICashClosingRepository, ISaleRepository, IExpenseRepository } from '../domain/interfaces/repositories';
+import { AlertService } from './AlertService';
 
 /** Denomination values matching the DenominationCount keys. */
 const DENOMINATION_VALUES: Record<keyof DenominationCount, number> = {
@@ -17,6 +18,7 @@ export class CashClosingService {
     private cashClosingRepo: ICashClosingRepository,
     private saleRepo: ISaleRepository,
     private expenseRepo: IExpenseRepository,
+    private alertService?: AlertService,
   ) {}
 
   /**
@@ -59,6 +61,15 @@ export class CashClosingService {
       discrepancy,
       expenses,
     } as Omit<CashClosing, 'id'>);
+
+    // Trigger inventory validation after cash closing
+    if (this.alertService) {
+      try {
+        await this.alertService.triggerPostClosingValidation(storeId, date);
+      } catch {
+        // Don't fail the cash closing if alert generation fails
+      }
+    }
 
     return closing;
   }

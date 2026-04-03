@@ -8,7 +8,7 @@ import { useDI } from '../../../src/di/providers';
 import { useSnackbar } from '../../../src/hooks';
 import { DebtorType } from '../../../src/domain/entities';
 import { formatCOP } from '../../../src/utils/currency';
-import { toISODate } from '../../../src/utils/dates';
+import { todayColombia } from '../../../src/utils/dates';
 
 export default function NuevoCreditoScreen() {
   const theme = useTheme();
@@ -38,7 +38,7 @@ export default function NuevoCreditoScreen() {
         debtorType as DebtorType,
         concept || 'Credito',
         amount,
-        toISODate(new Date()),
+        todayColombia(),
       );
       showSuccess(`Credito de ${formatCOP(amount)} registrado para ${debtorName.trim()}`);
       setTimeout(() => router.back(), 1200);

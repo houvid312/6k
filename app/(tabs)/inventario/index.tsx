@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { FlatList, View, StyleSheet } from 'react-native';
-import { SegmentedButtons, Text, Button, useTheme } from 'react-native-paper';
+import { FlatList, View, StyleSheet, ScrollView } from 'react-native';
+import { SegmentedButtons, Text, Button, Divider, useTheme } from 'react-native-paper';
 import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
@@ -20,14 +20,17 @@ const LEVEL_BUTTONS = [
 
 export default function InventarioScreen() {
   const theme = useTheme();
-  const { inventoryService } = useDI();
+  const { inventoryService, stockMinimumRepo } = useDI();
   const { selectedStoreId } = useAppStore();
 
   const [level, setLevel] = useState<string>(String(InventoryLevel.STORE));
   const [items, setItems] = useState<InventorySummaryItem[]>([]);
+  const [minimums, setMinimums] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
   const { loadStores } = useAppStore();
+
+  const currentLevel = Number(level) as InventoryLevel;
 
   const loadInventory = useCallback(async () => {
     if (!selectedStoreId) {
@@ -36,21 +39,40 @@ export default function InventarioScreen() {
     }
     setLoading(true);
     try {
-      const summary = await inventoryService.getInventorySummary(
-        selectedStoreId,
-        Number(level) as InventoryLevel,
-      );
+      const summary = await inventoryService.getInventorySummary(selectedStoreId, currentLevel);
       setItems(summary);
+
+      // Load minimums separately so it doesn't break inventory loading
+      try {
+        const mins = await stockMinimumRepo.getByStoreAndLevel(selectedStoreId, currentLevel);
+        const minMap: Record<string, number> = {};
+        for (const m of mins) {
+          minMap[m.supplyId] = m.minimumGrams;
+        }
+        setMinimums(minMap);
+      } catch {
+        setMinimums({});
+      }
     } catch {
       setItems([]);
     } finally {
       setLoading(false);
     }
-  }, [selectedStoreId, level, inventoryService, loadStores]);
+  }, [selectedStoreId, currentLevel, inventoryService, stockMinimumRepo, loadStores]);
 
   useEffect(() => {
     loadInventory();
   }, [loadInventory]);
+
+  const handleSetMinimum = useCallback(async (supplyId: string, grams: number) => {
+    if (!selectedStoreId) return;
+    try {
+      await stockMinimumRepo.upsert(selectedStoreId, supplyId, currentLevel, grams);
+      setMinimums((prev) => ({ ...prev, [supplyId]: grams }));
+    } catch {
+      // silently fail
+    }
+  }, [selectedStoreId, currentLevel, stockMinimumRepo]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -66,23 +88,44 @@ export default function InventarioScreen() {
           style={styles.segments}
         />
 
-        <View style={styles.navRow}>
-          <Button mode="outlined" compact icon="cart" onPress={() => router.push('/(tabs)/inventario/compras')}>
-            Compras
-          </Button>
-          <Button mode="outlined" compact icon="truck" onPress={() => router.push('/(tabs)/inventario/traslados')}>
-            Traslados
-          </Button>
-          <Button mode="outlined" compact icon="clipboard-check" onPress={() => router.push('/(tabs)/inventario/cierre-fisico')}>
-            Cierre
-          </Button>
-          <Button mode="outlined" compact icon="alert" onPress={() => router.push('/(tabs)/inventario/validaciones')}>
-            Valid.
-          </Button>
-          <Button mode="outlined" compact icon="book-open-variant" onPress={() => router.push('/(tabs)/inventario/recetas')}>
-            Recetas
-          </Button>
-        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.navScroll}>
+          <View style={styles.navRow}>
+            <Button mode="outlined" compact icon="cart" onPress={() => router.push('/(tabs)/inventario/compras')}>
+              Compras
+            </Button>
+            <Button mode="outlined" compact icon="truck" onPress={() => router.push('/(tabs)/inventario/traslados')}>
+              Traslados
+            </Button>
+            <Button mode="outlined" compact icon="clipboard-check" onPress={() => router.push('/(tabs)/inventario/cierre-fisico')}>
+              Cierre
+            </Button>
+            <Button mode="outlined" compact icon="alert" onPress={() => router.push('/(tabs)/inventario/validaciones')}>
+              Alertas
+            </Button>
+          </View>
+        </ScrollView>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.navScroll}>
+          <View style={styles.navRow}>
+            <Button mode="outlined" compact icon="factory" onPress={() => router.push('/(tabs)/inventario/produccion')}>
+              Produccion
+            </Button>
+            <Button mode="outlined" compact icon="book-open-variant" onPress={() => router.push('/(tabs)/inventario/recetas')}>
+              Recetas
+            </Button>
+            <Button mode="outlined" compact icon="book-cog" onPress={() => router.push('/(tabs)/inventario/recetas-produccion')}>
+              Rec. Prod.
+            </Button>
+            <Button mode="outlined" compact icon="calculator" onPress={() => router.push('/(tabs)/inventario/sugerencia-envio')}>
+              Sugerencia
+            </Button>
+            <Button mode="outlined" compact icon="chart-bar" onPress={() => router.push('/(tabs)/inventario/demanda')}>
+              Demanda
+            </Button>
+            <Button mode="outlined" compact icon="package-variant" onPress={() => router.push('/(tabs)/inventario/insumos')}>
+              Insumos
+            </Button>
+          </View>
+        </ScrollView>
       </View>
 
       {loading ? (
@@ -92,7 +135,13 @@ export default function InventarioScreen() {
       ) : (
         <FlatList
           data={items}
-          renderItem={({ item }) => <InventoryLevelCard item={item} />}
+          renderItem={({ item }) => (
+            <InventoryLevelCard
+              item={item}
+              minimumGrams={minimums[item.supplyId] ?? 0}
+              onSetMinimum={handleSetMinimum}
+            />
+          )}
           keyExtractor={(item) => item.supplyId}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
@@ -116,11 +165,13 @@ const styles = StyleSheet.create({
   segments: {
     marginBottom: 12,
   },
+  navScroll: {
+    marginBottom: 8,
+    flexGrow: 0,
+  },
   navRow: {
     flexDirection: 'row',
     gap: 6,
-    marginBottom: 12,
-    flexWrap: 'wrap',
   },
   list: {
     padding: 16,

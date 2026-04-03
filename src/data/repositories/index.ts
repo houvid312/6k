@@ -13,3 +13,8 @@ export { SupabaseScheduleRepository } from './SupabaseScheduleRepository';
 export { SupabaseAttendanceRepository } from './SupabaseAttendanceRepository';
 export { SupabaseExpenseRepository } from './SupabaseExpenseRepository';
 export { SupabasePhysicalCountRepository } from './SupabasePhysicalCountRepository';
+export { SupabaseProductionRecipeRepository } from './SupabaseProductionRecipeRepository';
+export { SupabaseProductionRecordRepository } from './SupabaseProductionRecordRepository';
+export { SupabaseDemandEstimateRepository } from './SupabaseDemandEstimateRepository';
+export { SupabaseDailyAlertRepository } from './SupabaseDailyAlertRepository';
+export { SupabaseStockMinimumRepository } from './SupabaseStockMinimumRepository';
