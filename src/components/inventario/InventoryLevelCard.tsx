@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { Card, Text, TextInput, Button, Portal, Modal, useTheme } from 'react-native-paper';
+import { View, StyleSheet, Pressable } from 'react-native';
+import { Text, TextInput, Button, Portal, Modal } from 'react-native-paper';
 import { InventorySummaryItem } from '../../services/InventoryService';
 
 interface Props {
@@ -18,16 +18,15 @@ function getStockColor(current: number, minimum: number): string {
 }
 
 function getStockLabel(current: number, minimum: number): string {
-  if (minimum <= 0) return 'Sin minimo configurado';
+  if (minimum <= 0) return '';
   const ratio = current / minimum;
-  if (ratio >= 1.5) return 'Stock alto';
-  if (ratio >= 1) return 'Stock medio';
-  if (ratio >= 0.5) return 'Stock bajo';
-  return 'Stock critico';
+  if (ratio >= 1.5) return 'Alto';
+  if (ratio >= 1) return 'Medio';
+  if (ratio >= 0.5) return 'Bajo';
+  return 'Critico';
 }
 
 export function InventoryLevelCard({ item, minimumGrams = 0, onSetMinimum }: Props) {
-  const theme = useTheme();
   const stockColor = getStockColor(item.quantityGrams, minimumGrams);
   const barWidth = minimumGrams > 0
     ? Math.min(100, (item.quantityGrams / (minimumGrams * 2)) * 100)
@@ -52,81 +51,56 @@ export function InventoryLevelCard({ item, minimumGrams = 0, onSetMinimum }: Pro
 
   return (
     <>
-      <Card style={styles.card} mode="elevated" onPress={handleOpenModal}>
-        <Card.Content>
-          <View style={styles.header}>
-            <Text variant="titleSmall" style={{ fontWeight: '600' }}>
-              {item.supplyName}
-            </Text>
-            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-              {item.gramsPerBag}g/bolsa
-            </Text>
-          </View>
-          <View style={styles.statsRow}>
-            <View style={styles.stat}>
-              <Text variant="headlineSmall" style={{ fontWeight: 'bold' }}>
-                {item.bags}
-              </Text>
-              <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                Bolsas
-              </Text>
-            </View>
-            <View style={styles.stat}>
-              <Text variant="headlineSmall" style={{ fontWeight: 'bold' }}>
-                {Math.round(item.looseGrams)}
-              </Text>
-              <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                Gramos sueltos
-              </Text>
-            </View>
-            <View style={styles.stat}>
-              <Text variant="titleMedium" style={{ fontWeight: '600' }}>
-                {Math.round(item.quantityGrams)}g
-              </Text>
-              <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                Total
-              </Text>
-            </View>
-          </View>
-
+      <Pressable
+        style={[styles.row, minimumGrams > 0 && { borderLeftWidth: 3, borderLeftColor: stockColor }]}
+        onPress={onSetMinimum ? handleOpenModal : undefined}
+      >
+        {/* Left: name + stock bar */}
+        <View style={styles.info}>
+          <Text variant="bodyMedium" style={styles.name} numberOfLines={1}>
+            {item.supplyName}
+          </Text>
           {minimumGrams > 0 ? (
-            <>
-              <View style={styles.barBackground}>
-                <View
-                  style={[
-                    styles.barFill,
-                    { width: `${barWidth}%`, backgroundColor: stockColor },
-                  ]}
-                />
+            <View style={styles.barRow}>
+              <View style={styles.barBg}>
+                <View style={[styles.barFill, { width: `${barWidth}%`, backgroundColor: stockColor }]} />
               </View>
-              <View style={styles.minRow}>
-                <Text variant="labelSmall" style={{ color: stockColor, fontWeight: '600' }}>
-                  {getStockLabel(item.quantityGrams, minimumGrams)}
-                </Text>
-                <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  Min: {Math.round(minimumGrams)}g ({Math.ceil(minimumGrams / item.gramsPerBag)} bolsas)
-                </Text>
-              </View>
-            </>
+              <Text style={[styles.stockLabel, { color: stockColor }]}>
+                {getStockLabel(item.quantityGrams, minimumGrams)}
+              </Text>
+            </View>
           ) : onSetMinimum ? (
-            <Text variant="labelSmall" style={{ color: '#666', textAlign: 'center', marginTop: 4 }}>
-              Toca para configurar stock minimo
-            </Text>
+            <Text style={styles.noMin}>Toca para min.</Text>
           ) : null}
-        </Card.Content>
-      </Card>
+        </View>
+
+        {/* Right: quantities */}
+        <View style={styles.quantities}>
+          <Text variant="titleMedium" style={styles.totalGrams}>
+            {item.bags > 0 ? `${item.bags}` : '0'}
+          </Text>
+          <Text style={styles.unitLabel}>bolsa{item.bags !== 1 ? 's' : ''}</Text>
+        </View>
+
+        <View style={styles.quantities}>
+          <Text variant="titleMedium" style={styles.totalGrams}>
+            {Math.round(item.quantityGrams)}
+          </Text>
+          <Text style={styles.unitLabel}>g total</Text>
+        </View>
+      </Pressable>
 
       <Portal>
         <Modal
           visible={modalVisible}
           onDismiss={() => setModalVisible(false)}
-          contentContainerStyle={[styles.modal, { backgroundColor: '#1E1E1E' }]}
+          contentContainerStyle={styles.modal}
         >
           <Text variant="titleMedium" style={{ color: '#F5F0EB', fontWeight: '600', marginBottom: 4 }}>
             Stock minimo: {item.supplyName}
           </Text>
           <Text variant="bodySmall" style={{ color: '#999', marginBottom: 16 }}>
-            Actual: {Math.round(item.quantityGrams)}g ({item.bags} bolsas)
+            Actual: {Math.round(item.quantityGrams)}g ({item.bags} bolsas de {item.gramsPerBag}g)
           </Text>
 
           <TextInput
@@ -163,43 +137,69 @@ export function InventoryLevelCard({ item, minimumGrams = 0, onSetMinimum }: Pro
 }
 
 const styles = StyleSheet.create({
-  card: {
-    marginBottom: 8,
-    borderRadius: 12,
-  },
-  header: {
+  row: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    backgroundColor: '#1E1E1E',
+    borderRadius: 8,
+    marginBottom: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
   },
-  statsRow: {
+  info: {
+    flex: 1,
+    marginRight: 8,
+  },
+  name: {
+    color: '#F5F0EB',
+    fontWeight: '600',
+  },
+  barRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 12,
-  },
-  stat: {
     alignItems: 'center',
+    marginTop: 4,
+    gap: 6,
   },
-  barBackground: {
-    height: 6,
+  barBg: {
+    flex: 1,
+    height: 4,
     backgroundColor: '#333',
-    borderRadius: 3,
+    borderRadius: 2,
     overflow: 'hidden',
   },
   barFill: {
-    height: 6,
-    borderRadius: 3,
+    height: 4,
+    borderRadius: 2,
   },
-  minRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 6,
+  stockLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    width: 40,
+  },
+  noMin: {
+    fontSize: 10,
+    color: '#555',
+    marginTop: 2,
+  },
+  quantities: {
+    alignItems: 'center',
+    minWidth: 50,
+    marginLeft: 4,
+  },
+  totalGrams: {
+    color: '#F5F0EB',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  unitLabel: {
+    fontSize: 9,
+    color: '#777',
   },
   modal: {
     margin: 20,
     padding: 20,
     borderRadius: 12,
+    backgroundColor: '#1E1E1E',
   },
   modalActions: {
     flexDirection: 'row',

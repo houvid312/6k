@@ -6,8 +6,9 @@ import { LoadingIndicator } from '../../../src/components/common/LoadingIndicato
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
 import { useDI } from '../../../src/di/providers';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
-import { ProductionRecipe, Supply } from '../../../src/domain/entities';
+import { ProductionRecipe } from '../../../src/domain/entities';
 
 interface EditableInput {
   supplyId: string;
@@ -39,11 +40,11 @@ const EMPTY_FORM: NewRecipeForm = {
 
 export default function RecetasProduccionScreen() {
   const theme = useTheme();
-  const { productionRecipeRepo, supplyRepo } = useDI();
+  const { productionRecipeRepo } = useDI();
+  const { supplies } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [recipes, setRecipes] = useState<ProductionRecipe[]>([]);
-  const [supplies, setSupplies] = useState<Supply[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<NewRecipeForm>(EMPTY_FORM);
@@ -57,18 +58,14 @@ export default function RecetasProduccionScreen() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [allRecipes, allSupplies] = await Promise.all([
-        productionRecipeRepo.getAll(),
-        supplyRepo.getAll(),
-      ]);
+      const allRecipes = await productionRecipeRepo.getAll();
       setRecipes(allRecipes);
-      setSupplies(allSupplies);
     } catch {
       showError('Error al cargar recetas');
     } finally {
       setLoading(false);
     }
-  }, [productionRecipeRepo, supplyRepo]);
+  }, [productionRecipeRepo]);
 
   useEffect(() => {
     loadData();

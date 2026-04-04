@@ -73,7 +73,7 @@ export class SupabaseTransferRepository implements ITransferRepository {
       .from('transfers')
       .insert({
         order_date: transfer.orderDate,
-        shipping_date: transfer.shippingDate,
+        shipping_date: transfer.shippingDate || null,
         from_store_id: transfer.fromStoreId,
         to_store_id: transfer.toStoreId,
         status: transfer.status,

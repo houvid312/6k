@@ -64,11 +64,9 @@ export class SupabaseInventoryRepository implements IInventoryRepository {
       .eq('supply_id', supplyId)
       .eq('store_id', storeId)
       .eq('level', LEVEL_TO_DB[level])
-      .single();
-    if (error) {
-      if (error.code === 'PGRST116') return null;
-      throw error;
-    }
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
     return toEntity(data as InventoryRow);
   }
 

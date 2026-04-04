@@ -15,6 +15,7 @@ interface SaleRow {
   payment_method: string;
   observations: string | null;
   is_paid: boolean;
+  is_dispatched: boolean;
   customer_note: string | null;
   workers?: { name: string } | null;
 }
@@ -55,6 +56,7 @@ function saleRowToEntity(row: SaleRow, items: SaleItem[]): Sale {
     paymentMethod: row.payment_method as PaymentMethod,
     observations: row.observations ?? undefined,
     isPaid: row.is_paid ?? true,
+    isDispatched: row.is_dispatched ?? false,
     customerNote: row.customer_note ?? undefined,
     workerName: row.workers?.name ?? undefined,
   };
@@ -129,6 +131,22 @@ export class SupabaseSaleRepository implements ISaleRepository {
     }
   }
 
+  async markAsDispatched(saleId: string): Promise<void> {
+    const { data, error } = await supabase
+      .from('sales')
+      .update({ is_dispatched: true })
+      .eq('id', saleId)
+      .select('id, is_dispatched');
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      throw new Error(
+        `No se pudo actualizar la venta ${saleId}. Verifica permisos RLS o que el registro exista.`
+      );
+    }
+  }
+
   async delete(saleId: string): Promise<void> {
     // sale_items are deleted by CASCADE
     const { error } = await supabase.from('sales').delete().eq('id', saleId);
@@ -160,6 +178,7 @@ export class SupabaseSaleRepository implements ISaleRepository {
         bank_amount: sale.bankAmount,
         observations: sale.observations ?? null,
         is_paid: sale.isPaid ?? true,
+        is_dispatched: sale.isDispatched ?? false,
         customer_note: sale.customerNote ?? null,
       })
       .select()
@@ -181,6 +200,15 @@ export class SupabaseSaleRepository implements ISaleRepository {
     const { error: itemsError } = await supabase.from('sale_items').insert(itemRows);
     if (itemsError) throw itemsError;
 
+    // Descontar inventario ahora que los sale_items ya existen
+    const { error: deductError } = await supabase.rpc('deduct_inventory_for_sale', {
+      p_sale_id: saleRow.id,
+    });
+    if (deductError) {
+      console.error('Error descontando inventario:', deductError);
+      // No lanzar error para no bloquear la venta si falla el descuento
+    }
+
     return this.getById(saleRow.id) as Promise<Sale>;
   }
 
@@ -190,16 +218,18 @@ export class SupabaseSaleRepository implements ISaleRepository {
 
     const { data, error } = await supabase
       .from('sales')
-      .select('total_portions, total_amount')
+      .select('total_portions, total_amount, cash_amount, bank_amount')
       .eq('store_id', storeId)
       .gte('created_at', dayStart)
       .lte('created_at', dayEnd);
     if (error) throw error;
 
-    const rows = data as Pick<SaleRow, 'total_portions' | 'total_amount'>[];
+    const rows = data as Pick<SaleRow, 'total_portions' | 'total_amount' | 'cash_amount' | 'bank_amount'>[];
     return {
       totalPortions: rows.reduce((sum, r) => sum + r.total_portions, 0),
       totalAmount: rows.reduce((sum, r) => sum + r.total_amount, 0),
+      totalCashAmount: rows.reduce((sum, r) => sum + r.cash_amount, 0),
+      totalBankAmount: rows.reduce((sum, r) => sum + r.bank_amount, 0),
       salesCount: rows.length,
     };
   }

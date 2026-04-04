@@ -1,0 +1,7 @@
+export enum WriteoffReason {
+  DAMAGED = 'DAMAGED',
+  EXPIRED = 'EXPIRED',
+  SPILLED = 'SPILLED',
+  CONTAMINATED = 'CONTAMINATED',
+  OTHER = 'OTHER',
+}

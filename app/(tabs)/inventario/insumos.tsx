@@ -16,6 +16,7 @@ import { LoadingIndicator } from '../../../src/components/common/LoadingIndicato
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
 import { useDI } from '../../../src/di/providers';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
 import { Supply, SupplyUnit } from '../../../src/domain/entities';
 
@@ -36,6 +37,7 @@ const EMPTY_FORM: FormState = { name: '', unit: 'GRAMOS', gramsPerBag: '' };
 export default function InsumosScreen() {
   const theme = useTheme();
   const { supplyRepo } = useDI();
+  const { supplies: cachedSupplies, refreshMasterData } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [supplies, setSupplies] = useState<Supply[]>([]);
@@ -46,21 +48,10 @@ export default function InsumosScreen() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
 
-  const loadSupplies = useCallback(async () => {
-    setLoading(true);
-    try {
-      const all = await supplyRepo.getAll();
-      setSupplies(all.sort((a, b) => a.name.localeCompare(b.name)));
-    } catch {
-      showError('Error al cargar insumos');
-    } finally {
-      setLoading(false);
-    }
-  }, [supplyRepo]);
-
   useEffect(() => {
-    loadSupplies();
-  }, [loadSupplies]);
+    setSupplies([...cachedSupplies].sort((a, b) => a.name.localeCompare(b.name)));
+    setLoading(false);
+  }, [cachedSupplies]);
 
   const handleNew = () => {
     setEditingId(null);
@@ -107,13 +98,13 @@ export default function InsumosScreen() {
         showSuccess(`${form.name.trim()} creado`);
       }
       setModalVisible(false);
-      loadSupplies();
+      refreshMasterData();
     } catch {
       showError('Error al guardar insumo');
     } finally {
       setSaving(false);
     }
-  }, [editingId, form, supplyRepo, loadSupplies, showSuccess, showError]);
+  }, [editingId, form, supplyRepo, refreshMasterData, showSuccess, showError]);
 
   const filteredSupplies = searchQuery.trim()
     ? supplies.filter((s) => s.name.toLowerCase().includes(searchQuery.toLowerCase().trim()))

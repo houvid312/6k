@@ -11,28 +11,24 @@ import { Supply } from '../../../src/domain/entities';
 import { PaymentMethod } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 
 export default function ComprasScreen() {
   const theme = useTheme();
-  const { supplyRepo, purchaseRepo } = useDI();
-  const { stores } = useAppStore();
+  const { purchaseRepo } = useDI();
+  const { stores, selectedStoreId } = useAppStore();
+  const { supplies } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
-  const productionCenterId = stores.find((s) => s.isProductionCenter)?.id ?? '';
+  const productionCenter = stores.find((s) => s.isProductionCenter);
+  const productionCenterId = productionCenter?.id ?? '';
+  const isProductionCenter = selectedStoreId === productionCenterId;
 
-  const [supplies, setSupplies] = useState<Supply[]>([]);
   const [selectedSupplyId, setSelectedSupplyId] = useState<string>('');
   const [quantityGrams, setQuantityGrams] = useState('');
   const [priceCOP, setPriceCOP] = useState(0);
   const [supplier, setSupplier] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.EFECTIVO);
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      const all = await supplyRepo.getAll();
-      setSupplies(all);
-    })();
-  }, [supplyRepo]);
 
   const supplyOptions = useMemo(
     () => supplies.map((s) => ({ value: s.id, label: s.name, subtitle: `${s.gramsPerBag}g/bolsa` })),
@@ -79,6 +75,24 @@ export default function ComprasScreen() {
       setSubmitting(false);
     }
   }, [selectedSupply, quantityGrams, priceCOP, supplier, paymentMethod, purchaseRepo, showSuccess, showError]);
+
+  if (!isProductionCenter) {
+    return (
+      <ScreenContainer>
+        <View style={styles.blockedContainer}>
+          <Text variant="headlineMedium" style={{ textAlign: 'center', marginBottom: 12 }}>
+            Compras no disponible
+          </Text>
+          <Text variant="bodyLarge" style={{ textAlign: 'center', color: '#999', marginBottom: 8 }}>
+            El ingreso de materia prima solo se realiza desde el Centro de Produccion.
+          </Text>
+          <Text variant="bodyMedium" style={{ textAlign: 'center', color: '#777' }}>
+            Cambia al Centro de Produccion en el selector de local para registrar compras.
+          </Text>
+        </View>
+      </ScreenContainer>
+    );
+  }
 
   return (
     <ScreenContainer>
@@ -150,6 +164,12 @@ export default function ComprasScreen() {
 }
 
 const styles = StyleSheet.create({
+  blockedContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
   sectionTitle: {
     marginBottom: 16,
   },

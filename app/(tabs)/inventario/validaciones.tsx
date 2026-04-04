@@ -8,6 +8,7 @@ import { EmptyState } from '../../../src/components/common/EmptyState';
 import { ValidationAlert as ValidationAlertComponent } from '../../../src/components/inventario/ValidationAlert';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { DailyAlert } from '../../../src/domain/entities';
 import { toISODate, nowColombia } from '../../../src/utils/dates';
 
@@ -25,8 +26,9 @@ const RANGE_BUTTONS = [
 
 export default function ValidacionesScreen() {
   const theme = useTheme();
-  const { alertService, supplyRepo } = useDI();
+  const { alertService } = useDI();
   const { selectedStoreId } = useAppStore();
+  const { supplies: cachedSupplies } = useMasterDataStore();
 
   const [alerts, setAlerts] = useState<DailyAlert[]>([]);
   const [supplyNames, setSupplyNames] = useState<Map<string, string>>(new Map());
@@ -37,8 +39,7 @@ export default function ValidacionesScreen() {
     if (!selectedStoreId) return;
     setLoading(true);
     try {
-      const supplies = await supplyRepo.getAll();
-      setSupplyNames(new Map(supplies.map((s) => [s.id, s.name])));
+      setSupplyNames(new Map(cachedSupplies.map((s) => [s.id, s.name])));
 
       const now = nowColombia();
       const endDate = toISODate(now);
@@ -64,7 +65,7 @@ export default function ValidacionesScreen() {
     } finally {
       setLoading(false);
     }
-  }, [selectedStoreId, range, alertService, supplyRepo]);
+  }, [selectedStoreId, range, alertService, cachedSupplies]);
 
   useEffect(() => {
     loadValidations();

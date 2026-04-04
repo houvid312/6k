@@ -1,6 +1,7 @@
-import { Stack } from 'expo-router';
-import { useTheme } from 'react-native-paper';
+import { Stack, router } from 'expo-router';
+import { useTheme, IconButton } from 'react-native-paper';
 import { HeaderUserMenu } from '../../../src/components/common/HeaderUserMenu';
+import { HeaderLogo } from '../../../src/components/common/HeaderLogo';
 
 export default function InventarioLayout() {
   const theme = useTheme();
@@ -24,7 +25,21 @@ export default function InventarioLayout() {
       />
       <Stack.Screen name="compras" options={{ title: 'Registrar Compra' }} />
       <Stack.Screen name="traslados" options={{ title: 'Traslados' }} />
-      <Stack.Screen name="cierre-fisico" options={{ title: 'Cierre Fisico' }} />
+      <Stack.Screen
+        name="cierre-fisico"
+        options={{
+          headerTitle: () => <HeaderLogo />,
+          headerLeft: () => (
+            <IconButton
+              icon="arrow-left"
+              iconColor="#F5F0EB"
+              size={24}
+              onPress={() => router.back()}
+            />
+          ),
+          headerRight: () => <HeaderUserMenu />,
+        }}
+      />
       <Stack.Screen name="validaciones" options={{ title: 'Validaciones' }} />
       <Stack.Screen name="recetas" options={{ title: 'Recetas' }} />
       <Stack.Screen name="produccion" options={{ title: 'Produccion' }} />
@@ -32,6 +47,7 @@ export default function InventarioLayout() {
       <Stack.Screen name="sugerencia-envio" options={{ title: 'Sugerencia de Envio' }} />
       <Stack.Screen name="demanda" options={{ title: 'Demanda Estimada' }} />
       <Stack.Screen name="insumos" options={{ title: 'Insumos' }} />
+      <Stack.Screen name="bajas" options={{ title: 'Bajas de Inventario' }} />
     </Stack>
   );
 }

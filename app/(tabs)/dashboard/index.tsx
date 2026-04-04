@@ -10,6 +10,7 @@ import { PortionBreakdown } from '../../../src/components/dashboard/PortionBreak
 import { FoodCostGauge } from '../../../src/components/dashboard/FoodCostGauge';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { formatCOP } from '../../../src/utils/currency';
 import { toISODate, formatDate } from '../../../src/utils/dates';
 import type { ProductMargin } from '../../../src/services/DashboardService';
@@ -19,8 +20,9 @@ const DAY_NAMES = ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes
 
 export default function DashboardScreen() {
   const theme = useTheme();
-  const { dashboardService, productRepo, saleService, expenseRepo } = useDI();
+  const { dashboardService, saleService, expenseRepo } = useDI();
   const { selectedStoreId } = useAppStore();
+  const { products: cachedProducts } = useMasterDataStore();
 
   const [loading, setLoading] = useState(true);
   const [totalSales, setTotalSales] = useState(0);
@@ -62,8 +64,7 @@ export default function DashboardScreen() {
       setFoodCost(fc);
 
       // Top products
-      const products = await productRepo.getAll();
-      const productMap = new Map(products.map((p) => [p.id, p.name]));
+      const productMap = new Map(cachedProducts.map((p) => [p.id, p.name]));
 
       const top = await dashboardService.getTopProducts(selectedStoreId, startDate, endDate, 5);
       setTopProducts(
@@ -156,7 +157,7 @@ export default function DashboardScreen() {
     } finally {
       setLoading(false);
     }
-  }, [selectedStoreId, dashboardService, productRepo, saleService, expenseRepo]);
+  }, [selectedStoreId, dashboardService, cachedProducts, saleService, expenseRepo]);
 
   useEffect(() => {
     loadData();

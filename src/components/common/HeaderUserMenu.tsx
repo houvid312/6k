@@ -4,11 +4,13 @@ import { Menu, Text, Divider } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAppStore } from '../../stores/useAppStore';
+import { useMasterDataStore } from '../../stores/useMasterDataStore';
 import { useDI } from '../../di/providers';
 import { UserRole } from '../../domain/enums';
 
 export function HeaderUserMenu() {
   const { userName, userRole, logout } = useAppStore();
+  const { refreshMasterData, loading: refreshing } = useMasterDataStore();
   const { authService } = useDI();
   const [visible, setVisible] = useState(false);
 
@@ -45,6 +47,15 @@ export function HeaderUserMenu() {
         titleStyle={styles.roleItem}
       />
       <Divider />
+      <Menu.Item
+        title={refreshing ? 'Recargando...' : 'Recargar datos'}
+        leadingIcon="refresh"
+        onPress={() => {
+          setVisible(false);
+          refreshMasterData();
+        }}
+        disabled={refreshing}
+      />
       <Menu.Item
         title="Cerrar Sesion"
         leadingIcon="logout"

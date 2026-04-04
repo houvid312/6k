@@ -43,6 +43,7 @@ export default function CierreCajaScreen() {
       try {
         const summary = await cashClosingService.getDailyExpected(selectedStoreId, today);
         setExpectedTotal(summary.totalAmount);
+        setBankTotal(summary.totalBankAmount);
 
         const existing = await cashClosingService.getClosingByDate(selectedStoreId, today);
         if (existing) {
@@ -78,7 +79,7 @@ export default function CierreCajaScreen() {
   return (
     <ScreenContainer>
       <View style={styles.header}>
-        <StoreSelector />
+        <StoreSelector excludeProductionCenter />
         <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
           {formatDate(new Date())}
         </Text>

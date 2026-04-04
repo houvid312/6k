@@ -21,3 +21,4 @@ export type { ProductionRecord, ProductionRecordItem } from './ProductionRecord'
 export type { DemandEstimate } from './DemandEstimate';
 export type { DailyAlert } from './DailyAlert';
 export type { StockMinimum } from './StockMinimum';
+export type { InventoryWriteoff } from './InventoryWriteoff';

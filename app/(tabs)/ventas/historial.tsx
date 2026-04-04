@@ -6,7 +6,8 @@ import { EmptyState } from '../../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
-import { Sale, Product } from '../../../src/domain/entities';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
+import { Sale } from '../../../src/domain/entities';
 import { PaymentMethod, PizzaSize } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDateTime, toISODate } from '../../../src/utils/dates';
@@ -26,17 +27,13 @@ const SIZE_SHORT: Record<PizzaSize, string> = {
 
 export default function HistorialScreen() {
   const theme = useTheme();
-  const { saleService, productRepo } = useDI();
+  const { saleService } = useDI();
   const { selectedStoreId } = useAppStore();
+  const { products } = useMasterDataStore();
 
   const [sales, setSales] = useState<Sale[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'hoy' | 'semana' | 'mes'>('hoy');
-
-  useEffect(() => {
-    productRepo.getAll().then(setProducts).catch(() => {});
-  }, [productRepo]);
 
   const loadSales = useCallback(async () => {
     setLoading(true);
@@ -91,6 +88,16 @@ export default function HistorialScreen() {
     }
   }, [saleService]);
 
+  const handleMarkAsDispatched = useCallback(async (sale: Sale) => {
+    try {
+      await saleService.markAsDispatched(sale.id);
+      setSales((prev) => prev.map((s) => s.id === sale.id ? { ...s, isDispatched: true } : s));
+      setSnackbar({ visible: true, success: true, message: `Venta de ${formatCOP(sale.totalAmount)} marcada como despachada` });
+    } catch {
+      setSnackbar({ visible: true, success: false, message: 'Error al marcar como despachada' });
+    }
+  }, [saleService]);
+
   const getProductName = (productId: string) =>
     products.find((p) => p.id === productId)?.name ?? productId;
 
@@ -103,17 +110,6 @@ export default function HistorialScreen() {
             {formatDateTime(item.timestamp)}
           </Text>
           <View style={styles.chipsRow}>
-            <Chip
-              compact
-              textStyle={{ fontSize: 11 }}
-              style={{
-                backgroundColor: item.isPaid
-                  ? '#1C3D2A'
-                  : theme.colors.errorContainer,
-              }}
-            >
-              {item.isPaid ? 'Pagado' : 'Pendiente'}
-            </Chip>
             <Chip
               icon={PAYMENT_ICONS[item.paymentMethod]}
               compact
@@ -170,19 +166,42 @@ export default function HistorialScreen() {
               {item.totalPortions} porciones
             </Text>
           </View>
-          {!item.isPaid && (
-            <Button
-              mode="contained"
-              compact
-              onPress={() => handleMarkAsPaid(item)}
-              buttonColor="#388E3C"
-              textColor="#FFFFFF"
-              icon="check"
-              labelStyle={{ fontSize: 12 }}
-            >
-              Ya pago
-            </Button>
-          )}
+          <View style={styles.actionButtons}>
+            {item.isPaid ? (
+              <Chip compact icon="check-circle" textStyle={{ fontSize: 11, color: '#66BB6A' }} style={{ backgroundColor: '#1C3D2A' }}>
+                Pagado
+              </Chip>
+            ) : (
+              <Button
+                mode="contained"
+                compact
+                onPress={() => handleMarkAsPaid(item)}
+                buttonColor="#388E3C"
+                textColor="#FFFFFF"
+                icon="check"
+                labelStyle={{ fontSize: 12 }}
+              >
+                Ya pago
+              </Button>
+            )}
+            {item.isDispatched ? (
+              <Chip compact icon="check-circle" textStyle={{ fontSize: 11, color: '#64B5F6' }} style={{ backgroundColor: '#1A3A5C' }}>
+                Despachado
+              </Chip>
+            ) : (
+              <Button
+                mode="contained"
+                compact
+                onPress={() => handleMarkAsDispatched(item)}
+                buttonColor="#1565C0"
+                textColor="#FFFFFF"
+                icon="truck-delivery"
+                labelStyle={{ fontSize: 12 }}
+              >
+                Despachar
+              </Button>
+            )}
+          </View>
         </View>
       </Card.Content>
     </Card>
@@ -279,5 +298,10 @@ const styles = StyleSheet.create({
   chipsRow: {
     flexDirection: 'row',
     gap: 6,
+    flexWrap: 'wrap',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 8,
   },
 });

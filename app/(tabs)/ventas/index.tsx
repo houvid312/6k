@@ -13,6 +13,7 @@ import {
   IconButton,
   Snackbar,
   TextInput,
+  SegmentedButtons,
 } from 'react-native-paper';
 import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
@@ -26,15 +27,18 @@ import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useSaleStore, CartItem } from '../../../src/stores/useSaleStore';
 import { Product, Sale } from '../../../src/domain/entities';
-import { PizzaSize, PaymentMethod, PORTIONS_PER_SIZE } from '../../../src/domain/enums';
+import { PizzaSize, PaymentMethod, PORTIONS_PER_SIZE, InventoryLevel, WriteoffReason, UserRole } from '../../../src/domain/enums';
 import { supabase } from '../../../src/lib/supabase';
+import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate, todayColombia } from '../../../src/utils/dates';
 
 export default function VentasScreen() {
   const theme = useTheme();
-  const { productRepo, saleService } = useDI();
-  const { selectedStoreId } = useAppStore();
+  const { saleService, writeoffService } = useDI();
+  const { selectedStoreId, userId, userRole } = useAppStore();
+  const { products: cachedProducts, supplies } = useMasterDataStore();
   const {
     cart,
     pendingSales,
@@ -68,6 +72,15 @@ export default function VentasScreen() {
     success: true,
     message: '',
   });
+
+  // Baja (writeoff) modal state
+  const [bajaModalVisible, setBajaModalVisible] = useState(false);
+  const [bajaSupplyId, setBajaSupplyId] = useState<string>('');
+  const [bajaLevel, setBajaLevel] = useState<string>(String(InventoryLevel.STORE));
+  const [bajaGrams, setBajaGrams] = useState('');
+  const [bajaReason, setBajaReason] = useState<WriteoffReason>(WriteoffReason.DAMAGED);
+  const [bajaNotes, setBajaNotes] = useState('');
+  const [bajaSubmitting, setBajaSubmitting] = useState(false);
 
   // Porciones disponibles por tipo de pizza
   const [portionsModalVisible, setPortionsModalVisible] = useState(false);
@@ -110,10 +123,11 @@ export default function VentasScreen() {
   }, [selectedStoreId]);
 
   useEffect(() => {
-    (async () => {
-      const all = await productRepo.getAll();
-      setProducts(all.filter((p) => p.isActive));
+    setProducts(cachedProducts.filter((p) => p.isActive));
+  }, [cachedProducts]);
 
+  useEffect(() => {
+    (async () => {
       const { data: prices } = await supabase
         .from('product_prices')
         .select('product_id, size, price')
@@ -123,7 +137,7 @@ export default function VentasScreen() {
         const sizeMap: Record<string, number> = {};
         const bevMap: Record<string, number> = {};
         for (const p of prices) {
-          const product = all.find((pr) => pr.id === p.product_id);
+          const product = cachedProducts.find((pr) => pr.id === p.product_id);
           if (product?.category === 'BEBIDA') {
             bevMap[p.product_id] = p.price;
           } else if (p.size) {
@@ -134,7 +148,7 @@ export default function VentasScreen() {
         setBeveragePrices(bevMap);
       }
     })();
-  }, [productRepo]);
+  }, [cachedProducts]);
 
   const loadPendingSales = useCallback(async () => {
     if (!selectedStoreId) return;
@@ -149,6 +163,37 @@ export default function VentasScreen() {
   useEffect(() => {
     loadPendingSales();
   }, [loadPendingSales]);
+
+  const handleBajaSubmit = useCallback(async () => {
+    const grams = parseFloat(bajaGrams);
+    if (!bajaSupplyId || !grams || grams <= 0) {
+      Alert.alert('Error', 'Selecciona un insumo e ingresa una cantidad valida');
+      return;
+    }
+    setBajaSubmitting(true);
+    try {
+      await writeoffService.createRequest(
+        selectedStoreId,
+        bajaSupplyId,
+        Number(bajaLevel) as InventoryLevel,
+        grams,
+        bajaReason,
+        bajaNotes,
+        userId,
+      );
+      setBajaModalVisible(false);
+      setBajaSupplyId('');
+      setBajaGrams('');
+      setBajaNotes('');
+      setBajaReason(WriteoffReason.DAMAGED);
+      setBajaLevel(String(InventoryLevel.STORE));
+      setSnackbar({ visible: true, success: true, message: 'Baja registrada. Pendiente de aprobacion.' });
+    } catch {
+      setSnackbar({ visible: true, success: false, message: 'Error al registrar la baja' });
+    } finally {
+      setBajaSubmitting(false);
+    }
+  }, [bajaSupplyId, bajaGrams, bajaLevel, bajaReason, bajaNotes, selectedStoreId, userId, writeoffService]);
 
   const selectedProduct = products.find((p) => p.id === selectedProductId);
 
@@ -322,8 +367,9 @@ export default function VentasScreen() {
   const handleMarkAsPaid = useCallback(async (sale: Sale) => {
     try {
       await saleService.markAsPaid(sale.id);
-      // Remove from local state immediately for instant UI feedback
-      setPendingSales(pendingSales.filter((s) => s.id !== sale.id));
+      // Update local state — keep in list until both paid & dispatched
+      const updated = pendingSales.map((s) => s.id === sale.id ? { ...s, isPaid: true } : s);
+      setPendingSales(updated.filter((s) => !(s.isPaid && s.isDispatched)));
       setSnackbar({
         visible: true,
         success: true,
@@ -334,6 +380,25 @@ export default function VentasScreen() {
         visible: true,
         success: false,
         message: 'Error al marcar como pagada',
+      });
+    }
+  }, [saleService, pendingSales, setPendingSales]);
+
+  const handleMarkAsDispatched = useCallback(async (sale: Sale) => {
+    try {
+      await saleService.markAsDispatched(sale.id);
+      const updated = pendingSales.map((s) => s.id === sale.id ? { ...s, isDispatched: true } : s);
+      setPendingSales(updated.filter((s) => !(s.isPaid && s.isDispatched)));
+      setSnackbar({
+        visible: true,
+        success: true,
+        message: `Venta de ${formatCOP(sale.totalAmount)} marcada como despachada`,
+      });
+    } catch {
+      setSnackbar({
+        visible: true,
+        success: false,
+        message: 'Error al marcar como despachada',
       });
     }
   }, [saleService, pendingSales, setPendingSales]);
@@ -358,31 +423,60 @@ export default function VentasScreen() {
       >
         {/* Header */}
         <View style={styles.headerRow}>
-          <StoreSelector />
+          <StoreSelector excludeProductionCenter />
           <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
             {formatDate(new Date())}
           </Text>
         </View>
 
         {/* Quick nav */}
-        <View style={styles.navRow}>
-          <Button
-            mode="outlined"
-            icon="history"
-            compact
-            onPress={() => router.push('/(tabs)/ventas/historial')}
-          >
-            Historial
-          </Button>
-          <Button
-            mode="outlined"
-            icon="cash-lock"
-            compact
-            onPress={() => router.push('/(tabs)/ventas/cierre-caja')}
-          >
-            Cierre
-          </Button>
-        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12, flexGrow: 0 }}>
+          <View style={styles.navRow}>
+            <Button
+              mode="outlined"
+              icon="history"
+              compact
+              onPress={() => router.push('/(tabs)/ventas/historial')}
+            >
+              Historial
+            </Button>
+            <Button
+              mode="outlined"
+              icon="cash-lock"
+              compact
+              onPress={() => router.push('/(tabs)/ventas/cierre-caja')}
+            >
+              Cierre
+            </Button>
+            <Button
+              mode="outlined"
+              icon="clipboard-check-outline"
+              compact
+              onPress={() => router.push('/(tabs)/inventario/cierre-fisico')}
+            >
+              Conteo
+            </Button>
+            <Button
+              mode="outlined"
+              icon="package-variant-remove"
+              compact
+              onPress={() => {
+              if (userRole !== UserRole.ADMIN) setBajaLevel(String(InventoryLevel.STORE));
+              setBajaModalVisible(true);
+            }}
+            >
+              Baja
+            </Button>
+            <Button
+              mode="outlined"
+              icon="food"
+              compact
+              onPress={() => router.push('/(tabs)/ventas/consumo-ventas')}
+            >
+              Consumo
+            </Button>
+          </View>
+        </ScrollView>
 
         {/* Pending Sales Banner */}
         {pendingSales.length > 0 && (
@@ -423,17 +517,42 @@ export default function VentasScreen() {
                     <Text variant="labelSmall" style={{ color: theme.colors.onErrorContainer, opacity: 0.6, fontSize: 10 }} numberOfLines={1}>
                       {sale.workerName ?? ''}
                     </Text>
-                    <Button
-                      mode="contained"
-                      compact
-                      onPress={() => handleMarkAsPaid(sale)}
-                      buttonColor="#388E3C"
-                      textColor="#FFFFFF"
-                      labelStyle={{ fontSize: 12 }}
-                      icon="check"
-                    >
-                      Ya pago
-                    </Button>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      {sale.isPaid ? (
+                        <Chip compact icon="check-circle" textStyle={{ fontSize: 11, color: '#66BB6A' }} style={{ backgroundColor: '#1C3D2A' }}>
+                          Pagado
+                        </Chip>
+                      ) : (
+                        <Button
+                          mode="contained"
+                          compact
+                          onPress={() => handleMarkAsPaid(sale)}
+                          buttonColor="#388E3C"
+                          textColor="#FFFFFF"
+                          labelStyle={{ fontSize: 12 }}
+                          icon="check"
+                        >
+                          Ya pago
+                        </Button>
+                      )}
+                      {sale.isDispatched ? (
+                        <Chip compact icon="check-circle" textStyle={{ fontSize: 11, color: '#64B5F6' }} style={{ backgroundColor: '#1A3A5C' }}>
+                          Despachado
+                        </Chip>
+                      ) : (
+                        <Button
+                          mode="contained"
+                          compact
+                          onPress={() => handleMarkAsDispatched(sale)}
+                          buttonColor="#1565C0"
+                          textColor="#FFFFFF"
+                          labelStyle={{ fontSize: 12 }}
+                          icon="truck-delivery"
+                        >
+                          Despachar
+                        </Button>
+                      )}
+                    </View>
                   </View>
                 </View>
               );
@@ -746,6 +865,117 @@ export default function VentasScreen() {
         </Modal>
       </Portal>
 
+      {/* Baja Modal */}
+      <Portal>
+        <Modal
+          visible={bajaModalVisible}
+          onDismiss={() => setBajaModalVisible(false)}
+          contentContainerStyle={[styles.bajaModal, { backgroundColor: theme.colors.surface }]}
+        >
+          <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 4 }}>
+            Registrar Baja
+          </Text>
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 12 }}>
+            Requiere aprobacion de un administrador
+          </Text>
+
+          <Divider style={{ marginBottom: 12 }} />
+
+          <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1 }}>
+            <Text variant="labelLarge" style={{ marginBottom: 6 }}>Insumo</Text>
+            <SearchableSelect
+              options={supplies.map((s) => ({ value: s.id, label: s.name }))}
+              selectedValue={bajaSupplyId}
+              placeholder="Seleccionar insumo"
+              icon="package-variant"
+              onSelect={setBajaSupplyId}
+            />
+
+            {userRole === UserRole.ADMIN ? (
+              <>
+                <Text variant="labelLarge" style={{ marginBottom: 6 }}>Nivel de inventario</Text>
+                <SegmentedButtons
+                  value={bajaLevel}
+                  onValueChange={setBajaLevel}
+                  buttons={[
+                    { value: String(InventoryLevel.RAW), label: 'Mat. Prima' },
+                    { value: String(InventoryLevel.PROCESSED), label: 'Procesado' },
+                    { value: String(InventoryLevel.STORE), label: 'Local' },
+                  ]}
+                  density="medium"
+                  style={{ marginBottom: 12 }}
+                />
+              </>
+            ) : (
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 12 }}>
+                Nivel: Local (tienda)
+              </Text>
+            )}
+
+            <Text variant="labelLarge" style={{ marginBottom: 6 }}>Cantidad (gramos)</Text>
+            <TextInput
+              value={bajaGrams}
+              onChangeText={(v) => setBajaGrams(v.replace(/[^0-9.]/g, ''))}
+              keyboardType="numeric"
+              mode="outlined"
+              dense
+              placeholder="Ej: 500"
+              style={{ marginBottom: 12 }}
+            />
+
+            <Text variant="labelLarge" style={{ marginBottom: 6 }}>Razon</Text>
+            <View style={styles.reasonChips}>
+              {([
+                { value: WriteoffReason.DAMAGED, label: 'Danado' },
+                { value: WriteoffReason.EXPIRED, label: 'Vencido' },
+                { value: WriteoffReason.SPILLED, label: 'Derrame' },
+                { value: WriteoffReason.CONTAMINATED, label: 'Contaminado' },
+                { value: WriteoffReason.OTHER, label: 'Otro' },
+              ] as const).map((opt) => (
+                <Chip
+                  key={opt.value}
+                  selected={bajaReason === opt.value}
+                  onPress={() => setBajaReason(opt.value)}
+                  mode="outlined"
+                  compact
+                  style={{
+                    backgroundColor: bajaReason === opt.value ? theme.colors.primaryContainer : 'transparent',
+                  }}
+                  selectedColor={bajaReason === opt.value ? theme.colors.primary : theme.colors.onSurface}
+                >
+                  {opt.label}
+                </Chip>
+              ))}
+            </View>
+
+            <TextInput
+              label="Notas (opcional)"
+              value={bajaNotes}
+              onChangeText={setBajaNotes}
+              mode="outlined"
+              dense
+              multiline
+              numberOfLines={2}
+              style={{ marginBottom: 8 }}
+            />
+          </ScrollView>
+
+          <Divider style={{ marginVertical: 8 }} />
+          <View style={styles.modalActions}>
+            <Button onPress={() => setBajaModalVisible(false)}>Cancelar</Button>
+            <Button
+              mode="contained"
+              onPress={handleBajaSubmit}
+              loading={bajaSubmitting}
+              disabled={!bajaSupplyId || !bajaGrams || bajaSubmitting}
+              buttonColor="#E63946"
+            >
+              Registrar Baja
+            </Button>
+          </View>
+        </Modal>
+      </Portal>
+
       {/* Snackbar Feedback */}
       <Snackbar
         visible={snackbar.visible}
@@ -790,7 +1020,6 @@ const styles = StyleSheet.create({
   navRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 12,
   },
   sectionTitle: {
     marginBottom: 8,
@@ -873,5 +1102,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 8,
+  },
+  bajaModal: {
+    margin: 16,
+    padding: 20,
+    borderRadius: 16,
+    maxHeight: '80%',
+  },
+  reasonChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 12,
   },
 });

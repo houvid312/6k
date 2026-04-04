@@ -103,6 +103,13 @@ export class TransferService {
   }
 
   /**
+   * Marks a pending transfer as in transit.
+   */
+  async markInTransit(transferId: string): Promise<Transfer> {
+    return this.transferRepo.updateStatus(transferId, TransferStatus.IN_TRANSIT);
+  }
+
+  /**
    * Cancels a pending transfer.
    */
   async cancelTransfer(transferId: string): Promise<Transfer> {

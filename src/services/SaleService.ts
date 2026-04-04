@@ -65,6 +65,7 @@ export class SaleService {
       bankAmount,
       observations: observations ?? '',
       isPaid,
+      isDispatched: false,
       customerNote: customerNote ?? undefined,
     } as Omit<Sale, 'id'>);
 
@@ -104,5 +105,12 @@ export class SaleService {
    */
   async markAsPaid(saleId: string): Promise<void> {
     return this.saleRepo.markAsPaid(saleId);
+  }
+
+  /**
+   * Marks a sale as dispatched.
+   */
+  async markAsDispatched(saleId: string): Promise<void> {
+    return this.saleRepo.markAsDispatched(saleId);
   }
 }

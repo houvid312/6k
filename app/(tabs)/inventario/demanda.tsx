@@ -6,8 +6,8 @@ import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
-import { Product } from '../../../src/domain/entities';
 
 const DAY_NAMES = ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado'];
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Lunes-Domingo
@@ -17,11 +17,12 @@ type EstimateMap = Record<string, string>;
 
 export default function DemandaScreen() {
   const theme = useTheme();
-  const { demandEstimationService, productRepo } = useDI();
+  const { demandEstimationService } = useDI();
   const { selectedStoreId } = useAppStore();
+  const { products: cachedProducts } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState(cachedProducts.filter((p) => p.category === 'PIZZA' && p.isActive));
   const [estimates, setEstimates] = useState<EstimateMap>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -30,12 +31,9 @@ export default function DemandaScreen() {
     if (!selectedStoreId) return;
     setLoading(true);
     try {
-      const [allProducts, allEstimates] = await Promise.all([
-        productRepo.getAll(),
-        demandEstimationService.getAllEstimates(selectedStoreId),
-      ]);
+      const allEstimates = await demandEstimationService.getAllEstimates(selectedStoreId);
 
-      const pizzas = allProducts.filter((p) => p.category === 'PIZZA' && p.isActive);
+      const pizzas = cachedProducts.filter((p) => p.category === 'PIZZA' && p.isActive);
       setProducts(pizzas);
 
       const map: EstimateMap = {};
@@ -48,7 +46,7 @@ export default function DemandaScreen() {
     } finally {
       setLoading(false);
     }
-  }, [selectedStoreId, productRepo, demandEstimationService]);
+  }, [selectedStoreId, cachedProducts, demandEstimationService]);
 
   useEffect(() => {
     loadData();

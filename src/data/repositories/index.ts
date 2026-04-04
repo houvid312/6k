@@ -18,3 +18,4 @@ export { SupabaseProductionRecordRepository } from './SupabaseProductionRecordRe
 export { SupabaseDemandEstimateRepository } from './SupabaseDemandEstimateRepository';
 export { SupabaseDailyAlertRepository } from './SupabaseDailyAlertRepository';
 export { SupabaseStockMinimumRepository } from './SupabaseStockMinimumRepository';
+export { SupabaseWriteoffRepository } from './SupabaseWriteoffRepository';

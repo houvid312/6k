@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
-import { Text, Button, DataTable, Portal, Snackbar, Chip, useTheme } from 'react-native-paper';
+import { Text, TextInput, Button, Card, Divider, Portal, Snackbar, Chip, useTheme } from 'react-native-paper';
 import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
@@ -35,6 +35,7 @@ export default function SugerenciaEnvioScreen() {
 
   const [selectedDay, setSelectedDay] = useState<string>(getTomorrowDay());
   const [requirements, setRequirements] = useState<SupplyRequirement[]>([]);
+  const [editableBags, setEditableBags] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [calculated, setCalculated] = useState(false);
@@ -52,6 +53,11 @@ export default function SugerenciaEnvioScreen() {
         Number(selectedDay),
       );
       setRequirements(result);
+      const bags: Record<string, string> = {};
+      for (const req of result) {
+        bags[req.supplyId] = String(req.bagsToSend);
+      }
+      setEditableBags(bags);
       setCalculated(true);
       if (result.length === 0) {
         showSuccess('El local tiene inventario suficiente para la demanda estimada');
@@ -72,7 +78,10 @@ export default function SugerenciaEnvioScreen() {
 
     const minTargets: Record<string, number> = {};
     for (const req of requirements) {
-      minTargets[req.supplyId] = req.requiredGrams;
+      const bags = parseInt(editableBags[req.supplyId] || '0', 10);
+      if (bags > 0) {
+        minTargets[req.supplyId] = bags * req.gramsPerBag;
+      }
     }
 
     setCreating(true);
@@ -145,27 +154,53 @@ export default function SugerenciaEnvioScreen() {
         />
       ) : requirements.length > 0 ? (
         <>
-          <DataTable style={styles.table}>
-            <DataTable.Header>
-              <DataTable.Title>Insumo</DataTable.Title>
-              <DataTable.Title numeric>Actual</DataTable.Title>
-              <DataTable.Title numeric>Necesita</DataTable.Title>
-              <DataTable.Title numeric>Bolsas</DataTable.Title>
-            </DataTable.Header>
+          <Text variant="bodySmall" style={{ color: '#999', marginBottom: 8 }}>
+            Ajusta las bolsas si necesitas enviar mas o menos de lo sugerido
+          </Text>
 
-            {requirements.map((req) => (
-              <DataTable.Row key={req.supplyId}>
-                <DataTable.Cell>{req.supplyName}</DataTable.Cell>
-                <DataTable.Cell numeric>{Math.round(req.currentGrams)}g</DataTable.Cell>
-                <DataTable.Cell numeric>{Math.round(req.requiredGrams)}g</DataTable.Cell>
-                <DataTable.Cell numeric>
-                  <Text variant="bodySmall" style={{ fontWeight: '700', color: '#E63946' }}>
-                    {req.bagsToSend}
-                  </Text>
-                </DataTable.Cell>
-              </DataTable.Row>
-            ))}
-          </DataTable>
+          {requirements.map((req) => (
+            <Card key={req.supplyId} style={[styles.reqCard, { backgroundColor: '#1E1E1E' }]}>
+              <Card.Content>
+                <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: '600' }}>
+                  {req.supplyName}
+                </Text>
+                <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
+                  {req.gramsPerBag}g por bolsa
+                </Text>
+
+                <Divider style={{ backgroundColor: '#333', marginVertical: 8 }} />
+
+                <View style={styles.reqDetails}>
+                  <View style={{ flex: 1 }}>
+                    <Text variant="bodySmall" style={{ color: '#999' }}>
+                      En tienda: {Math.round(req.currentGrams)}g
+                    </Text>
+                    <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
+                      Necesita: {Math.round(req.requiredGrams)}g
+                    </Text>
+                  </View>
+                  <View style={styles.bagsInputContainer}>
+                    <Text variant="bodySmall" style={{ color: '#999', marginBottom: 4 }}>
+                      Bolsas
+                    </Text>
+                    <TextInput
+                      mode="outlined"
+                      dense
+                      keyboardType="numeric"
+                      value={editableBags[req.supplyId] || '0'}
+                      onChangeText={(v) =>
+                        setEditableBags((prev) => ({ ...prev, [req.supplyId]: v }))
+                      }
+                      style={styles.bagsInput}
+                      outlineColor="#333"
+                      activeOutlineColor="#E63946"
+                      textColor="#F5F0EB"
+                    />
+                  </View>
+                </View>
+              </Card.Content>
+            </Card>
+          ))}
 
           <Button
             mode="contained"
@@ -219,10 +254,24 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingVertical: 4,
   },
-  table: {
-    marginBottom: 16,
+  reqCard: {
+    marginBottom: 8,
+    borderRadius: 12,
+  },
+  reqDetails: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  bagsInputContainer: {
+    alignItems: 'center',
+  },
+  bagsInput: {
+    width: 80,
+    backgroundColor: '#111',
+    textAlign: 'center',
   },
   createBtn: {
+    marginTop: 8,
     borderRadius: 8,
     paddingVertical: 4,
   },

@@ -2,29 +2,52 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { FlatList, View, StyleSheet } from 'react-native';
 import { Button, Text, Portal, Snackbar, useTheme } from 'react-native-paper';
 import { router } from 'expo-router';
-import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { ConfirmDialog } from '../../../src/components/common/ConfirmDialog';
 import { TransferOrderCard } from '../../../src/components/inventario/TransferOrderCard';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
 import { Transfer } from '../../../src/domain/entities';
 import { TransferStatus } from '../../../src/domain/enums';
+
+type ConfirmAction = 'receive' | 'cancel' | 'transit';
+
+const CONFIRM_CONFIG: Record<ConfirmAction, { title: string; message: string; label: string }> = {
+  transit: {
+    title: 'Marcar En Transito',
+    message: 'Se marcara el traslado como enviado. Continuar?',
+    label: 'Enviar',
+  },
+  receive: {
+    title: 'Recibir Traslado',
+    message: 'Se actualizara el inventario del local con los items del traslado. Continuar?',
+    label: 'Recibir',
+  },
+  cancel: {
+    title: 'Cancelar Traslado',
+    message: 'Se cancelara el traslado. Esta accion no se puede deshacer. Continuar?',
+    label: 'Cancelar traslado',
+  },
+};
 
 export default function TrasladosScreen() {
   const theme = useTheme();
   const { transferService } = useDI();
   const { selectedStoreId, stores } = useAppStore();
+  const { supplies } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [confirming, setConfirming] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null);
-  const [confirmVisible, setConfirmVisible] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
+
+  const supplyMap = new Map(supplies.map((s) => [s.id, { name: s.name, gramsPerBag: s.gramsPerBag }]));
 
   const loadTransfers = useCallback(async () => {
     setLoading(true);
@@ -42,21 +65,38 @@ export default function TrasladosScreen() {
     loadTransfers();
   }, [loadTransfers]);
 
-  const handleExecute = useCallback(async () => {
-    if (!selectedTransfer) return;
-    setConfirming(true);
+  const openConfirm = (transfer: Transfer, action: ConfirmAction) => {
+    setSelectedTransfer(transfer);
+    setConfirmAction(action);
+  };
+
+  const closeConfirm = () => {
+    setSelectedTransfer(null);
+    setConfirmAction(null);
+  };
+
+  const handleConfirmAction = useCallback(async () => {
+    if (!selectedTransfer || !confirmAction) return;
+    setActionLoading(true);
     try {
-      await transferService.executeTransfer(selectedTransfer.id);
-      showSuccess('Traslado recibido. Inventario actualizado.');
+      if (confirmAction === 'transit') {
+        await transferService.markInTransit(selectedTransfer.id);
+        showSuccess('Traslado marcado en transito');
+      } else if (confirmAction === 'receive') {
+        await transferService.executeTransfer(selectedTransfer.id);
+        showSuccess('Traslado recibido. Inventario actualizado.');
+      } else if (confirmAction === 'cancel') {
+        await transferService.cancelTransfer(selectedTransfer.id);
+        showSuccess('Traslado cancelado');
+      }
       loadTransfers();
     } catch {
-      showError('No se pudo procesar el traslado');
+      showError('No se pudo procesar la accion');
     } finally {
-      setConfirming(false);
-      setConfirmVisible(false);
-      setSelectedTransfer(null);
+      setActionLoading(false);
+      closeConfirm();
     }
-  }, [selectedTransfer, transferService, loadTransfers, showSuccess, showError]);
+  }, [selectedTransfer, confirmAction, transferService, loadTransfers, showSuccess, showError]);
 
   const handleCreateTransfer = useCallback(async () => {
     const productionCenter = stores.find((s) => s.isProductionCenter);
@@ -77,6 +117,8 @@ export default function TrasladosScreen() {
       setCreating(false);
     }
   }, [stores, selectedStoreId, transferService, loadTransfers, showSuccess, showError]);
+
+  const confirmConfig = confirmAction ? CONFIRM_CONFIG[confirmAction] : null;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -113,12 +155,10 @@ export default function TrasladosScreen() {
           renderItem={({ item }) => (
             <TransferOrderCard
               transfer={item}
-              onPress={() => {
-                if (item.status === TransferStatus.PENDING || item.status === TransferStatus.IN_TRANSIT) {
-                  setSelectedTransfer(item);
-                  setConfirmVisible(true);
-                }
-              }}
+              supplyMap={supplyMap}
+              onMarkInTransit={(t) => openConfirm(t, 'transit')}
+              onReceive={(t) => openConfirm(t, 'receive')}
+              onCancel={(t) => openConfirm(t, 'cancel')}
             />
           )}
           keyExtractor={(item) => item.id}
@@ -127,18 +167,17 @@ export default function TrasladosScreen() {
         />
       )}
 
-      <ConfirmDialog
-        visible={confirmVisible}
-        title="Recibir Traslado"
-        message="Se actualizara el inventario del local con los items del traslado. Continuar?"
-        onConfirm={handleExecute}
-        onDismiss={() => {
-          setConfirmVisible(false);
-          setSelectedTransfer(null);
-        }}
-        confirmLabel="Recibir"
-        confirmLoading={confirming}
-      />
+      {confirmConfig && (
+        <ConfirmDialog
+          visible={!!confirmAction}
+          title={confirmConfig.title}
+          message={confirmConfig.message}
+          onConfirm={handleConfirmAction}
+          onDismiss={closeConfirm}
+          confirmLabel={confirmConfig.label}
+          confirmLoading={actionLoading}
+        />
+      )}
 
       <Portal>
         <Snackbar

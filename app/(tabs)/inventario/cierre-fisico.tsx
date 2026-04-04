@@ -8,8 +8,8 @@ import { SearchableSelect } from '../../../src/components/common/SearchableSelec
 import { BagCounter } from '../../../src/components/inventario/BagCounter';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
-import { Supply, Worker } from '../../../src/domain/entities';
 import { PhysicalCountItem } from '../../../src/domain/entities';
 
 interface CountEntry {
@@ -22,41 +22,32 @@ interface CountEntry {
 
 export default function CierreFisicoScreen() {
   const theme = useTheme();
-  const { supplyRepo, physicalCountService, workerRepo } = useDI();
+  const { physicalCountService } = useDI();
   const { selectedStoreId } = useAppStore();
+  const { supplies: cachedSupplies, workers: cachedWorkers } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
-  const [supplies, setSupplies] = useState<Supply[]>([]);
-  const [workers, setWorkers] = useState<Worker[]>([]);
+  const supplies = cachedSupplies;
+  const workers = cachedWorkers.filter((w) => w.isActive);
   const [selectedWorkerId, setSelectedWorkerId] = useState<string>('');
   const [counts, setCounts] = useState<CountEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const [all, allWorkers] = await Promise.all([
-          supplyRepo.getAll(),
-          workerRepo.getAll(),
-        ]);
-        setSupplies(all);
-        setWorkers(allWorkers.filter((w) => w.isActive));
-        setCounts(
-          all.map((s) => ({
-            supplyId: s.id,
-            supplyName: s.name,
-            gramsPerBag: s.gramsPerBag,
-            bags: 0,
-            looseGrams: 0,
-          })),
-        );
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [supplyRepo]);
+    if (cachedSupplies.length > 0) {
+      setCounts(
+        cachedSupplies.map((s) => ({
+          supplyId: s.id,
+          supplyName: s.name,
+          gramsPerBag: s.gramsPerBag,
+          bags: 0,
+          looseGrams: 0,
+        })),
+      );
+      setLoading(false);
+    }
+  }, [cachedSupplies]);
 
   const updateBags = useCallback((supplyId: string, bags: number) => {
     setCounts((prev) => prev.map((c) => (c.supplyId === supplyId ? { ...c, bags } : c)));

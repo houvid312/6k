@@ -1,6 +1,6 @@
 import { Validation, AlertType } from '../domain/entities';
 import { PORTIONS_PER_SIZE, InventoryLevel } from '../domain/enums';
-import { ISaleRepository, IRecipeRepository, IInventoryRepository } from '../domain/interfaces/repositories';
+import { ISaleRepository, IRecipeRepository, IInventoryRepository, IWriteoffRepository } from '../domain/interfaces/repositories';
 
 export interface TheoreticalConsumption {
   supplyId: string;
@@ -22,6 +22,7 @@ export class ValidationService {
     private saleRepo: ISaleRepository,
     private recipeRepo: IRecipeRepository,
     private inventoryRepo: IInventoryRepository,
+    private writeoffRepo?: IWriteoffRepository,
   ) {}
 
   /**
@@ -47,6 +48,19 @@ export class ValidationService {
           const current = consumptionMap.get(ingredient.supplyId) ?? 0;
           consumptionMap.set(ingredient.supplyId, current + grams);
         }
+      }
+    }
+
+    // Add approved writeoffs as legitimate consumption
+    if (this.writeoffRepo) {
+      const approvedWriteoffs = await this.writeoffRepo.getApprovedByStoreAndDateRange(
+        storeId,
+        startDate,
+        endDate,
+      );
+      for (const wo of approvedWriteoffs) {
+        const current = consumptionMap.get(wo.supplyId) ?? 0;
+        consumptionMap.set(wo.supplyId, current + wo.quantityGrams);
       }
     }
 

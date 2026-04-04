@@ -19,6 +19,7 @@ import {
   SupabaseDemandEstimateRepository,
   SupabaseDailyAlertRepository,
   SupabaseStockMinimumRepository,
+  SupabaseWriteoffRepository,
 } from '../data/repositories';
 import {
   SaleService,
@@ -34,6 +35,7 @@ import {
   ProductionService,
   DemandEstimationService,
   AlertService,
+  WriteoffService,
 } from '../services';
 
 // Repositories (Supabase)
@@ -57,12 +59,13 @@ const productionRecordRepo = new SupabaseProductionRecordRepository();
 const demandEstimateRepo = new SupabaseDemandEstimateRepository();
 const dailyAlertRepo = new SupabaseDailyAlertRepository();
 const stockMinimumRepo = new SupabaseStockMinimumRepository();
+const writeoffRepo = new SupabaseWriteoffRepository();
 
 // Services
 const saleService = new SaleService(saleRepo, inventoryRepo, recipeRepo);
 const inventoryService = new InventoryService(inventoryRepo, supplyRepo);
 const transferService = new TransferService(transferRepo, inventoryRepo, supplyRepo);
-const validationService = new ValidationService(saleRepo, recipeRepo, inventoryRepo);
+const validationService = new ValidationService(saleRepo, recipeRepo, inventoryRepo, writeoffRepo);
 const creditService = new CreditService(creditRepo);
 const payrollService = new PayrollService(workerRepo, attendanceRepo, creditRepo);
 const dashboardService = new DashboardService(saleRepo, inventoryRepo, supplyRepo, expenseRepo, purchaseRepo, recipeRepo, productRepo);
@@ -71,6 +74,7 @@ const physicalCountService = new PhysicalCountService(physicalCountRepo, invento
 const productionService = new ProductionService(productionRecipeRepo, productionRecordRepo, inventoryRepo);
 const demandEstimationService = new DemandEstimationService(demandEstimateRepo, recipeRepo, inventoryRepo, supplyRepo);
 const alertService = new AlertService(dailyAlertRepo, validationService, physicalCountRepo, supplyRepo);
+const writeoffService = new WriteoffService(writeoffRepo, inventoryRepo);
 const cashClosingService = new CashClosingService(cashClosingRepo, saleRepo, expenseRepo, alertService);
 
 export const container = {
@@ -95,6 +99,7 @@ export const container = {
   demandEstimateRepo,
   dailyAlertRepo,
   stockMinimumRepo,
+  writeoffRepo,
 
   // Services
   saleService,
@@ -110,4 +115,5 @@ export const container = {
   productionService,
   demandEstimationService,
   alertService,
+  writeoffService,
 };

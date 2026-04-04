@@ -8,9 +8,9 @@ import { EmptyState } from '../../../src/components/common/EmptyState';
 import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
 import { ProductionRecipe } from '../../../src/domain/entities';
-import { Worker } from '../../../src/domain/entities';
 
 interface RecipeEntry {
   recipe: ProductionRecipe;
@@ -19,11 +19,12 @@ interface RecipeEntry {
 
 export default function ProduccionScreen() {
   const theme = useTheme();
-  const { productionService, workerRepo } = useDI();
+  const { productionService } = useDI();
   const { selectedStoreId } = useAppStore();
+  const { workers: cachedWorkers } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
-  const [workers, setWorkers] = useState<Worker[]>([]);
+  const workers = cachedWorkers.filter((w) => w.isActive);
   const [selectedWorkerId, setSelectedWorkerId] = useState<string>('');
   const [entries, setEntries] = useState<RecipeEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,11 +34,7 @@ export default function ProduccionScreen() {
     (async () => {
       setLoading(true);
       try {
-        const [allWorkers, recipes] = await Promise.all([
-          workerRepo.getAll(),
-          productionService.getRecipes(),
-        ]);
-        setWorkers(allWorkers.filter((w) => w.isActive));
+        const recipes = await productionService.getRecipes();
         setEntries(recipes.map((r) => ({ recipe: r, batches: '0' })));
       } catch {
         showError('Error al cargar datos');
@@ -45,7 +42,7 @@ export default function ProduccionScreen() {
         setLoading(false);
       }
     })();
-  }, [workerRepo, productionService]);
+  }, [productionService]);
 
   const handleBatchChange = useCallback((recipeId: string, value: string) => {
     setEntries((prev) =>

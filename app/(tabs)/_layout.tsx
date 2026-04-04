@@ -41,7 +41,6 @@ export default function TabLayout() {
         options={{
           title: 'Inventario',
           headerShown: false,
-          href: isAdmin ? '/(tabs)/inventario' : null,
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="warehouse" size={size} color={color} />
           ),

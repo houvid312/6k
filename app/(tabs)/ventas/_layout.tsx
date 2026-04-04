@@ -41,6 +41,15 @@ export default function VentasLayout() {
           headerRight: () => <HeaderUserMenu />,
         }}
       />
+      <Stack.Screen
+        name="consumo-ventas"
+        options={{
+          title: 'Consumo por Ventas',
+          headerBackVisible: true,
+          headerBackTitle: 'Volver',
+          headerRight: () => <HeaderUserMenu />,
+        }}
+      />
     </Stack>
   );
 }

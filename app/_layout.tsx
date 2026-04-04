@@ -8,11 +8,13 @@ import { DIProvider } from '../src/di/providers';
 import { StatusBar } from 'expo-status-bar';
 import { supabase } from '../src/lib/supabase';
 import { useAppStore } from '../src/stores/useAppStore';
+import { useMasterDataStore } from '../src/stores/useMasterDataStore';
 import { UserRole } from '../src/domain/enums';
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const { login, loadStores, isAuthenticated } = useAppStore();
+  const { loadMasterData } = useMasterDataStore();
 
   useEffect(() => {
     (async () => {
@@ -31,6 +33,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
           if (worker) {
             login(worker.id, worker.name, worker.user_role as UserRole);
             await loadStores();
+            await loadMasterData();
           }
         }
       } catch {

@@ -13,6 +13,7 @@ export interface Sale {
   paymentMethod: PaymentMethod;
   observations?: string;
   isPaid: boolean;
+  isDispatched: boolean;
   customerNote?: string;
   workerName?: string;
 }

@@ -18,3 +18,4 @@ export type { IProductionRecordRepository } from './IProductionRecordRepository'
 export type { IDemandEstimateRepository } from './IDemandEstimateRepository';
 export type { IDailyAlertRepository } from './IDailyAlertRepository';
 export type { IStockMinimumRepository } from './IStockMinimumRepository';
+export type { IWriteoffRepository } from './IWriteoffRepository';

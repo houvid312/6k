@@ -10,11 +10,13 @@ import {
 } from 'react-native-paper';
 import { router } from 'expo-router';
 import { useAppStore } from '../src/stores/useAppStore';
+import { useMasterDataStore } from '../src/stores/useMasterDataStore';
 import { useDI } from '../src/di/providers';
 
 export default function LoginScreen() {
   const theme = useTheme();
   const { login, loadStores } = useAppStore();
+  const { loadMasterData } = useMasterDataStore();
   const { authService } = useDI();
 
   const [name, setName] = useState('');
@@ -32,6 +34,7 @@ export default function LoginScreen() {
       if (result.success && result.user) {
         login(result.user.id, result.user.name, result.user.role);
         await loadStores();
+        await loadMasterData();
         router.replace('/(tabs)/ventas');
       } else {
         setError(result.error ?? 'Error al iniciar sesion');
