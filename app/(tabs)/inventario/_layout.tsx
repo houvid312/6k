@@ -34,7 +34,13 @@ export default function InventarioLayout() {
               icon="arrow-left"
               iconColor="#F5F0EB"
               size={24}
-              onPress={() => router.back()}
+              onPress={() => {
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace('/(tabs)/inventario');
+                }
+              }}
             />
           ),
           headerRight: () => <HeaderUserMenu />,

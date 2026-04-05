@@ -1,4 +1,5 @@
 import { CashClosing, DenominationCount } from '../domain/entities';
+import { ClosingStatus } from '../domain/enums';
 import { ICashClosingRepository, ISaleRepository, IExpenseRepository } from '../domain/interfaces/repositories';
 import { AlertService } from './AlertService';
 
@@ -33,7 +34,8 @@ export class CashClosingService {
   }
 
   /**
-   * Creates a cash closing with auto-calculated discrepancy.
+   * Creates a cash closing in DRAFT status with auto-calculated discrepancy.
+   * Generates alerts immediately so they can be reviewed.
    */
   async createClosing(
     storeId: string,
@@ -60,18 +62,82 @@ export class CashClosingService {
       actualTotal,
       discrepancy,
       expenses,
+      status: ClosingStatus.DRAFT,
     } as Omit<CashClosing, 'id'>);
 
-    // Trigger inventory validation after cash closing
-    if (this.alertService) {
-      try {
-        await this.alertService.triggerPostClosingValidation(storeId, date);
-      } catch {
-        // Don't fail the cash closing if alert generation fails
-      }
-    }
+    // Generate alerts for review
+    await this.generateAlerts(storeId, date);
 
     return closing;
+  }
+
+  /**
+   * Updates a closing (only allowed in DRAFT or CONFIRMED status).
+   * Recalculates discrepancy and regenerates alerts.
+   */
+  async updateClosing(
+    id: string,
+    storeId: string,
+    date: string,
+    denominations: DenominationCount,
+    bankTotal: number,
+    expenses: number,
+  ): Promise<CashClosing> {
+    const existing = await this.cashClosingRepo.getByDate(storeId, date);
+    if (!existing) throw new Error('Cierre no encontrado');
+    if (existing.status === ClosingStatus.APPROVED) {
+      throw new Error('No se puede editar un cierre aprobado');
+    }
+
+    const cashTotal = this.calculateDenominationTotal(denominations);
+    const actualTotal = cashTotal + bankTotal;
+
+    const summary = await this.saleRepo.getDailySummary(storeId, date);
+    const expectedTotal = summary.totalAmount;
+    const discrepancy = actualTotal - (expectedTotal - expenses);
+
+    const closing = await this.cashClosingRepo.update(id, {
+      denominations,
+      bankTotal,
+      expectedTotal,
+      actualTotal,
+      discrepancy,
+      expenses,
+    });
+
+    // Regenerate alerts with updated data
+    await this.generateAlerts(storeId, date);
+
+    return closing;
+  }
+
+  /**
+   * Collaborator confirms the closing.
+   */
+  async confirmClosing(id: string, workerId: string): Promise<CashClosing> {
+    return this.cashClosingRepo.updateStatus(id, ClosingStatus.CONFIRMED, workerId);
+  }
+
+  /**
+   * Admin returns closing to DRAFT for corrections.
+   */
+  async returnToDraft(id: string): Promise<CashClosing> {
+    return this.cashClosingRepo.updateStatus(id, ClosingStatus.DRAFT);
+  }
+
+  /**
+   * Admin approves the closing (locks it).
+   */
+  async approveClosing(id: string, workerId: string): Promise<CashClosing> {
+    return this.cashClosingRepo.updateStatus(id, ClosingStatus.APPROVED, workerId);
+  }
+
+  /**
+   * Regenerates alerts for a given store and date.
+   * Can be called independently from the validaciones screen.
+   */
+  async regenerateAlerts(storeId: string, date: string): Promise<void> {
+    await this.generateAlerts(storeId, date);
   }
 
   /**
@@ -97,5 +163,16 @@ export class CashClosingService {
     to: string,
   ): Promise<CashClosing[]> {
     return this.cashClosingRepo.getByDateRange(storeId, from, to);
+  }
+
+  // --- Private ---
+
+  private async generateAlerts(storeId: string, date: string): Promise<void> {
+    if (!this.alertService) return;
+    try {
+      await this.alertService.triggerPostClosingValidation(storeId, date);
+    } catch {
+      // Don't fail the cash closing if alert generation fails
+    }
   }
 }

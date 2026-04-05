@@ -16,6 +16,7 @@ export interface CartItem {
 
 interface SaleState {
   cart: CartItem[];
+  cartPackagingSupplyId: string | undefined;
   sales: Sale[];
   pendingSales: Sale[];
   loading: boolean;
@@ -26,6 +27,7 @@ interface SaleState {
   removeFromCart: (cartItemId: string) => void;
   updateQuantity: (cartItemId: string, quantity: number) => void;
   updateCustomerNote: (cartItemId: string, note: string) => void;
+  setCartPackaging: (packagingSupplyId: string | undefined) => void;
   clearCart: () => void;
 
   setSales: (sales: Sale[]) => void;
@@ -39,6 +41,7 @@ let nextCartItemId = 1;
 
 export const useSaleStore = create<SaleState>((set) => ({
   cart: [],
+  cartPackagingSupplyId: undefined,
   sales: [],
   pendingSales: [],
   loading: false,
@@ -116,7 +119,10 @@ export const useSaleStore = create<SaleState>((set) => ({
       ),
     })),
 
-  clearCart: () => set({ cart: [] }),
+  setCartPackaging: (packagingSupplyId) =>
+    set({ cartPackagingSupplyId: packagingSupplyId }),
+
+  clearCart: () => set({ cart: [], cartPackagingSupplyId: undefined }),
 
   setSales: (sales) => set({ sales }),
   setPendingSales: (pendingSales) => set({ pendingSales }),

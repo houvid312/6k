@@ -73,7 +73,7 @@ const authService = new SupabaseAuthService();
 const physicalCountService = new PhysicalCountService(physicalCountRepo, inventoryRepo);
 const productionService = new ProductionService(productionRecipeRepo, productionRecordRepo, inventoryRepo);
 const demandEstimationService = new DemandEstimationService(demandEstimateRepo, recipeRepo, inventoryRepo, supplyRepo);
-const alertService = new AlertService(dailyAlertRepo, validationService, physicalCountRepo, supplyRepo);
+const alertService = new AlertService(dailyAlertRepo, validationService, physicalCountRepo, supplyRepo, transferRepo);
 const writeoffService = new WriteoffService(writeoffRepo, inventoryRepo);
 const cashClosingService = new CashClosingService(cashClosingRepo, saleRepo, expenseRepo, alertService);
 

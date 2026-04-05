@@ -5,7 +5,7 @@ import {
   IInventoryRepository,
   ISupplyRepository,
 } from '../domain/interfaces/repositories';
-import { InventoryLevel } from '../domain/enums';
+import { InventoryLevel, PACKAGING_SUPPLY_IDS } from '../domain/enums';
 
 export interface SupplyRequirement {
   supplyId: string;
@@ -85,6 +85,16 @@ export class DemandEstimationService {
     const requiredMap = await this.calculateRequiredSupplies(toStoreId, dayOfWeek);
     const supplies = await this.supplyRepo.getAll();
     const supplyMap = new Map(supplies.map((s) => [s.id, s]));
+
+    // Asegurar minimo de 10 unidades para empaques
+    const packagingIds = Object.values(PACKAGING_SUPPLY_IDS);
+    for (const pkgId of packagingIds) {
+      if (!requiredMap.has(pkgId)) {
+        requiredMap.set(pkgId, 10);
+      } else {
+        requiredMap.set(pkgId, Math.max(requiredMap.get(pkgId)!, 10));
+      }
+    }
 
     const requirements: SupplyRequirement[] = [];
 

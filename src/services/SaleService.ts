@@ -30,6 +30,7 @@ export class SaleService {
     observations?: string,
     isPaid: boolean = true,
     customerNote?: string,
+    packagingSupplyId?: string,
   ): Promise<Sale> {
     const saleItems: SaleItem[] = [];
     let totalPortions = 0;
@@ -67,6 +68,7 @@ export class SaleService {
       isPaid,
       isDispatched: false,
       customerNote: customerNote ?? undefined,
+      packagingSupplyId,
     } as Omit<Sale, 'id'>);
 
     return sale;

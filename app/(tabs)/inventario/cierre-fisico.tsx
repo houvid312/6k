@@ -1,29 +1,32 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Text, Button, Card, Divider, Portal, Snackbar, useTheme } from 'react-native-paper';
+import { Text, Button, Card, Divider, Portal, Snackbar, useTheme, Searchbar } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
 import { BagCounter } from '../../../src/components/inventario/BagCounter';
+import { ConfirmDialog } from '../../../src/components/common/ConfirmDialog';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
 import { PhysicalCountItem } from '../../../src/domain/entities';
+import { PACKAGING_SUPPLY_IDS } from '../../../src/domain/enums';
 
 interface CountEntry {
   supplyId: string;
   supplyName: string;
   gramsPerBag: number;
+  unit: 'GRAMOS' | 'MILILITROS' | 'UNIDAD';
   bags: number;
   looseGrams: number;
 }
 
 export default function CierreFisicoScreen() {
   const theme = useTheme();
-  const { physicalCountService } = useDI();
-  const { selectedStoreId } = useAppStore();
+  const { physicalCountService, recipeRepo } = useDI();
+  const { selectedStoreId, stores } = useAppStore();
   const { supplies: cachedSupplies, workers: cachedWorkers } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
@@ -33,21 +36,75 @@ export default function CierreFisicoScreen() {
   const [counts, setCounts] = useState<CountEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [confirmVisible, setConfirmVisible] = useState(false);
+
+  const filteredCounts = useMemo(() => {
+    if (!searchQuery.trim()) return counts;
+    const query = searchQuery.toLowerCase().trim();
+    return counts.filter((c) => c.supplyName.toLowerCase().includes(query));
+  }, [counts, searchQuery]);
+
+  const selectedStore = stores.find((s) => s.id === selectedStoreId);
+  const isProductionCenter = selectedStore?.isProductionCenter ?? false;
 
   useEffect(() => {
-    if (cachedSupplies.length > 0) {
+    if (cachedSupplies.length === 0 || !selectedStoreId) return;
+
+    const packagingIds = new Set<string>(Object.values(PACKAGING_SUPPLY_IDS));
+
+    if (isProductionCenter) {
+      // Centro de producción: mostrar todos los insumos
       setCounts(
         cachedSupplies.map((s) => ({
           supplyId: s.id,
           supplyName: s.name,
           gramsPerBag: s.gramsPerBag,
+          unit: s.unit,
           bags: 0,
           looseGrams: 0,
         })),
       );
       setLoading(false);
+    } else {
+      // Local: solo insumos de recetas + empaques
+      setLoading(true);
+      recipeRepo.getAll().then((recipes) => {
+        const recipeSupplyIds = new Set<string>();
+        for (const recipe of recipes) {
+          for (const ingredient of recipe.ingredients) {
+            recipeSupplyIds.add(ingredient.supplyId);
+          }
+        }
+
+        setCounts(
+          cachedSupplies
+            .filter((s) => recipeSupplyIds.has(s.id) || packagingIds.has(s.id))
+            .map((s) => ({
+              supplyId: s.id,
+              supplyName: s.name,
+              gramsPerBag: s.gramsPerBag,
+              unit: s.unit,
+              bags: 0,
+              looseGrams: 0,
+            })),
+        );
+        setLoading(false);
+      }).catch(() => {
+        setCounts(
+          cachedSupplies.map((s) => ({
+            supplyId: s.id,
+            supplyName: s.name,
+            gramsPerBag: s.gramsPerBag,
+            unit: s.unit,
+            bags: 0,
+            looseGrams: 0,
+          })),
+        );
+        setLoading(false);
+      });
     }
-  }, [cachedSupplies]);
+  }, [cachedSupplies, selectedStoreId, isProductionCenter]);
 
   const updateBags = useCallback((supplyId: string, bags: number) => {
     setCounts((prev) => prev.map((c) => (c.supplyId === supplyId ? { ...c, bags } : c)));
@@ -55,6 +112,12 @@ export default function CierreFisicoScreen() {
 
   const updateGrams = useCallback((supplyId: string, looseGrams: number) => {
     setCounts((prev) => prev.map((c) => (c.supplyId === supplyId ? { ...c, looseGrams } : c)));
+  }, []);
+
+  const resetForm = useCallback(() => {
+    setCounts((prev) => prev.map((c) => ({ ...c, bags: 0, looseGrams: 0 })));
+    setSelectedWorkerId('');
+    setSearchQuery('');
   }, []);
 
   const handleSubmit = useCallback(async () => {
@@ -69,12 +132,14 @@ export default function CierreFisicoScreen() {
 
       const count = await physicalCountService.submitCount(selectedStoreId!, items, selectedWorkerId || undefined);
       showSuccess(`${count.items.length} insumos registrados. Inventario actualizado.`);
+      resetForm();
     } catch {
       showError('No se pudo registrar el cierre fisico');
     } finally {
       setSubmitting(false);
+      setConfirmVisible(false);
     }
-  }, [counts, selectedStoreId, physicalCountService, showSuccess, showError]);
+  }, [counts, selectedStoreId, physicalCountService, showSuccess, showError, resetForm]);
 
   if (loading) {
     return <LoadingIndicator message="Cargando insumos..." />;
@@ -101,24 +166,39 @@ export default function CierreFisicoScreen() {
         onSelect={setSelectedWorkerId}
       />
 
-      {counts.map((entry, index) => (
+      <Searchbar
+        placeholder="Buscar insumo..."
+        onChangeText={setSearchQuery}
+        value={searchQuery}
+        style={styles.searchBar}
+        inputStyle={styles.searchInput}
+        icon="magnify"
+      />
+
+      {filteredCounts.length === 0 && searchQuery.trim() !== '' && (
+        <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant, textAlign: 'center', marginVertical: 16 }}>
+          No se encontraron insumos para "{searchQuery}"
+        </Text>
+      )}
+
+      {filteredCounts.map((entry, index) => (
         <View key={entry.supplyId}>
           <BagCounter
             label={entry.supplyName}
             bags={entry.bags}
             looseGrams={entry.looseGrams}
             gramsPerBag={entry.gramsPerBag}
+            unit={entry.unit}
             onBagsChange={(bags) => updateBags(entry.supplyId, bags)}
             onGramsChange={(grams) => updateGrams(entry.supplyId, grams)}
           />
-          {index < counts.length - 1 && <Divider />}
+          {index < filteredCounts.length - 1 && <Divider />}
         </View>
       ))}
 
       <Button
         mode="contained"
-        onPress={handleSubmit}
-        loading={submitting}
+        onPress={() => setConfirmVisible(true)}
         disabled={submitting}
         style={styles.submitBtn}
         icon="clipboard-check"
@@ -127,6 +207,16 @@ export default function CierreFisicoScreen() {
       </Button>
 
       <View style={{ height: 100 }} />
+
+      <ConfirmDialog
+        visible={confirmVisible}
+        title="Confirmar Cierre Fisico"
+        message="Se registrara el conteo fisico de todos los insumos y se actualizara el inventario. Esta accion no se puede deshacer."
+        confirmLabel="Registrar"
+        onConfirm={handleSubmit}
+        onDismiss={() => setConfirmVisible(false)}
+        confirmLoading={submitting}
+      />
 
       <Portal>
         <Snackbar
@@ -148,6 +238,14 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     marginBottom: 4,
+  },
+  searchBar: {
+    marginBottom: 16,
+    borderRadius: 12,
+    elevation: 0,
+  },
+  searchInput: {
+    fontSize: 16,
   },
   submitBtn: {
     marginTop: 24,

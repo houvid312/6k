@@ -1,3 +1,5 @@
+import { ClosingStatus } from '../enums/ClosingStatus';
+
 export interface DenominationCount {
   bills100k: number;
   bills50k: number;
@@ -18,4 +20,7 @@ export interface CashClosing {
   actualTotal: number;
   discrepancy: number;
   expenses: number;
+  status: ClosingStatus;
+  confirmedByWorkerId?: string;
+  approvedByWorkerId?: string;
 }

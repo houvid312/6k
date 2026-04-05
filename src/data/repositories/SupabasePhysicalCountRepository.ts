@@ -92,6 +92,28 @@ export class SupabasePhysicalCountRepository implements IPhysicalCountRepository
     return counts;
   }
 
+  async getLatestTwo(storeId: string): Promise<PhysicalCount[]> {
+    const { data, error } = await supabase
+      .from('physical_counts')
+      .select('*')
+      .eq('store_id', storeId)
+      .order('created_at', { ascending: false })
+      .limit(2);
+    if (error) throw error;
+
+    const counts: PhysicalCount[] = [];
+    for (const row of data as PhysicalCountRow[]) {
+      const { data: itemRows, error: itemsError } = await supabase
+        .from('physical_count_items')
+        .select('*')
+        .eq('physical_count_id', row.id);
+      if (itemsError) throw itemsError;
+      counts.push(toEntity(row, itemRows as PhysicalCountItemRow[]));
+    }
+
+    return counts;
+  }
+
   async getLatest(storeId: string): Promise<PhysicalCount | null> {
     const { data, error } = await supabase
       .from('physical_counts')

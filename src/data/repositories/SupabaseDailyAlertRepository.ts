@@ -59,6 +59,15 @@ export class SupabaseDailyAlertRepository implements IDailyAlertRepository {
     return (data as AlertRow[]).map(toEntity);
   }
 
+  async deleteByStoreAndDate(storeId: string, date: string): Promise<void> {
+    const { error } = await supabase
+      .from('daily_alerts')
+      .delete()
+      .eq('store_id', storeId)
+      .eq('date', date);
+    if (error) throw error;
+  }
+
   async getByStoreAndDate(storeId: string, date: string): Promise<DailyAlert[]> {
     const { data, error } = await supabase
       .from('daily_alerts')

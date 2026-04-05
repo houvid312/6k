@@ -44,6 +44,8 @@ export function SaleScreen() {
   const setSubmitting = useSaleStore((s) => s.setSubmitting);
   const setLastSaleResult = useSaleStore((s) => s.setLastSaleResult);
   const setPendingSales = useSaleStore((s) => s.setPendingSales);
+  const cartPackagingSupplyId = useSaleStore((s) => s.cartPackagingSupplyId);
+  const setCartPackaging = useSaleStore((s) => s.setCartPackaging);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string | undefined>();
@@ -140,6 +142,7 @@ export function SaleScreen() {
         observations || undefined,
         isPaid,
         customerNotes || undefined,
+        cartPackagingSupplyId,
       );
 
       const totalPortions = cart.reduce((sum, i) => sum + i.portions, 0);
@@ -308,6 +311,8 @@ export function SaleScreen() {
               onRemove={removeFromCart}
               onUpdateQuantity={updateQuantity}
               onUpdateNote={updateCustomerNote}
+              packagingSupplyId={cartPackagingSupplyId}
+              onPackagingChange={setCartPackaging}
             />
           </Card.Content>
         </Card>

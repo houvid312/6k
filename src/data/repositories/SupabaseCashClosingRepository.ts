@@ -1,6 +1,7 @@
 import { supabase } from '../../lib/supabase';
 import { CashClosing, DenominationCount } from '../../domain/entities';
 import { ICashClosingRepository } from '../../domain/interfaces/repositories';
+import { ClosingStatus } from '../../domain/enums';
 
 // --- Row type ---
 
@@ -20,6 +21,9 @@ interface CashClosingRow {
   actual_total: number;
   discrepancy: number;
   expenses: number;
+  status: string;
+  confirmed_by_worker_id: string | null;
+  approved_by_worker_id: string | null;
 }
 
 // --- Mappers ---
@@ -43,6 +47,9 @@ function toEntity(row: CashClosingRow): CashClosing {
     actualTotal: row.actual_total,
     discrepancy: row.discrepancy,
     expenses: row.expenses,
+    status: row.status as ClosingStatus,
+    confirmedByWorkerId: row.confirmed_by_worker_id ?? undefined,
+    approvedByWorkerId: row.approved_by_worker_id ?? undefined,
   };
 }
 
@@ -62,6 +69,9 @@ function toRow(closing: Omit<CashClosing, 'id'>): Record<string, unknown> {
     actual_total: closing.actualTotal,
     discrepancy: closing.discrepancy,
     expenses: closing.expenses,
+    status: closing.status,
+    confirmed_by_worker_id: closing.confirmedByWorkerId ?? null,
+    approved_by_worker_id: closing.approvedByWorkerId ?? null,
   };
 }
 
@@ -86,6 +96,56 @@ export class SupabaseCashClosingRepository implements ICashClosingRepository {
     const { data, error } = await supabase
       .from('cash_closings')
       .insert(toRow(closing))
+      .select()
+      .single();
+    if (error) throw error;
+    return toEntity(data as CashClosingRow);
+  }
+
+  async update(id: string, data: Partial<Omit<CashClosing, 'id'>>): Promise<CashClosing> {
+    const updateRow: Record<string, unknown> = {};
+
+    if (data.denominations) {
+      updateRow.bills_100k = data.denominations.bills100k;
+      updateRow.bills_50k = data.denominations.bills50k;
+      updateRow.bills_20k = data.denominations.bills20k;
+      updateRow.bills_10k = data.denominations.bills10k;
+      updateRow.bills_5k = data.denominations.bills5k;
+      updateRow.bills_2k = data.denominations.bills2k;
+      updateRow.coins = data.denominations.coins;
+    }
+    if (data.bankTotal !== undefined) updateRow.bank_total = data.bankTotal;
+    if (data.expectedTotal !== undefined) updateRow.expected_total = data.expectedTotal;
+    if (data.actualTotal !== undefined) updateRow.actual_total = data.actualTotal;
+    if (data.discrepancy !== undefined) updateRow.discrepancy = data.discrepancy;
+    if (data.expenses !== undefined) updateRow.expenses = data.expenses;
+    if (data.status !== undefined) updateRow.status = data.status;
+    if (data.confirmedByWorkerId !== undefined) updateRow.confirmed_by_worker_id = data.confirmedByWorkerId;
+    if (data.approvedByWorkerId !== undefined) updateRow.approved_by_worker_id = data.approvedByWorkerId;
+
+    const { data: result, error } = await supabase
+      .from('cash_closings')
+      .update(updateRow)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return toEntity(result as CashClosingRow);
+  }
+
+  async updateStatus(id: string, status: ClosingStatus, workerId?: string): Promise<CashClosing> {
+    const updateData: Record<string, unknown> = { status };
+
+    if (status === ClosingStatus.CONFIRMED && workerId) {
+      updateData.confirmed_by_worker_id = workerId;
+    } else if (status === ClosingStatus.APPROVED && workerId) {
+      updateData.approved_by_worker_id = workerId;
+    }
+
+    const { data, error } = await supabase
+      .from('cash_closings')
+      .update(updateData)
+      .eq('id', id)
       .select()
       .single();
     if (error) throw error;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Text, Card, Button, Divider, Portal, Snackbar, useTheme } from 'react-native-paper';
+import { Text, Card, Button, Chip, Divider, Portal, Snackbar, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
@@ -11,11 +11,19 @@ import { useSnackbar } from '../../../src/hooks';
 import { useCashClosingStore } from '../../../src/stores/useCashClosingStore';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate, todayColombia } from '../../../src/utils/dates';
+import { CashClosing } from '../../../src/domain/entities';
+import { ClosingStatus, UserRole } from '../../../src/domain/enums';
+
+const STATUS_CONFIG: Record<ClosingStatus, { label: string; color: string; icon: string }> = {
+  [ClosingStatus.DRAFT]: { label: 'Borrador', color: '#F57C00', icon: 'pencil' },
+  [ClosingStatus.CONFIRMED]: { label: 'Confirmado', color: '#1976D2', icon: 'check' },
+  [ClosingStatus.APPROVED]: { label: 'Aprobado', color: '#388E3C', icon: 'check-all' },
+};
 
 export default function CierreCajaScreen() {
   const theme = useTheme();
   const { cashClosingService } = useDI();
-  const { selectedStoreId } = useAppStore();
+  const { selectedStoreId, userRole } = useAppStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
   const {
     denominations,
@@ -32,11 +40,13 @@ export default function CierreCajaScreen() {
 
   const [expectedTotal, setExpectedTotal] = useState(0);
   const [submitting, setSubmitting] = useState(false);
-  const [closed, setClosed] = useState(false);
+  const [existingClosing, setExistingClosing] = useState<CashClosing | null>(null);
 
   const today = todayColombia();
   const actualTotal = getTotal();
   const discrepancy = actualTotal - cashBase - (expectedTotal - expenses);
+  const isAdmin = userRole === UserRole.ADMIN;
+  const isEditable = !existingClosing || existingClosing.status !== ClosingStatus.APPROVED;
 
   useEffect(() => {
     (async () => {
@@ -46,9 +56,7 @@ export default function CierreCajaScreen() {
         setBankTotal(summary.totalBankAmount);
 
         const existing = await cashClosingService.getClosingByDate(selectedStoreId, today);
-        if (existing) {
-          setClosed(true);
-        }
+        setExistingClosing(existing);
       } catch {
         setExpectedTotal(0);
       }
@@ -58,23 +66,82 @@ export default function CierreCajaScreen() {
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
     try {
-      await cashClosingService.createClosing(
-        selectedStoreId,
-        today,
-        denominations,
-        bankTotal,
-        expenses,
-      );
-      setClosed(true);
-      showSuccess(`Cierre completado. Discrepancia: ${formatCOP(discrepancy)}`);
-    } catch {
-      showError('No se pudo registrar el cierre');
+      if (existingClosing && isEditable) {
+        // Update existing closing
+        const updated = await cashClosingService.updateClosing(
+          existingClosing.id,
+          selectedStoreId,
+          today,
+          denominations,
+          bankTotal,
+          expenses,
+        );
+        setExistingClosing(updated);
+        showSuccess('Cierre actualizado y alertas regeneradas');
+      } else {
+        // Create new closing
+        const closing = await cashClosingService.createClosing(
+          selectedStoreId,
+          today,
+          denominations,
+          bankTotal,
+          expenses,
+        );
+        setExistingClosing(closing);
+        showSuccess(`Cierre creado como borrador. Discrepancia: ${formatCOP(discrepancy)}`);
+      }
+      reset();
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'No se pudo registrar el cierre');
     } finally {
       setSubmitting(false);
     }
-  }, [selectedStoreId, today, denominations, bankTotal, expenses, cashClosingService, discrepancy, showSuccess, showError]);
+  }, [selectedStoreId, today, denominations, bankTotal, expenses, cashClosingService, existingClosing, isEditable, discrepancy, showSuccess, showError]);
+
+  const handleConfirm = useCallback(async () => {
+    if (!existingClosing) return;
+    setSubmitting(true);
+    try {
+      const updated = await cashClosingService.confirmClosing(existingClosing.id, '');
+      setExistingClosing(updated);
+      showSuccess('Cierre confirmado');
+    } catch {
+      showError('No se pudo confirmar el cierre');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [existingClosing, cashClosingService, showSuccess, showError]);
+
+  const handleReturnToDraft = useCallback(async () => {
+    if (!existingClosing) return;
+    setSubmitting(true);
+    try {
+      const updated = await cashClosingService.returnToDraft(existingClosing.id);
+      setExistingClosing(updated);
+      showSuccess('Cierre devuelto a borrador');
+    } catch {
+      showError('No se pudo devolver a borrador');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [existingClosing, cashClosingService, showSuccess, showError]);
+
+  const handleApprove = useCallback(async () => {
+    if (!existingClosing) return;
+    setSubmitting(true);
+    try {
+      const updated = await cashClosingService.approveClosing(existingClosing.id, '');
+      setExistingClosing(updated);
+      showSuccess('Cierre aprobado y bloqueado');
+    } catch {
+      showError('No se pudo aprobar el cierre');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [existingClosing, cashClosingService, showSuccess, showError]);
 
   const cashTotal = actualTotal - bankTotal;
+  const statusConfig = existingClosing ? STATUS_CONFIG[existingClosing.status] : null;
 
   return (
     <ScreenContainer>
@@ -85,12 +152,25 @@ export default function CierreCajaScreen() {
         </Text>
       </View>
 
-      {closed && (
-        <Card style={[styles.card, { borderColor: '#388E3C', borderWidth: 2 }]} mode="elevated">
-          <Card.Content>
-            <Text variant="titleMedium" style={{ color: '#388E3C', fontWeight: 'bold' }}>
-              Cierre del dia ya registrado
-            </Text>
+      {/* Status Banner */}
+      {existingClosing && statusConfig && (
+        <Card style={[styles.card, { borderColor: statusConfig.color, borderWidth: 2 }]} mode="elevated">
+          <Card.Content style={styles.statusRow}>
+            <View style={{ flex: 1 }}>
+              <Text variant="titleMedium" style={{ color: statusConfig.color, fontWeight: 'bold' }}>
+                Cierre del dia {existingClosing.status === ClosingStatus.APPROVED ? 'aprobado' : 'registrado'}
+              </Text>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
+                Discrepancia: {formatCOP(existingClosing.discrepancy)}
+              </Text>
+            </View>
+            <Chip
+              icon={statusConfig.icon}
+              textStyle={{ color: statusConfig.color, fontWeight: '600', fontSize: 12 }}
+              style={{ backgroundColor: statusConfig.color + '20' }}
+            >
+              {statusConfig.label}
+            </Chip>
           </Card.Content>
         </Card>
       )}
@@ -198,16 +278,72 @@ export default function CierreCajaScreen() {
         </Card.Content>
       </Card>
 
-      {!closed && (
+      {/* Action Buttons */}
+      {isEditable && (
         <Button
           mode="contained"
           onPress={handleSubmit}
           loading={submitting}
           disabled={submitting}
           style={styles.submitBtn}
-          icon="lock-check"
+          icon={existingClosing ? 'content-save' : 'lock-check'}
         >
-          Registrar Cierre
+          {existingClosing ? 'Actualizar Cierre' : 'Registrar Cierre'}
+        </Button>
+      )}
+
+      {/* Workflow buttons */}
+      {existingClosing && existingClosing.status === ClosingStatus.DRAFT && (
+        <Button
+          mode="contained-tonal"
+          onPress={handleConfirm}
+          loading={submitting}
+          disabled={submitting}
+          style={styles.workflowBtn}
+          icon="check"
+        >
+          Confirmar Cierre
+        </Button>
+      )}
+
+      {existingClosing && existingClosing.status === ClosingStatus.CONFIRMED && isAdmin && (
+        <View style={styles.adminActions}>
+          <Button
+            mode="outlined"
+            onPress={handleReturnToDraft}
+            loading={submitting}
+            disabled={submitting}
+            style={[styles.workflowBtn, { flex: 1, marginRight: 8 }]}
+            icon="arrow-left"
+            textColor="#F57C00"
+          >
+            Devolver
+          </Button>
+          <Button
+            mode="contained"
+            onPress={handleApprove}
+            loading={submitting}
+            disabled={submitting}
+            style={[styles.workflowBtn, { flex: 1 }]}
+            icon="check-all"
+            buttonColor="#388E3C"
+          >
+            Aprobar
+          </Button>
+        </View>
+      )}
+
+      {existingClosing && existingClosing.status === ClosingStatus.APPROVED && isAdmin && (
+        <Button
+          mode="outlined"
+          onPress={handleReturnToDraft}
+          loading={submitting}
+          disabled={submitting}
+          style={styles.workflowBtn}
+          icon="arrow-left"
+          textColor="#F57C00"
+        >
+          Reabrir para correccion
         </Button>
       )}
 
@@ -246,6 +382,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
   },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -256,5 +397,13 @@ const styles = StyleSheet.create({
     marginTop: 16,
     borderRadius: 8,
     paddingVertical: 4,
+  },
+  workflowBtn: {
+    marginTop: 8,
+    borderRadius: 8,
+  },
+  adminActions: {
+    flexDirection: 'row',
+    marginTop: 8,
   },
 });

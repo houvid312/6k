@@ -91,12 +91,15 @@ export class SupabaseProductionRecordRepository implements IProductionRecordRepo
   }
 
   async getByDateRange(storeId: string, from: string, to: string): Promise<ProductionRecord[]> {
+    const fromTs = from.includes('T') ? from : `${from}T00:00:00`;
+    const toTs = to.includes('T') ? to : `${to}T23:59:59`;
+
     const { data: rows, error } = await supabase
       .from('production_records')
       .select('*')
       .eq('store_id', storeId)
-      .gte('created_at', from)
-      .lte('created_at', to)
+      .gte('created_at', fromTs)
+      .lte('created_at', toTs)
       .order('created_at', { ascending: false });
     if (error) throw error;
 

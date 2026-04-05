@@ -1,5 +1,10 @@
 import { DailyAlert, AlertType } from '../domain/entities';
-import { IDailyAlertRepository, IPhysicalCountRepository, ISupplyRepository } from '../domain/interfaces/repositories';
+import {
+  IDailyAlertRepository,
+  IPhysicalCountRepository,
+  ISupplyRepository,
+  ITransferRepository,
+} from '../domain/interfaces/repositories';
 import { ValidationService } from './ValidationService';
 
 export class AlertService {
@@ -8,72 +13,125 @@ export class AlertService {
     private validationService: ValidationService,
     private physicalCountRepo: IPhysicalCountRepository,
     private supplyRepo: ISupplyRepository,
+    private transferRepo: ITransferRepository,
   ) {}
 
   /**
    * Triggers inventory validation after cash closing.
-   * Compares theoretical consumption (from sales + recipes) with
-   * actual inventory (from the latest physical count).
+   *
+   * Formula per supply:
+   *   invInicial       = conteo físico anterior (o 0 si es el primero)
+   *   entradas         = traslados recibidos al nivel STORE durante el día
+   *   consumoTeorico   = ventas × recetas + bajas aprobadas
+   *   invFinalTeorico  = invInicial + entradas − consumoTeorico
+   *   invFinalReal     = conteo físico de hoy
+   *   discrepancia     = invFinalReal − invFinalTeorico
+   *
+   * Negative discrepancy → LOSS (se consumió más de lo esperado)
+   * Positive discrepancy → SURPLUS (se consumió menos de lo esperado)
    */
   async triggerPostClosingValidation(
     storeId: string,
     date: string,
     closingWorkerId?: string,
   ): Promise<DailyAlert[]> {
-    // Get the latest physical count for this store
-    const latestCount = await this.physicalCountRepo.getLatest(storeId);
-    if (!latestCount) {
-      // No physical count yet — cannot validate
+    // 0. Delete previous alerts for this store+date to avoid duplicates
+    await this.dailyAlertRepo.deleteByStoreAndDate(storeId, date);
+
+    // 1. Get the two most recent physical counts (current + previous)
+    const latestCounts = await this.physicalCountRepo.getLatestTwo(storeId);
+    if (latestCounts.length === 0) {
+      // No physical count — cannot validate
       return [];
     }
 
-    // Build real inventory map from the physical count
-    const realInventory: Record<string, number> = {};
-    for (const item of latestCount.items) {
-      realInventory[item.supplyId] = item.totalGrams;
+    const currentCount = latestCounts[0];
+    const previousCount = latestCounts.length > 1 ? latestCounts[1] : null;
+
+    // 2. Build inventory maps
+    const finalInventory: Record<string, number> = {};
+    for (const item of currentCount.items) {
+      finalInventory[item.supplyId] = item.totalGrams;
     }
 
-    // Get theoretical consumption for the day
+    const initialInventory: Record<string, number> = {};
+    if (previousCount) {
+      for (const item of previousCount.items) {
+        initialInventory[item.supplyId] = item.totalGrams;
+      }
+    }
+
+    // 3. Get entries: transfers received to this store today
+    const transfers = await this.transferRepo.getReceivedByDestination(storeId, date, date);
+    const supplies = await this.supplyRepo.getAll();
+    const supplyMap = new Map(supplies.map((s) => [s.id, s]));
+
+    const transferEntries: Record<string, number> = {};
+    for (const transfer of transfers) {
+      for (const item of transfer.items) {
+        const supply = supplyMap.get(item.supplyId);
+        const gramsTransferred = supply
+          ? item.bagsToSend * supply.gramsPerBag
+          : item.targetGrams - item.currentInventoryGrams;
+        transferEntries[item.supplyId] = (transferEntries[item.supplyId] ?? 0) + gramsTransferred;
+      }
+    }
+
+    // 4. Get theoretical consumption (sales × recipes + approved writeoffs)
     const theoretical = await this.validationService.calculateTheoreticalConsumption(
       storeId,
       date,
       date,
     );
+    const theoreticalMap = new Map(theoretical.map((tc) => [tc.supplyId, tc.theoreticalGrams]));
 
-    // Get all supplies for names
-    const supplies = await this.supplyRepo.getAll();
-    const supplyMap = new Map(supplies.map((s) => [s.id, s]));
+    // 5. Collect all supply IDs that appear in any data source
+    const allSupplyIds = new Set<string>([
+      ...Object.keys(finalInventory),
+      ...Object.keys(initialInventory),
+      ...Object.keys(transferEntries),
+      ...theoreticalMap.keys(),
+    ]);
 
-    // Calculate alerts
+    // 6. Calculate alerts per supply
     const alerts: Omit<DailyAlert, 'id'>[] = [];
     const thresholdPercent = 5;
 
-    for (const tc of theoretical) {
-      if (tc.theoreticalGrams === 0) continue;
+    for (const supplyId of allSupplyIds) {
+      const invInicial = initialInventory[supplyId] ?? 0;
+      const entradas = transferEntries[supplyId] ?? 0;
+      const consumoTeorico = theoreticalMap.get(supplyId) ?? 0;
+      const invFinalReal = finalInventory[supplyId] ?? 0;
 
-      const realGrams = realInventory[tc.supplyId] ?? 0;
-      // Theoretical consumption tells us how much SHOULD have been consumed.
-      // We compare it with actual remaining inventory.
-      // differenceGrams: positive = surplus (less consumed than expected), negative = loss
-      const differenceGrams = Math.round((realGrams - tc.theoreticalGrams) * 100) / 100;
+      // Skip supplies with no movement (no initial, no entries, no consumption, no final)
+      if (invInicial === 0 && entradas === 0 && consumoTeorico === 0 && invFinalReal === 0) {
+        continue;
+      }
+
+      const invFinalTeorico = invInicial + entradas - consumoTeorico;
+      const differenceGrams = Math.round((invFinalReal - invFinalTeorico) * 100) / 100;
+
+      // Use theoretical consumption as denominator for % (how much SHOULD have been consumed)
+      // If no theoretical consumption, use initial inventory as reference
+      const referenceDenominator = consumoTeorico > 0 ? consumoTeorico : invInicial + entradas;
       const differencePercent =
-        tc.theoreticalGrams > 0
-          ? Math.round((differenceGrams / tc.theoreticalGrams) * 10000) / 100
+        referenceDenominator > 0
+          ? Math.round((differenceGrams / referenceDenominator) * 10000) / 100
           : 0;
 
       let alertType: AlertType = 'OK';
-      if (differencePercent > thresholdPercent) alertType = 'SURPLUS';
-      else if (differencePercent < -thresholdPercent) alertType = 'LOSS';
+      if (differencePercent < -thresholdPercent) alertType = 'LOSS';
+      else if (differencePercent > thresholdPercent) alertType = 'SURPLUS';
 
       alerts.push({
         storeId,
         date,
-        physicalCountId: latestCount.id,
+        physicalCountId: currentCount.id,
         closingWorkerId,
-        countWorkerId: latestCount.workerId,
-        supplyId: tc.supplyId,
-        theoreticalGrams: tc.theoreticalGrams,
-        realGrams,
+        countWorkerId: currentCount.workerId,
+        supplyId,
+        theoreticalGrams: Math.round(invFinalTeorico * 100) / 100,
+        realGrams: invFinalReal,
         differenceGrams,
         differencePercent,
         alertType,

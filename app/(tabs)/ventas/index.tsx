@@ -41,11 +41,13 @@ export default function VentasScreen() {
   const { products: cachedProducts, supplies } = useMasterDataStore();
   const {
     cart,
+    cartPackagingSupplyId,
     pendingSales,
     addToCart,
     removeFromCart,
     updateQuantity,
     updateCustomerNote,
+    setCartPackaging,
     clearCart,
     setPendingSales,
   } = useSaleStore();
@@ -88,6 +90,9 @@ export default function VentasScreen() {
   const [portionsInput, setPortionsInput] = useState<Record<string, string>>({});
   const portionsSet = Object.keys(availablePortions).length > 0;
 
+  // Porciones vendidas hoy por producto
+  const [soldPortions, setSoldPortions] = useState<Record<string, number>>({});
+
   // Cargar porciones del día desde BD
   useEffect(() => {
     if (!selectedStoreId) return;
@@ -105,6 +110,32 @@ export default function VentasScreen() {
       }
     })();
   }, [selectedStoreId]);
+
+  // Cargar porciones vendidas hoy
+  const loadSoldPortions = useCallback(async () => {
+    if (!selectedStoreId) return;
+    const today = todayColombia();
+    const startOfDay = `${today}T00:00:00`;
+    const endOfDay = `${today}T23:59:59`;
+    const { data } = await supabase
+      .from('sale_items')
+      .select('product_id, portions, sales!inner(store_id, created_at)')
+      .eq('sales.store_id', selectedStoreId)
+      .gte('sales.created_at', startOfDay)
+      .lte('sales.created_at', endOfDay);
+
+    if (data) {
+      const map: Record<string, number> = {};
+      for (const row of data) {
+        map[row.product_id] = (map[row.product_id] ?? 0) + row.portions;
+      }
+      setSoldPortions(map);
+    }
+  }, [selectedStoreId]);
+
+  useEffect(() => {
+    loadSoldPortions();
+  }, [loadSoldPortions]);
 
   // Guardar porciones en BD
   const savePortionsToDB = useCallback(async (portions: Record<string, number>) => {
@@ -303,6 +334,7 @@ export default function VentasScreen() {
         observations || undefined,
         isPaid,
         customerNotes || undefined,
+        cartPackagingSupplyId,
       );
 
       const totalPortions = cart.reduce((sum, i) => sum + i.portions, 0);
@@ -321,6 +353,16 @@ export default function VentasScreen() {
         success: true,
         message: `Venta registrada: ${totalPortions} porc. por ${formatCOP(sale.totalAmount)}${paidLabel}`,
       });
+
+      // Actualizar porciones vendidas localmente
+      const updatedSold = { ...soldPortions };
+      for (const c of cart) {
+        const prod = products.find((p) => p.id === c.productId);
+        if (prod?.category === 'PIZZA') {
+          updatedSold[c.productId] = (updatedSold[c.productId] ?? 0) + c.portions;
+        }
+      }
+      setSoldPortions(updatedSold);
 
       // Descontar porciones vendidas
       if (portionsSet) {
@@ -346,7 +388,7 @@ export default function VentasScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [cart, paymentMethod, cashAmount, bankAmount, totalAmount, selectedStoreId, saleService, clearCart, isPaid, observations, loadPendingSales, portionsSet, availablePortions, savePortionsToDB]);
+  }, [cart, paymentMethod, cashAmount, bankAmount, totalAmount, selectedStoreId, saleService, clearCart, isPaid, observations, loadPendingSales, portionsSet, availablePortions, savePortionsToDB, soldPortions, products]);
 
   const handleFabPress = useCallback(() => {
     if (cart.length === 0) {
@@ -600,6 +642,7 @@ export default function VentasScreen() {
           onSelect={handleProductSelect}
           selectedId={selectedProductId ?? undefined}
           availablePortions={portionsSet ? availablePortions : undefined}
+          soldPortions={Object.keys(soldPortions).length > 0 ? soldPortions : undefined}
         />
 
         {/* Cart + Payment */}
@@ -623,6 +666,8 @@ export default function VentasScreen() {
               onRemove={removeFromCart}
               onUpdateQuantity={updateQuantity}
               onUpdateNote={updateCustomerNote}
+              packagingSupplyId={cartPackagingSupplyId}
+              onPackagingChange={setCartPackaging}
             />
 
             {cart.length > 0 && (

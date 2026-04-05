@@ -17,6 +17,7 @@ interface SaleRow {
   is_paid: boolean;
   is_dispatched: boolean;
   customer_note: string | null;
+  packaging_supply_id: string | null;
   workers?: { name: string } | null;
 }
 
@@ -59,6 +60,7 @@ function saleRowToEntity(row: SaleRow, items: SaleItem[]): Sale {
     isDispatched: row.is_dispatched ?? false,
     customerNote: row.customer_note ?? undefined,
     workerName: row.workers?.name ?? undefined,
+    packagingSupplyId: row.packaging_supply_id ?? undefined,
   };
 }
 
@@ -91,12 +93,16 @@ export class SupabaseSaleRepository implements ISaleRepository {
   }
 
   async getByDateRange(storeId: string, from: string, to: string): Promise<Sale[]> {
+    // Append time boundaries if only date strings (YYYY-MM-DD) are passed
+    const fromTs = from.includes('T') ? from : `${from}T00:00:00`;
+    const toTs = to.includes('T') ? to : `${to}T23:59:59`;
+
     const { data, error } = await supabase
       .from('sales')
       .select('*, workers(name)')
       .eq('store_id', storeId)
-      .gte('created_at', from)
-      .lte('created_at', to)
+      .gte('created_at', fromTs)
+      .lte('created_at', toTs)
       .order('created_at', { ascending: false });
     if (error) throw error;
 
@@ -180,6 +186,7 @@ export class SupabaseSaleRepository implements ISaleRepository {
         is_paid: sale.isPaid ?? true,
         is_dispatched: sale.isDispatched ?? false,
         customer_note: sale.customerNote ?? null,
+        packaging_supply_id: sale.packagingSupplyId ?? null,
       })
       .select()
       .single();

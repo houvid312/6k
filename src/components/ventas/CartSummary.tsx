@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
-import { Text, IconButton, Divider, TextInput, useTheme } from 'react-native-paper';
+import { Text, IconButton, Divider, TextInput, Chip, useTheme } from 'react-native-paper';
 import { CartItem } from '../../stores/useSaleStore';
 import { formatCOP } from '../../utils/currency';
-import { PizzaSize } from '../../domain/enums';
+import { PizzaSize, PACKAGING_OPTIONS, PACKAGING_SUPPLY_IDS } from '../../domain/enums';
 
 const SIZE_SHORT: Record<PizzaSize, string> = {
   [PizzaSize.INDIVIDUAL]: 'Ind.',
@@ -17,9 +17,11 @@ interface Props {
   onRemove: (cartItemId: string) => void;
   onUpdateQuantity: (cartItemId: string, quantity: number) => void;
   onUpdateNote: (cartItemId: string, note: string) => void;
+  packagingSupplyId: string | undefined;
+  onPackagingChange: (packagingSupplyId: string | undefined) => void;
 }
 
-export function CartSummary({ items, onRemove, onUpdateQuantity, onUpdateNote }: Props) {
+export function CartSummary({ items, onRemove, onUpdateQuantity, onUpdateNote, packagingSupplyId, onPackagingChange }: Props) {
   const theme = useTheme();
   const [expandedNote, setExpandedNote] = useState<string | null>(null);
 
@@ -108,6 +110,44 @@ export function CartSummary({ items, onRemove, onUpdateQuantity, onUpdateNote }:
           </View>
         );
       })}
+
+      {/* Packaging selector */}
+      <Divider style={styles.packagingDivider} />
+      <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 6 }}>
+        Empaque
+      </Text>
+      <View style={styles.packagingRow}>
+        <Chip
+          selected={!packagingSupplyId}
+          onPress={() => onPackagingChange(undefined)}
+          mode="flat"
+          icon="close"
+          selectedColor={!packagingSupplyId ? theme.colors.primary : theme.colors.onSurfaceVariant}
+          style={{
+            backgroundColor: !packagingSupplyId ? theme.colors.primaryContainer : theme.colors.surfaceVariant,
+          }}
+          compact
+        >
+          Sin caja
+        </Chip>
+        {PACKAGING_OPTIONS.map((opt) => (
+          <Chip
+            key={opt.id}
+            selected={packagingSupplyId === opt.id}
+            onPress={() => onPackagingChange(packagingSupplyId === opt.id ? undefined : opt.id)}
+            mode="flat"
+            icon={opt.icon}
+            selectedColor={packagingSupplyId === opt.id ? theme.colors.primary : theme.colors.onSurfaceVariant}
+            style={{
+              backgroundColor: packagingSupplyId === opt.id ? theme.colors.primaryContainer : theme.colors.surfaceVariant,
+            }}
+            compact
+          >
+            {opt.shortLabel}
+          </Chip>
+        ))}
+      </View>
+
       <Divider style={styles.totalDivider} />
       <View style={styles.totalRow}>
         <Text variant="titleSmall" style={{ fontWeight: 'bold' }}>
@@ -159,8 +199,17 @@ const styles = StyleSheet.create({
   itemDivider: {
     marginVertical: 2,
   },
+  packagingDivider: {
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  packagingRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
   totalDivider: {
-    marginTop: 6,
+    marginTop: 8,
     height: 2,
   },
   totalRow: {

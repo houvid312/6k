@@ -68,6 +68,22 @@ export class SupabaseTransferRepository implements ITransferRepository {
     return this.hydrateTransfers(data as TransferRow[]);
   }
 
+  async getReceivedByDestination(
+    toStoreId: string,
+    fromDate: string,
+    toDate: string,
+  ): Promise<Transfer[]> {
+    const { data, error } = await supabase
+      .from('transfers')
+      .select('*')
+      .eq('to_store_id', toStoreId)
+      .eq('status', 'RECEIVED')
+      .gte('order_date', fromDate)
+      .lte('order_date', toDate + 'T23:59:59');
+    if (error) throw error;
+    return this.hydrateTransfers(data as TransferRow[]);
+  }
+
   async create(transfer: Omit<Transfer, 'id'>): Promise<Transfer> {
     const { data, error } = await supabase
       .from('transfers')

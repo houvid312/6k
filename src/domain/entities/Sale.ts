@@ -16,4 +16,5 @@ export interface Sale {
   isDispatched: boolean;
   customerNote?: string;
   workerName?: string;
+  packagingSupplyId?: string;
 }

@@ -39,6 +39,7 @@ interface Props {
   onSelect: (productId: string) => void;
   selectedId?: string;
   availablePortions?: Record<string, number>;
+  soldPortions?: Record<string, number>;
 }
 
 function getPortionColor(count: number): string {
@@ -48,11 +49,14 @@ function getPortionColor(count: number): string {
   return '#388E3C';
 }
 
-export function ProductGrid({ products, onSelect, selectedId, availablePortions }: Props) {
+export function ProductGrid({ products, onSelect, selectedId, availablePortions, soldPortions }: Props) {
   const theme = useTheme();
 
   const pizzas = products.filter((p) => p.category === 'PIZZA');
   const beverages = products.filter((p) => p.category === 'BEBIDA');
+  const totalSoldPortions = soldPortions
+    ? Object.values(soldPortions).reduce((sum, v) => sum + v, 0)
+    : 0;
 
   if (products.length === 0) {
     return (
@@ -95,10 +99,26 @@ export function ProductGrid({ products, onSelect, selectedId, availablePortions 
               >
                 {item.name}
               </Text>
+              {soldPortions && (
+                <View style={[styles.soldBadge, { backgroundColor: theme.colors.surfaceVariant }]}>
+                  <Text style={[styles.soldBadgeText, { color: theme.colors.onSurfaceVariant }]}>
+                    {soldPortions[item.id] ?? 0} vend.
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
           );
         })}
       </View>
+
+      {/* Total sold portions */}
+      {soldPortions && totalSoldPortions > 0 && (
+        <View style={[styles.totalSoldRow, { backgroundColor: theme.colors.surfaceVariant }]}>
+          <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
+            Total vendidas: {totalSoldPortions} porciones
+          </Text>
+        </View>
+      )}
 
       {/* Beverages - 4 columns */}
       {beverages.length > 0 && (
@@ -202,6 +222,28 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '600',
     fontSize: 9,
+  },
+  soldBadge: {
+    marginTop: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  soldBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  totalSoldRow: {
+    marginTop: 8,
+    marginBottom: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  totalSoldText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   empty: {
     alignItems: 'center',
