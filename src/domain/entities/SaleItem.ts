@@ -1,3 +1,5 @@
+import { SaleItemAddition } from './Addition';
+
 export interface SaleItem {
   id: string;
   productId: string;
@@ -9,4 +11,6 @@ export interface SaleItem {
   portions: number;
   unitPrice: number;
   subtotal: number;
+  additions?: SaleItemAddition[];
+  additionsTotal?: number;
 }

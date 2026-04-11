@@ -21,3 +21,4 @@ export type { IStockMinimumRepository } from './IStockMinimumRepository';
 export type { IWriteoffRepository } from './IWriteoffRepository';
 export type { IProductFormatRepository } from './IProductFormatRepository';
 export type { IProductStoreAssignmentRepository } from './IProductStoreAssignmentRepository';
+export type { IAdditionCatalogRepository } from './IAdditionCatalogRepository';

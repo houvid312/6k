@@ -22,6 +22,7 @@ import {
   SupabaseWriteoffRepository,
   SupabaseProductFormatRepository,
   SupabaseProductStoreAssignmentRepository,
+  SupabaseAdditionCatalogRepository,
 } from '../data/repositories';
 import {
   SaleService,
@@ -64,6 +65,7 @@ const stockMinimumRepo = new SupabaseStockMinimumRepository();
 const writeoffRepo = new SupabaseWriteoffRepository();
 const productFormatRepo = new SupabaseProductFormatRepository();
 const productStoreAssignmentRepo = new SupabaseProductStoreAssignmentRepository();
+const additionCatalogRepo = new SupabaseAdditionCatalogRepository();
 
 // Services
 const saleService = new SaleService(saleRepo, inventoryRepo, recipeRepo);
@@ -106,6 +108,7 @@ export const container = {
   writeoffRepo,
   productFormatRepo,
   productStoreAssignmentRepo,
+  additionCatalogRepo,
 
   // Services
   saleService,

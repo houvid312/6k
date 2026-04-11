@@ -87,6 +87,21 @@ export function CartSummary({ items, onRemove, onUpdateQuantity, onUpdateNote, p
               </Text>
             </View>
 
+            {/* Additions list */}
+            {item.additions.length > 0 && (
+              <View style={styles.additionsList}>
+                {item.additions.map((a) => (
+                  <Text
+                    key={a.additionCatalogId}
+                    variant="labelSmall"
+                    style={{ color: theme.colors.onSurfaceVariant, marginLeft: 32 }}
+                  >
+                    + {a.name}{a.quantity > 1 ? ` x${a.quantity}` : ''} ({formatCOP(a.price * a.quantity)})
+                  </Text>
+                ))}
+              </View>
+            )}
+
             {/* Collapsible note */}
             {showNote && (
               <TextInput
@@ -181,6 +196,9 @@ const styles = StyleSheet.create({
     minWidth: 20,
     textAlign: 'center',
     fontWeight: '700',
+  },
+  additionsList: {
+    marginBottom: 2,
   },
   noteInput: {
     marginLeft: 28,

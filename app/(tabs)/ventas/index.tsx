@@ -23,10 +23,11 @@ import { ProductGrid } from '../../../src/components/ventas/ProductGrid';
 import { SizeSelector } from '../../../src/components/ventas/SizeSelector';
 import { CartSummary } from '../../../src/components/ventas/CartSummary';
 import { PaymentMethodPicker } from '../../../src/components/ventas/PaymentMethodPicker';
+import { AdditionSelector } from '../../../src/components/ventas/AdditionSelector';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
-import { useSaleStore, CartItem } from '../../../src/stores/useSaleStore';
-import { Product, Sale, ProductFormat } from '../../../src/domain/entities';
+import { useSaleStore, CartItem, CartItemAddition } from '../../../src/stores/useSaleStore';
+import { Product, Sale, ProductFormat, AdditionCatalogItem } from '../../../src/domain/entities';
 import { PaymentMethod, InventoryLevel, WriteoffReason, UserRole } from '../../../src/domain/enums';
 import { supabase } from '../../../src/lib/supabase';
 import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
@@ -36,7 +37,7 @@ import { formatDate, todayColombia } from '../../../src/utils/dates';
 
 export default function VentasScreen() {
   const theme = useTheme();
-  const { saleService, writeoffService, productFormatRepo, productStoreAssignmentRepo } = useDI();
+  const { saleService, writeoffService, productFormatRepo, productStoreAssignmentRepo, additionCatalogRepo } = useDI();
   const { selectedStoreId, userId, userRole } = useAppStore();
   const { products: cachedProducts, supplies } = useMasterDataStore();
   const {
@@ -68,6 +69,8 @@ export default function VentasScreen() {
   const [observations, setObservations] = useState('');
   const [modalQuantity, setModalQuantity] = useState(1);
   const [formatsByProductId, setFormatsByProductId] = useState<Record<string, ProductFormat[]>>({});
+  const [availableAdditions, setAvailableAdditions] = useState<AdditionCatalogItem[]>([]);
+  const [selectedAdditions, setSelectedAdditions] = useState<CartItemAddition[]>([]);
   const [snackbar, setSnackbar] = useState<{ visible: boolean; success: boolean; message: string }>({
     visible: false,
     success: true,
@@ -249,6 +252,7 @@ export default function VentasScreen() {
     if (activeFormats.length <= 1) {
       // Single format: simple quantity modal
       setSelectedProductId(productId);
+      setSelectedFormatId(activeFormats[0]?.id ?? null);
       setBeverageQuantity(1);
       setBeverageModalVisible(true);
     } else {
@@ -259,6 +263,42 @@ export default function VentasScreen() {
       setSizeModalVisible(true);
     }
   }, [products, formatsByProductId]);
+
+  // Cargar adiciones cuando cambia el formato seleccionado
+  useEffect(() => {
+    setAvailableAdditions([]);
+    setSelectedAdditions([]);
+    if (!selectedFormatId) return;
+    additionCatalogRepo
+      .getByFormatId(selectedFormatId)
+      .then(setAvailableAdditions)
+      .catch((err) => console.error('Error cargando adiciones:', err));
+  }, [selectedFormatId, additionCatalogRepo]);
+
+  const handleToggleAddition = useCallback((addition: AdditionCatalogItem) => {
+    setSelectedAdditions((prev) => {
+      const exists = prev.find((a) => a.additionCatalogId === addition.id);
+      if (exists) return prev.filter((a) => a.additionCatalogId !== addition.id);
+      return [...prev, {
+        additionCatalogId: addition.id,
+        supplyId: addition.supplyId,
+        name: addition.name,
+        price: addition.price,
+        grams: addition.grams,
+        quantity: 1,
+      }];
+    });
+  }, []);
+
+  const handleUpdateAdditionQuantity = useCallback((additionCatalogId: string, qty: number) => {
+    if (qty <= 0) {
+      setSelectedAdditions((prev) => prev.filter((a) => a.additionCatalogId !== additionCatalogId));
+      return;
+    }
+    setSelectedAdditions((prev) =>
+      prev.map((a) => a.additionCatalogId === additionCatalogId ? { ...a, quantity: qty } : a),
+    );
+  }, []);
 
   const handleSizeConfirm = useCallback(() => {
     if (!selectedProduct || !selectedFormatId) return;
@@ -273,12 +313,14 @@ export default function VentasScreen() {
       portionsPerUnit: format.portions,
       quantity: modalQuantity,
       unitPrice: format.price,
+      additions: selectedAdditions.length > 0 ? selectedAdditions : undefined,
     });
     setSizeModalVisible(false);
     setSelectedProductId(null);
     setSelectedFormatId(null);
     setModalQuantity(1);
-  }, [selectedProduct, selectedFormatId, modalQuantity, addToCart, formatsByProductId]);
+    setSelectedAdditions([]);
+  }, [selectedProduct, selectedFormatId, modalQuantity, addToCart, formatsByProductId, selectedAdditions]);
 
   const handleBeverageConfirm = useCallback(() => {
     if (!selectedProduct) return;
@@ -294,8 +336,10 @@ export default function VentasScreen() {
       portionsPerUnit: format.portions,
       quantity: beverageQuantity,
       unitPrice: format.price,
+      additions: selectedAdditions.length > 0 ? selectedAdditions : undefined,
     });
     setBeverageModalVisible(false);
+    setSelectedAdditions([]);
     setSelectedProductId(null);
     setBeverageQuantity(1);
   }, [selectedProduct, beverageQuantity, addToCart, formatsByProductId]);
@@ -343,6 +387,7 @@ export default function VentasScreen() {
         portionsPerUnit: c.portionsPerUnit,
         quantity: c.quantity,
         unitPrice: c.unitPrice,
+        additions: c.additions.length > 0 ? c.additions : undefined,
       }));
 
       const customerNotes = cart
@@ -794,13 +839,22 @@ export default function VentasScreen() {
             selected={selectedFormatId}
             onSelect={(formatId) => { setSelectedFormatId(formatId); setModalQuantity(1); }}
           />
+          {selectedFormatId && availableAdditions.length > 0 && (
+            <AdditionSelector
+              additions={availableAdditions}
+              selected={selectedAdditions}
+              onToggle={handleToggleAddition}
+              onUpdateQuantity={handleUpdateAdditionQuantity}
+            />
+          )}
           {selectedFormatId && (() => {
             const fmt = formatsByProductId[selectedProduct?.id ?? '']?.find((f) => f.id === selectedFormatId);
             if (!fmt) return null;
+            const additionsTotal = selectedAdditions.reduce((s, a) => s + a.price * a.quantity, 0);
             return (
             <View style={styles.sizeInfo}>
               <Text variant="bodyLarge" style={{ fontWeight: '600' }}>
-                {formatCOP(fmt.price * modalQuantity)} - {fmt.portions * modalQuantity} porciones
+                {formatCOP(fmt.price * modalQuantity + additionsTotal)} - {fmt.portions * modalQuantity} porciones
               </Text>
               <View style={styles.modalQuantityRow}>
                 <IconButton
@@ -843,8 +897,19 @@ export default function VentasScreen() {
           <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 16 }}>
             {selectedProduct?.name}
           </Text>
-          <Text variant="bodyLarge" style={{ fontWeight: '600', textAlign: 'center' }}>
-            {formatCOP((formatsByProductId[selectedProduct?.id ?? '']?.filter((f) => f.isActive)?.[0]?.price ?? 0) * beverageQuantity)}
+          {selectedProduct?.category === 'PIZZA' && availableAdditions.length > 0 && (
+            <AdditionSelector
+              additions={availableAdditions}
+              selected={selectedAdditions}
+              onToggle={handleToggleAddition}
+              onUpdateQuantity={handleUpdateAdditionQuantity}
+            />
+          )}
+          <Text variant="bodyLarge" style={{ fontWeight: '600', textAlign: 'center', marginTop: 12 }}>
+            {formatCOP(
+              (formatsByProductId[selectedProduct?.id ?? '']?.filter((f) => f.isActive)?.[0]?.price ?? 0) * beverageQuantity
+              + selectedAdditions.reduce((s, a) => s + a.price * a.quantity, 0)
+            )}
           </Text>
           <View style={styles.modalQuantityRow}>
             <IconButton

@@ -1,6 +1,15 @@
 import { create } from 'zustand';
 import { Sale } from '../domain/entities';
 
+export interface CartItemAddition {
+  additionCatalogId: string;
+  supplyId: string;
+  name: string;
+  price: number;
+  grams: number;
+  quantity: number;
+}
+
 export interface CartItem {
   cartItemId: string;
   productId: string;
@@ -13,6 +22,8 @@ export interface CartItem {
   unitPrice: number;
   subtotal: number;
   customerNote: string;
+  additions: CartItemAddition[];
+  additionsTotal: number;
 }
 
 interface SaleState {
@@ -24,10 +35,12 @@ interface SaleState {
   submitting: boolean;
   lastSaleResult: { success: boolean; message: string } | null;
 
-  addToCart: (item: Omit<CartItem, 'cartItemId' | 'portions' | 'subtotal' | 'customerNote'> & { customerNote?: string }) => void;
+  addToCart: (item: Omit<CartItem, 'cartItemId' | 'portions' | 'subtotal' | 'customerNote' | 'additions' | 'additionsTotal'> & { customerNote?: string; additions?: CartItemAddition[] }) => void;
   removeFromCart: (cartItemId: string) => void;
   updateQuantity: (cartItemId: string, quantity: number) => void;
   updateCustomerNote: (cartItemId: string, note: string) => void;
+  addAdditionToCartItem: (cartItemId: string, addition: CartItemAddition) => void;
+  removeAdditionFromCartItem: (cartItemId: string, additionCatalogId: string) => void;
   setCartPackaging: (packagingSupplyId: string | undefined) => void;
   clearCart: () => void;
 
@@ -51,24 +64,26 @@ export const useSaleStore = create<SaleState>((set) => ({
 
   addToCart: (item) =>
     set((state) => {
-      // Single-portion formats (portionsPerUnit === 1) get individual line items
-      // so each can have its own customer note
+      const additions = item.additions ?? [];
+      const additionsTotal = additions.reduce((s, a) => s + a.price * a.quantity, 0);
+      // Single-portion formats or items with additions get individual line items
       const isSinglePortion = item.portionsPerUnit === 1;
+      const hasAdditions = additions.length > 0;
 
-      if (!isSinglePortion) {
+      if (!isSinglePortion && !hasAdditions) {
         const existing = state.cart.find(
-          (c) => c.productId === item.productId && c.formatId === item.formatId,
+          (c) => c.productId === item.productId && c.formatId === item.formatId && c.additions.length === 0,
         );
 
         if (existing) {
           return {
             cart: state.cart.map((c) =>
-              c.productId === item.productId && c.formatId === item.formatId
+              c.productId === item.productId && c.formatId === item.formatId && c.additions.length === 0
                 ? {
                     ...c,
                     quantity: c.quantity + item.quantity,
                     portions: c.portionsPerUnit * (c.quantity + item.quantity),
-                    subtotal: c.unitPrice * (c.quantity + item.quantity),
+                    subtotal: c.unitPrice * (c.quantity + item.quantity) + c.additionsTotal,
                   }
                 : c,
             ),
@@ -78,10 +93,10 @@ export const useSaleStore = create<SaleState>((set) => ({
 
       const cartItemId = String(nextCartItemId++);
       const portions = item.portionsPerUnit * item.quantity;
-      const subtotal = item.unitPrice * item.quantity;
+      const subtotal = item.unitPrice * item.quantity + additionsTotal;
 
       return {
-        cart: [...state.cart, { ...item, cartItemId, portions, subtotal, customerNote: item.customerNote ?? '' }],
+        cart: [...state.cart, { ...item, cartItemId, portions, subtotal, customerNote: item.customerNote ?? '', additions, additionsTotal }],
       };
     }),
 
@@ -104,7 +119,7 @@ export const useSaleStore = create<SaleState>((set) => ({
                 ...c,
                 quantity,
                 portions: c.portionsPerUnit * quantity,
-                subtotal: c.unitPrice * quantity,
+                subtotal: c.unitPrice * quantity + c.additionsTotal,
               }
             : c,
         ),
@@ -118,6 +133,29 @@ export const useSaleStore = create<SaleState>((set) => ({
           ? { ...c, customerNote: note }
           : c,
       ),
+    })),
+
+  addAdditionToCartItem: (cartItemId, addition) =>
+    set((state) => ({
+      cart: state.cart.map((c) => {
+        if (c.cartItemId !== cartItemId) return c;
+        const existing = c.additions.find((a) => a.additionCatalogId === addition.additionCatalogId);
+        const additions = existing
+          ? c.additions.map((a) => a.additionCatalogId === addition.additionCatalogId ? { ...a, quantity: a.quantity + addition.quantity } : a)
+          : [...c.additions, addition];
+        const additionsTotal = additions.reduce((s, a) => s + a.price * a.quantity, 0);
+        return { ...c, additions, additionsTotal, subtotal: c.unitPrice * c.quantity + additionsTotal };
+      }),
+    })),
+
+  removeAdditionFromCartItem: (cartItemId, additionCatalogId) =>
+    set((state) => ({
+      cart: state.cart.map((c) => {
+        if (c.cartItemId !== cartItemId) return c;
+        const additions = c.additions.filter((a) => a.additionCatalogId !== additionCatalogId);
+        const additionsTotal = additions.reduce((s, a) => s + a.price * a.quantity, 0);
+        return { ...c, additions, additionsTotal, subtotal: c.unitPrice * c.quantity + additionsTotal };
+      }),
     })),
 
   setCartPackaging: (packagingSupplyId) =>

@@ -4,6 +4,15 @@ import { ISaleRepository, DailySummary } from '../domain/interfaces/repositories
 import { IInventoryRepository } from '../domain/interfaces/repositories';
 import { IRecipeRepository } from '../domain/interfaces/repositories';
 
+export interface CreateSaleItemAdditionInput {
+  additionCatalogId: string;
+  supplyId: string;
+  name: string;
+  price: number;
+  grams: number;
+  quantity: number;
+}
+
 export interface CreateSaleItemInput {
   productId: string;
   formatId: string;
@@ -11,6 +20,7 @@ export interface CreateSaleItemInput {
   portionsPerUnit: number;
   quantity: number;
   unitPrice: number;
+  additions?: CreateSaleItemAdditionInput[];
 }
 
 export class SaleService {
@@ -39,7 +49,8 @@ export class SaleService {
 
     for (const item of items) {
       const portions = item.portionsPerUnit * item.quantity;
-      const subtotal = item.unitPrice * item.quantity;
+      const additionsTotal = (item.additions ?? []).reduce((s, a) => s + a.price * a.quantity, 0);
+      const subtotal = item.unitPrice * item.quantity + additionsTotal;
       totalPortions += portions;
 
       saleItems.push({
@@ -51,9 +62,9 @@ export class SaleService {
         portions,
         unitPrice: item.unitPrice,
         subtotal,
+        additions: item.additions,
+        additionsTotal: additionsTotal || undefined,
       });
-
-      // Inventory deduction is handled by the DB trigger (deduct_inventory_on_sale)
     }
 
     const totalAmount = saleItems.reduce((sum, si) => sum + si.subtotal, 0);

@@ -21,3 +21,4 @@ export { SupabaseStockMinimumRepository } from './SupabaseStockMinimumRepository
 export { SupabaseWriteoffRepository } from './SupabaseWriteoffRepository';
 export { SupabaseProductFormatRepository } from './SupabaseProductFormatRepository';
 export { SupabaseProductStoreAssignmentRepository } from './SupabaseProductStoreAssignmentRepository';
+export { SupabaseAdditionCatalogRepository } from './SupabaseAdditionCatalogRepository';

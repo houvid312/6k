@@ -18,17 +18,19 @@ import {
   SizeSelector,
   CartSummary,
   PaymentMethodPicker,
+  AdditionSelector,
 } from '../components/ventas';
 import { useSaleStore } from '../stores/useSaleStore';
 import { useAppStore } from '../stores';
 import { useDI } from '../hooks';
 import { PaymentMethod } from '../domain/enums';
-import { Product, ProductFormat, Sale } from '../domain/entities';
+import { Product, ProductFormat, AdditionCatalogItem, Sale } from '../domain/entities';
+import { CartItemAddition } from '../stores/useSaleStore';
 import { formatCOP } from '../utils/currency';
 
 export function SaleScreen() {
   const theme = useTheme();
-  const { saleService, productRepo, productFormatRepo } = useDI();
+  const { saleService, productRepo, productFormatRepo, additionCatalogRepo } = useDI();
   const selectedStoreId = useAppStore((s) => s.selectedStoreId);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -55,6 +57,8 @@ export function SaleScreen() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.EFECTIVO);
   const [observations, setObservations] = useState('');
   const [isPaid, setIsPaid] = useState(false);
+  const [availableAdditions, setAvailableAdditions] = useState<AdditionCatalogItem[]>([]);
+  const [selectedAdditions, setSelectedAdditions] = useState<CartItemAddition[]>([]);
 
   useEffect(() => {
     productRepo.getAll().then(setProducts).catch(() => {});
@@ -63,12 +67,29 @@ export function SaleScreen() {
   useEffect(() => {
     setSelectedFormatId(null);
     setFormats([]);
+    setAvailableAdditions([]);
+    setSelectedAdditions([]);
     if (!selectedProductId) return;
     productFormatRepo
       .getByProductId(selectedProductId)
       .then((f) => setFormats(f.filter((fmt) => fmt.isActive)))
       .catch(() => {});
   }, [selectedProductId, productFormatRepo]);
+
+  useEffect(() => {
+    setAvailableAdditions([]);
+    setSelectedAdditions([]);
+    if (!selectedFormatId) return;
+    additionCatalogRepo
+      .getByFormatId(selectedFormatId)
+      .then((adds) => {
+        console.log('Adiciones cargadas:', adds.length, 'para formato:', selectedFormatId);
+        setAvailableAdditions(adds);
+      })
+      .catch((err) => {
+        console.error('Error cargando adiciones:', err);
+      });
+  }, [selectedFormatId, additionCatalogRepo]);
 
   const loadPendingSales = useCallback(async () => {
     if (!selectedStoreId) return;
@@ -85,6 +106,33 @@ export function SaleScreen() {
   }, [loadPendingSales]);
 
   const selectedProduct = products.find((p) => p.id === selectedProductId);
+
+  const handleToggleAddition = useCallback((addition: AdditionCatalogItem) => {
+    setSelectedAdditions((prev) => {
+      const exists = prev.find((a) => a.additionCatalogId === addition.id);
+      if (exists) {
+        return prev.filter((a) => a.additionCatalogId !== addition.id);
+      }
+      return [...prev, {
+        additionCatalogId: addition.id,
+        supplyId: addition.supplyId,
+        name: addition.name,
+        price: addition.price,
+        grams: addition.grams,
+        quantity: 1,
+      }];
+    });
+  }, []);
+
+  const handleUpdateAdditionQuantity = useCallback((additionCatalogId: string, qty: number) => {
+    if (qty <= 0) {
+      setSelectedAdditions((prev) => prev.filter((a) => a.additionCatalogId !== additionCatalogId));
+      return;
+    }
+    setSelectedAdditions((prev) =>
+      prev.map((a) => a.additionCatalogId === additionCatalogId ? { ...a, quantity: qty } : a),
+    );
+  }, []);
 
   const handleAddToCart = useCallback(() => {
     if (!selectedProductId || !selectedFormatId) return;
@@ -106,10 +154,12 @@ export function SaleScreen() {
       portionsPerUnit: format.portions,
       quantity: qty,
       unitPrice: format.price,
+      additions: selectedAdditions.length > 0 ? selectedAdditions : undefined,
     });
 
     setQuantity('1');
-  }, [selectedProductId, selectedFormatId, formats, quantity, products, addToCart]);
+    setSelectedAdditions([]);
+  }, [selectedProductId, selectedFormatId, formats, quantity, products, addToCart, selectedAdditions]);
 
   const totalAmount = cart.reduce((sum, i) => sum + i.subtotal, 0);
 
@@ -141,6 +191,7 @@ export function SaleScreen() {
         portionsPerUnit: c.portionsPerUnit,
         quantity: c.quantity,
         unitPrice: c.unitPrice,
+        additions: c.additions.length > 0 ? c.additions : undefined,
       }));
 
       const customerNotes = cart
@@ -297,6 +348,16 @@ export function SaleScreen() {
             />
             <Card.Content>
               <SizeSelector formats={formats} selected={selectedFormatId} onSelect={setSelectedFormatId} />
+
+              {selectedFormatId && availableAdditions.length > 0 && (
+                <AdditionSelector
+                  additions={availableAdditions}
+                  selected={selectedAdditions}
+                  onToggle={handleToggleAddition}
+                  onUpdateQuantity={handleUpdateAdditionQuantity}
+                />
+              )}
+
               <View style={styles.quantityRow}>
                 <Text variant="bodyMedium">Cantidad:</Text>
                 <TextInput
@@ -313,7 +374,12 @@ export function SaleScreen() {
                   disabled={!selectedFormatId}
                   compact
                 >
-                  Agregar
+                  {selectedAdditions.length > 0
+                    ? `Agregar (${formatCOP(
+                        (formats.find((f) => f.id === selectedFormatId)?.price ?? 0) * (parseInt(quantity, 10) || 1) +
+                        selectedAdditions.reduce((s, a) => s + a.price * a.quantity, 0)
+                      )})`
+                    : 'Agregar'}
                 </Button>
               </View>
             </Card.Content>

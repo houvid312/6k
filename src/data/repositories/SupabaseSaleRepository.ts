@@ -1,5 +1,5 @@
 import { supabase } from '../../lib/supabase';
-import { Sale, SaleItem } from '../../domain/entities';
+import { Sale, SaleItem, SaleItemAddition } from '../../domain/entities';
 import { ISaleRepository, DailySummary } from '../../domain/interfaces/repositories';
 import { PaymentMethod } from '../../domain/enums';
 
@@ -38,9 +38,32 @@ interface SaleItemRow {
   portions: number;
   unit_price: number;
   subtotal: number;
+  additions_total: number;
 }
 
-function saleItemRowToEntity(row: SaleItemRow): SaleItem {
+interface SaleItemAdditionRow {
+  id: string;
+  sale_item_id: string;
+  addition_catalog_id: string;
+  supply_id: string;
+  name: string;
+  price: number;
+  grams: number;
+  quantity: number;
+}
+
+function saleItemAdditionRowToEntity(row: SaleItemAdditionRow): SaleItemAddition {
+  return {
+    additionCatalogId: row.addition_catalog_id,
+    supplyId: row.supply_id,
+    name: row.name,
+    price: row.price,
+    grams: row.grams,
+    quantity: row.quantity,
+  };
+}
+
+function saleItemRowToEntity(row: SaleItemRow, additions?: SaleItemAddition[]): SaleItem {
   return {
     id: row.id,
     productId: row.product_id,
@@ -51,6 +74,8 @@ function saleItemRowToEntity(row: SaleItemRow): SaleItem {
     portions: row.portions,
     unitPrice: row.unit_price,
     subtotal: row.subtotal,
+    additions: additions && additions.length > 0 ? additions : undefined,
+    additionsTotal: row.additions_total || undefined,
   };
 }
 
@@ -214,12 +239,38 @@ export class SupabaseSaleRepository implements ISaleRepository {
       portions: item.portions,
       unit_price: item.unitPrice,
       subtotal: item.subtotal,
+      additions_total: item.additionsTotal ?? 0,
     }));
 
-    const { error: itemsError } = await supabase.from('sale_items').insert(itemRows);
+    const { data: insertedItems, error: itemsError } = await supabase
+      .from('sale_items')
+      .insert(itemRows)
+      .select('id');
     if (itemsError) throw itemsError;
 
-    // Descontar inventario ahora que los sale_items ya existen
+    // Insertar adiciones por cada sale_item
+    if (insertedItems) {
+      for (let i = 0; i < insertedItems.length; i++) {
+        const additions = sale.items[i].additions ?? [];
+        if (additions.length > 0) {
+          const additionRows = additions.map((a) => ({
+            sale_item_id: insertedItems[i].id,
+            addition_catalog_id: a.additionCatalogId,
+            supply_id: a.supplyId,
+            name: a.name,
+            price: a.price,
+            grams: a.grams,
+            quantity: a.quantity,
+          }));
+          const { error: addError } = await supabase.from('sale_item_additions').insert(additionRows);
+          if (addError) {
+            console.error('Error insertando adiciones:', addError);
+          }
+        }
+      }
+    }
+
+    // Descontar inventario ahora que los sale_items y adiciones ya existen
     const { error: deductError } = await supabase.rpc('deduct_inventory_for_sale', {
       p_sale_id: saleRow.id,
     });
@@ -259,7 +310,31 @@ export class SupabaseSaleRepository implements ISaleRepository {
       .select('*')
       .eq('sale_id', saleId);
     if (error) throw error;
-    return (data as SaleItemRow[]).map(saleItemRowToEntity);
+
+    const itemIds = (data as SaleItemRow[]).map((r) => r.id);
+    const additionsByItem = await this.fetchAdditionsForItems(itemIds);
+
+    return (data as SaleItemRow[]).map((row) =>
+      saleItemRowToEntity(row, additionsByItem.get(row.id)),
+    );
+  }
+
+  private async fetchAdditionsForItems(itemIds: string[]): Promise<Map<string, SaleItemAddition[]>> {
+    const result = new Map<string, SaleItemAddition[]>();
+    if (itemIds.length === 0) return result;
+
+    const { data, error } = await supabase
+      .from('sale_item_additions')
+      .select('*')
+      .in('sale_item_id', itemIds);
+    if (error) return result; // No bloquear si falla
+
+    for (const row of data as SaleItemAdditionRow[]) {
+      const additions = result.get(row.sale_item_id) ?? [];
+      additions.push(saleItemAdditionRowToEntity(row));
+      result.set(row.sale_item_id, additions);
+    }
+    return result;
   }
 
   private async hydrateSales(rows: SaleRow[]): Promise<Sale[]> {
@@ -272,10 +347,13 @@ export class SupabaseSaleRepository implements ISaleRepository {
       .in('sale_id', saleIds);
     if (itemError) throw itemError;
 
+    const allItemIds = (itemData as SaleItemRow[]).map((r) => r.id);
+    const additionsByItem = await this.fetchAdditionsForItems(allItemIds);
+
     const itemsBySale = new Map<string, SaleItem[]>();
     for (const row of itemData as SaleItemRow[]) {
       const items = itemsBySale.get(row.sale_id) ?? [];
-      items.push(saleItemRowToEntity(row));
+      items.push(saleItemRowToEntity(row, additionsByItem.get(row.id)));
       itemsBySale.set(row.sale_id, items);
     }
 
