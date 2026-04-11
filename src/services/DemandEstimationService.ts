@@ -4,6 +4,8 @@ import {
   IRecipeRepository,
   IInventoryRepository,
   ISupplyRepository,
+  IProductRepository,
+  IProductStoreAssignmentRepository,
 } from '../domain/interfaces/repositories';
 import { InventoryLevel, PACKAGING_SUPPLY_IDS } from '../domain/enums';
 
@@ -23,6 +25,8 @@ export class DemandEstimationService {
     private recipeRepo: IRecipeRepository,
     private inventoryRepo: IInventoryRepository,
     private supplyRepo: ISupplyRepository,
+    private productRepo: IProductRepository,
+    private productStoreAssignmentRepo: IProductStoreAssignmentRepository,
   ) {}
 
   /**
@@ -56,10 +60,20 @@ export class DemandEstimationService {
     storeId: string,
     dayOfWeek: number,
   ): Promise<Map<string, number>> {
+    // Productos activos globalmente
+    const allProducts = await this.productRepo.getAll();
+    const globallyActiveIds = new Set(allProducts.filter((p) => p.isActive).map((p) => p.id));
+
+    // Productos habilitados para esta sede
+    const assignedIds = new Set(await this.productStoreAssignmentRepo.getProductIdsByStore(storeId));
+
     const demand = await this.demandRepo.getByStoreAndDay(storeId, dayOfWeek);
     const supplyGrams = new Map<string, number>();
 
     for (const d of demand) {
+      // Saltar si el producto está inactivo globalmente o no asignado a esta sede
+      if (!globallyActiveIds.has(d.productId) || !assignedIds.has(d.productId)) continue;
+
       const recipe = await this.recipeRepo.getByProductId(d.productId);
       if (!recipe) continue;
 

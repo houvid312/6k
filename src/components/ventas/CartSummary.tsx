@@ -3,14 +3,7 @@ import { View, StyleSheet, Pressable } from 'react-native';
 import { Text, IconButton, Divider, TextInput, Chip, useTheme } from 'react-native-paper';
 import { CartItem } from '../../stores/useSaleStore';
 import { formatCOP } from '../../utils/currency';
-import { PizzaSize, PACKAGING_OPTIONS, PACKAGING_SUPPLY_IDS } from '../../domain/enums';
-
-const SIZE_SHORT: Record<PizzaSize, string> = {
-  [PizzaSize.INDIVIDUAL]: 'Ind.',
-  [PizzaSize.DIAMANTE]: 'Diam.',
-  [PizzaSize.MEDIANA]: 'Med.',
-  [PizzaSize.FAMILIAR]: 'Fam.',
-};
+import { PACKAGING_OPTIONS } from '../../domain/enums';
 
 interface Props {
   items: CartItem[];
@@ -64,7 +57,7 @@ export function CartSummary({ items, onRemove, onUpdateQuantity, onUpdateNote, p
                   {item.productName}
                 </Text>
                 <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  {SIZE_SHORT[item.size]} · {item.portions} porc.
+                  {item.formatName} · {item.portions} porc.
                   {item.customerNote.trim() ? '  📝' : ''}
                 </Text>
               </Pressable>

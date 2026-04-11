@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { FlatList, View, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { Chip, Text, TextInput, useTheme } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -19,19 +19,27 @@ interface NavItem {
 }
 
 const ADMIN_PRODUCTION_NAV: NavItem[] = [
-  { icon: 'cart', label: 'Compras', route: '/(tabs)/inventario/compras' },
   { icon: 'truck', label: 'Traslados', route: '/(tabs)/inventario/traslados' },
-  { icon: 'factory', label: 'Produccion', route: '/(tabs)/inventario/produccion' },
   { icon: 'clipboard-check', label: 'Cierre', route: '/(tabs)/inventario/cierre-fisico' },
   { icon: 'alert', label: 'Alertas', route: '/(tabs)/inventario/validaciones' },
   { icon: 'package-variant-remove', label: 'Bajas', route: '/(tabs)/inventario/bajas' },
   { icon: 'book-open-variant', label: 'Recetas', route: '/(tabs)/inventario/recetas' },
-  { icon: 'book-cog', label: 'Rec. Prod.', route: '/(tabs)/inventario/recetas-produccion' },
   { icon: 'calculator', label: 'Sugerencia', route: '/(tabs)/inventario/sugerencia-envio' },
   { icon: 'chart-bar', label: 'Demanda', route: '/(tabs)/inventario/demanda' },
   { icon: 'package-variant', label: 'Insumos', route: '/(tabs)/inventario/insumos' },
+  { icon: 'tag-multiple', label: 'Productos', route: '/(tabs)/inventario/productos' },
   { icon: 'food', label: 'Consumo', route: '/(tabs)/ventas/consumo-ventas' },
 ];
+
+const LEVEL_NAV: Record<string, NavItem[]> = {
+  [InventoryLevel.RAW]: [
+    { icon: 'cart', label: 'Compras', route: '/(tabs)/inventario/compras' },
+  ],
+  [InventoryLevel.PROCESSED]: [
+    { icon: 'factory', label: 'Produccion', route: '/(tabs)/inventario/produccion' },
+    { icon: 'book-cog', label: 'Rec. Prod.', route: '/(tabs)/inventario/recetas-produccion' },
+  ],
+};
 
 const ADMIN_STORE_NAV: NavItem[] = [
   { icon: 'truck', label: 'Traslados', route: '/(tabs)/inventario/traslados' },
@@ -39,6 +47,7 @@ const ADMIN_STORE_NAV: NavItem[] = [
   { icon: 'alert', label: 'Alertas', route: '/(tabs)/inventario/validaciones' },
   { icon: 'chart-bar', label: 'Demanda', route: '/(tabs)/inventario/demanda' },
   { icon: 'package-variant-remove', label: 'Bajas', route: '/(tabs)/inventario/bajas' },
+  { icon: 'tag-multiple', label: 'Productos', route: '/(tabs)/inventario/productos' },
   { icon: 'food', label: 'Consumo', route: '/(tabs)/ventas/consumo-ventas' },
 ];
 
@@ -64,11 +73,14 @@ export default function InventarioScreen() {
   const isAdmin = userRole === UserRole.ADMIN;
   const isProductionCenter = stores.find((s) => s.id === selectedStoreId)?.isProductionCenter ?? false;
 
-  const [level, setLevel] = useState<InventoryLevel>(InventoryLevel.STORE);
+  const [level, setLevel] = useState<InventoryLevel>(
+    isProductionCenter ? InventoryLevel.RAW : InventoryLevel.STORE
+  );
   const [items, setItems] = useState<InventorySummaryItem[]>([]);
   const [minimums, setMinimums] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const loadGenRef = useRef(0);
 
   const { loadStores } = useAppStore();
 
@@ -77,6 +89,8 @@ export default function InventarioScreen() {
     : isProductionCenter
       ? ADMIN_PRODUCTION_NAV
       : ADMIN_STORE_NAV;
+
+  const levelNavItems = isAdmin && isProductionCenter ? (LEVEL_NAV[level] ?? []) : [];
 
   const levelOptions = isAdmin && isProductionCenter
     ? PRODUCTION_LEVEL_OPTIONS
@@ -87,13 +101,16 @@ export default function InventarioScreen() {
       await loadStores();
       return;
     }
+    const gen = ++loadGenRef.current;
     setLoading(true);
     try {
       const summary = await inventoryService.getInventorySummary(selectedStoreId, level);
+      if (gen !== loadGenRef.current) return;
       setItems(summary);
 
       try {
         const mins = await stockMinimumRepo.getByStoreAndLevel(selectedStoreId, level);
+        if (gen !== loadGenRef.current) return;
         const minMap: Record<string, number> = {};
         for (const m of mins) {
           minMap[m.supplyId] = m.minimumGrams;
@@ -103,9 +120,10 @@ export default function InventarioScreen() {
         setMinimums({});
       }
     } catch {
+      if (gen !== loadGenRef.current) return;
       setItems([]);
     } finally {
-      setLoading(false);
+      if (gen === loadGenRef.current) setLoading(false);
     }
   }, [selectedStoreId, level, inventoryService, stockMinimumRepo, loadStores]);
 
@@ -174,7 +192,22 @@ export default function InventarioScreen() {
             <View style={styles.chipSeparator} />
           )}
 
-          {/* Nav chips */}
+          {/* Level-specific nav chips */}
+          {levelNavItems.map((nav) => (
+            <Chip
+              key={nav.route}
+              onPress={() => router.push(nav.route as any)}
+              mode="outlined"
+              compact
+              icon={nav.icon}
+              style={[styles.chipNav, styles.chipNavLevel]}
+              textStyle={styles.chipNavText}
+            >
+              {nav.label}
+            </Chip>
+          ))}
+
+          {/* General nav chips */}
           {navItems.map((nav) => (
             <Chip
               key={nav.route}
@@ -274,6 +307,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderColor: '#333',
     borderRadius: 16,
+  },
+  chipNavLevel: {
+    borderColor: '#E63946',
   },
   chipNavText: {
     color: '#CCCCCC',

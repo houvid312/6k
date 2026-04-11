@@ -22,7 +22,7 @@ import {
 import { useSaleStore } from '../stores/useSaleStore';
 import { useAppStore } from '../stores';
 import { useDI } from '../hooks';
-import { PizzaSize, PaymentMethod } from '../domain/enums';
+import { PaymentMethod } from '../domain/enums';
 import { Product, Sale } from '../domain/entities';
 import { formatCOP } from '../utils/currency';
 
@@ -49,7 +49,7 @@ export function SaleScreen() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string | undefined>();
-  const [selectedSize, setSelectedSize] = useState<PizzaSize | null>(null);
+  const [selectedFormatId, setSelectedFormatId] = useState<string | null>(null);
   const [quantity, setQuantity] = useState('1');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.EFECTIVO);
   const [observations, setObservations] = useState('');
@@ -76,7 +76,7 @@ export function SaleScreen() {
   const selectedProduct = products.find((p) => p.id === selectedProductId);
 
   const handleAddToCart = useCallback(() => {
-    if (!selectedProductId || !selectedSize) return;
+    if (!selectedProductId || !selectedFormatId) return;
 
     const product = products.find((p) => p.id === selectedProductId);
     if (!product) return;
@@ -87,13 +87,15 @@ export function SaleScreen() {
     addToCart({
       productId: selectedProductId,
       productName: product.name,
-      size: selectedSize,
+      formatId: selectedFormatId ?? '',
+      formatName: selectedFormatId ?? '',
+      portionsPerUnit: 1,
       quantity: qty,
       unitPrice: 0,
     });
 
     setQuantity('1');
-  }, [selectedProductId, selectedSize, quantity, products, addToCart]);
+  }, [selectedProductId, selectedFormatId, quantity, products, addToCart]);
 
   const totalAmount = cart.reduce((sum, i) => sum + i.subtotal, 0);
 
@@ -120,7 +122,9 @@ export function SaleScreen() {
     try {
       const items = cart.map((c) => ({
         productId: c.productId,
-        size: c.size,
+        formatId: c.formatId,
+        formatName: c.formatName,
+        portionsPerUnit: c.portionsPerUnit,
         quantity: c.quantity,
         unitPrice: c.unitPrice,
       }));
@@ -278,7 +282,7 @@ export function SaleScreen() {
               titleVariant="titleMedium"
             />
             <Card.Content>
-              <SizeSelector selected={selectedSize} onSelect={setSelectedSize} />
+              <SizeSelector formats={[]} selected={selectedFormatId} onSelect={setSelectedFormatId} />
               <View style={styles.quantityRow}>
                 <Text variant="bodyMedium">Cantidad:</Text>
                 <TextInput
@@ -292,7 +296,7 @@ export function SaleScreen() {
                 <Button
                   mode="contained"
                   onPress={handleAddToCart}
-                  disabled={!selectedSize}
+                  disabled={!selectedFormatId}
                   compact
                 >
                   Agregar

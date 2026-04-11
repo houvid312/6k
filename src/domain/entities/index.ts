@@ -1,4 +1,5 @@
 export type { Store } from './Store';
+export type { ProductFormat } from './ProductFormat';
 export type { Product, ProductCategory } from './Product';
 export type { Supply, SupplyUnit } from './Supply';
 export type { Recipe, RecipeIngredient } from './Recipe';

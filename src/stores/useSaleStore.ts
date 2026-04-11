@@ -1,12 +1,13 @@
 import { create } from 'zustand';
 import { Sale } from '../domain/entities';
-import { PizzaSize, PORTIONS_PER_SIZE } from '../domain/enums';
 
 export interface CartItem {
   cartItemId: string;
   productId: string;
   productName: string;
-  size: PizzaSize;
+  formatId: string;
+  formatName: string;
+  portionsPerUnit: number;
   quantity: number;
   portions: number;
   unitPrice: number;
@@ -50,23 +51,23 @@ export const useSaleStore = create<SaleState>((set) => ({
 
   addToCart: (item) =>
     set((state) => {
-      // Individual portions are always added as separate line items
+      // Single-portion formats (portionsPerUnit === 1) get individual line items
       // so each can have its own customer note
-      const isIndividual = item.size === PizzaSize.INDIVIDUAL;
+      const isSinglePortion = item.portionsPerUnit === 1;
 
-      if (!isIndividual) {
+      if (!isSinglePortion) {
         const existing = state.cart.find(
-          (c) => c.productId === item.productId && c.size === item.size,
+          (c) => c.productId === item.productId && c.formatId === item.formatId,
         );
 
         if (existing) {
           return {
             cart: state.cart.map((c) =>
-              c.productId === item.productId && c.size === item.size
+              c.productId === item.productId && c.formatId === item.formatId
                 ? {
                     ...c,
                     quantity: c.quantity + item.quantity,
-                    portions: PORTIONS_PER_SIZE[item.size] * (c.quantity + item.quantity),
+                    portions: c.portionsPerUnit * (c.quantity + item.quantity),
                     subtotal: c.unitPrice * (c.quantity + item.quantity),
                   }
                 : c,
@@ -76,7 +77,7 @@ export const useSaleStore = create<SaleState>((set) => ({
       }
 
       const cartItemId = String(nextCartItemId++);
-      const portions = PORTIONS_PER_SIZE[item.size] * item.quantity;
+      const portions = item.portionsPerUnit * item.quantity;
       const subtotal = item.unitPrice * item.quantity;
 
       return {
@@ -102,7 +103,7 @@ export const useSaleStore = create<SaleState>((set) => ({
             ? {
                 ...c,
                 quantity,
-                portions: PORTIONS_PER_SIZE[c.size] * quantity,
+                portions: c.portionsPerUnit * quantity,
                 subtotal: c.unitPrice * quantity,
               }
             : c,

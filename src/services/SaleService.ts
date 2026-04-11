@@ -1,12 +1,14 @@
 import { Sale, SaleItem } from '../domain/entities';
-import { PizzaSize, PaymentMethod, PORTIONS_PER_SIZE } from '../domain/enums';
+import { PaymentMethod } from '../domain/enums';
 import { ISaleRepository, DailySummary } from '../domain/interfaces/repositories';
 import { IInventoryRepository } from '../domain/interfaces/repositories';
 import { IRecipeRepository } from '../domain/interfaces/repositories';
 
 export interface CreateSaleItemInput {
   productId: string;
-  size: PizzaSize;
+  formatId: string;
+  formatName: string;
+  portionsPerUnit: number;
   quantity: number;
   unitPrice: number;
 }
@@ -36,14 +38,15 @@ export class SaleService {
     let totalPortions = 0;
 
     for (const item of items) {
-      const portions = PORTIONS_PER_SIZE[item.size] * item.quantity;
+      const portions = item.portionsPerUnit * item.quantity;
       const subtotal = item.unitPrice * item.quantity;
       totalPortions += portions;
 
       saleItems.push({
         id: `si-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         productId: item.productId,
-        size: item.size,
+        formatId: item.formatId,
+        formatName: item.formatName,
         quantity: item.quantity,
         portions,
         unitPrice: item.unitPrice,

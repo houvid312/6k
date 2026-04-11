@@ -1,96 +1,103 @@
-# 6K Pizza - App de Gestión para Pizzería
+# CLAUDE.md
 
-## Descripción
-App de gestión integral para la pizzería 6K Pizza. Cubre ventas, inventario multi-nivel, producción, RRHH, cartera, contabilidad y dashboard analítico. Desplegada como web app vía Expo.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Stack Técnico
-- **Framework**: React Native con Expo SDK 54 (Expo Router v6, file-based routing)
-- **UI**: React Native Paper v5 (tema oscuro, color primario `#E63946`)
+## Project Overview
+
+6K Pizza is a full-stack management app for a pizza restaurant, covering sales, multi-level inventory, production, HR, credit tracking, accounting, and analytics. Deployed as a web app via Expo.
+
+## Commands
+
+```sh
+npx expo start --web     # Web development server
+npx expo start           # Development (all platforms)
+npx tsc --noEmit         # Type-check without emitting
+npm run build:web        # Production web build (output: dist/)
+```
+
+## Tech Stack
+
+- **Framework**: React Native + Expo SDK 54, Expo Router v6 (file-based routing)
+- **UI**: React Native Paper v5 (dark theme, primary `#E63946`)
 - **Backend**: Supabase (PostgreSQL + Auth + REST API)
-- **Estado global**: Zustand (`useAppStore`)
-- **Lenguaje**: TypeScript 5.9
-- **Utilidades**: date-fns, uuid
+- **Global state**: Zustand (`useAppStore`)
+- **Language**: TypeScript 5.9, path alias `@/*` → `src/*`
+- **Utilities**: date-fns, uuid
+- **Deployment**: Vercel (SPA mode)
 
-## Arquitectura (Clean Architecture)
+## Architecture (Clean Architecture)
 
 ```
 src/
 ├── domain/
-│   ├── entities/        # Interfaces de dominio (PascalCase)
-│   ├── enums/           # InventoryLevel, PaymentMethod, PizzaSize, etc.
+│   ├── entities/          # Domain interfaces (PascalCase)
+│   ├── enums/             # InventoryLevel, PaymentMethod, PizzaSize, UserRole, etc.
 │   └── interfaces/
-│       └── repositories/  # Contratos de repositorio (IXxxRepository)
+│       └── repositories/  # Repository contracts (IXxxRepository)
 ├── data/
-│   └── repositories/    # Implementaciones Supabase (SupabaseXxxRepository)
-├── services/            # Lógica de negocio (reciben repos por constructor)
+│   └── repositories/      # Supabase implementations (SupabaseXxxRepository)
+├── services/              # Business logic — receive repos via constructor DI
 ├── di/
-│   ├── container.ts     # Instanciación de repos y servicios (singleton)
-│   └── providers.tsx    # React context, hook useDI()
+│   ├── container.ts       # Singleton instantiation of repos and services
+│   └── providers.tsx      # React context + useDI() hook
 ├── components/
-│   ├── common/          # Reutilizables (StoreSelector, SearchableSelect, etc.)
-│   └── inventario/      # Específicos del módulo inventario
-├── stores/              # Zustand stores
-├── hooks/               # Custom hooks (useSnackbar, etc.)
-└── utils/               # Helpers (dates, currency)
+│   ├── common/            # Reusable (StoreSelector, SearchableSelect, etc.)
+│   └── inventario/        # Inventory-specific components
+├── stores/                # Zustand stores
+├── hooks/                 # Custom hooks (useSnackbar, etc.)
+└── utils/                 # Helpers (dates, currency)
 
 app/
 ├── (tabs)/
-│   ├── ventas/          # Registro, cierre de caja, historial
-│   ├── inventario/      # Niveles, compras, producción, recetas, cierre físico,
-│   │                    # validaciones, demanda, envíos, insumos
-│   ├── cartera/         # Créditos y seguimiento
-│   ├── contabilidad/    # (en desarrollo)
-│   ├── rrhh/            # Asistencia, trabajadores
-│   └── dashboard/       # Analytics
+│   ├── ventas/            # Sales, cash closing, history
+│   ├── inventario/        # Multi-level inventory, purchases, production, recipes,
+│   │                      # physical counts, validations, demand, shipments, supplies
+│   ├── cartera/           # Credit entries and tracking
+│   ├── contabilidad/      # Accounting (in development)
+│   ├── rrhh/              # Attendance, workers
+│   └── dashboard/         # Analytics
 └── login.tsx
 
 supabase/
-└── migrations/          # 001 a 010 (schema, seeds, auth, data import, etc.)
+└── migrations/            # 001–016 (schema, seeds, auth, data import, RLS, etc.)
 ```
 
-## Convenciones de Código
+## Code Conventions
 
 ### Naming
-- Entidades: `PascalCase` (ej. `ProductionRecipe`)
-- Propiedades de entidad: `camelCase` (ej. `storeId`)
-- Columnas DB: `snake_case` (ej. `store_id`)
-- Repos mapean snake_case (DB) ↔ camelCase (TS) en funciones `toEntity()`
+- Entities: `PascalCase` (e.g. `ProductionRecipe`)
+- Entity properties: `camelCase` (e.g. `storeId`)
+- DB columns: `snake_case` (e.g. `store_id`)
+- Repos map snake_case (DB) ↔ camelCase (TS) inside `toEntity()` functions
 
-### Patrones
-- Servicios reciben repositorios por constructor (inyección de dependencias)
-- Pantallas acceden a servicios via `const { xxxService } = useDI()`
-- Feedback al usuario con `useSnackbar()` → `showSuccess()` / `showError()`
-- Nuevas entidades, repos, servicios **siempre** se exportan desde su `index.ts`
-- Nuevos repos y servicios se registran en `src/di/container.ts`
+### Patterns
+- Screens access services via `const { xxxService } = useDI()`
+- User feedback: `useSnackbar()` → `showSuccess()` / `showError()`
+- New entities, repos, and services must be exported from their `index.ts`
+- New repos and services must be registered in `src/di/container.ts`
 
-### Inventario
-- 3 niveles: `RAW` (materia prima), `PROCESSED` (producto procesado), `STORE` (en tienda)
-- `deductGrams` crea registro con balance negativo si no existe previamente
-- `addGrams` crea registro si no existe (upsert pattern)
+### Inventory
+- 3 levels: `RAW` (raw materials), `PROCESSED` (processed product), `STORE` (in-store)
+- `deductGrams` creates a negative-balance record if none exists
+- `addGrams` upserts — creates the record if it doesn't exist
 
-### Fechas y moneda
-- Zona horaria: `America/Bogota` (usar `todayColombia()` de `src/utils/dates.ts`)
-- Moneda: COP (usar `formatCOP()` de `src/utils/currency.ts`)
+### Dates and currency
+- Timezone: `America/Bogota` — always use `todayColombia()` from `src/utils/dates.ts` for current date; **never** `toISODate(new Date())`
+- Currency: COP — use `formatCOP()` from `src/utils/currency.ts`
 
 ### UI
-- Tema oscuro. Fondos: `#111111`, `#1E1E1E`. Texto: `#F5F0EB`
-- Color primario/acción: `#E63946`
-- Color éxito: `#4CAF50`
-- Cards con `borderRadius: 12`
+- Dark theme. Backgrounds: `#111111`, `#1E1E1E`. Text: `#F5F0EB`
+- Primary/action color: `#E63946`
+- Success color: `#4CAF50`
+- Cards: `borderRadius: 12`
 
-## Reglas Importantes
-- **NUNCA** crear usuarios de Supabase Auth via SQL INSERT directo; usar Dashboard o Admin API
-- **NUNCA** usar `toISODate(new Date())` para fecha actual; usar `todayColombia()`
-- Al agregar un módulo nuevo: crear entidad → interfaz repo → implementación Supabase → servicio → registrar en container.ts → crear pantalla en app/(tabs)/
+## Critical Rules
 
-## Comandos
-```sh
-npx expo start --web     # Desarrollo web
-npx expo start           # Desarrollo (todos)
-npx tsc --noEmit         # Verificar tipos
-```
+- **NEVER** create Supabase Auth users via direct SQL `INSERT`; use the Supabase Dashboard or Admin API
+- Adding a new module: entity → repo interface → Supabase implementation → service → register in `container.ts` → screen in `app/(tabs)/`
 
 ## Supabase
-- Las migraciones están en `supabase/migrations/` (001-010)
-- Los enums de DB son strings ('RAW', 'PROCESSED', 'STORE', etc.)
-- RLS (Row Level Security) está activo - las políticas se definen en migraciones
+
+- Migrations: `supabase/migrations/` (001–016)
+- DB enums are stored as strings (`'RAW'`, `'PROCESSED'`, `'STORE'`, etc.)
+- RLS (Row Level Security) is active — policies are defined in migration files

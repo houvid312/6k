@@ -19,3 +19,5 @@ export { SupabaseDemandEstimateRepository } from './SupabaseDemandEstimateReposi
 export { SupabaseDailyAlertRepository } from './SupabaseDailyAlertRepository';
 export { SupabaseStockMinimumRepository } from './SupabaseStockMinimumRepository';
 export { SupabaseWriteoffRepository } from './SupabaseWriteoffRepository';
+export { SupabaseProductFormatRepository } from './SupabaseProductFormatRepository';
+export { SupabaseProductStoreAssignmentRepository } from './SupabaseProductStoreAssignmentRepository';

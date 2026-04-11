@@ -20,6 +20,8 @@ import {
   SupabaseDailyAlertRepository,
   SupabaseStockMinimumRepository,
   SupabaseWriteoffRepository,
+  SupabaseProductFormatRepository,
+  SupabaseProductStoreAssignmentRepository,
 } from '../data/repositories';
 import {
   SaleService,
@@ -60,6 +62,8 @@ const demandEstimateRepo = new SupabaseDemandEstimateRepository();
 const dailyAlertRepo = new SupabaseDailyAlertRepository();
 const stockMinimumRepo = new SupabaseStockMinimumRepository();
 const writeoffRepo = new SupabaseWriteoffRepository();
+const productFormatRepo = new SupabaseProductFormatRepository();
+const productStoreAssignmentRepo = new SupabaseProductStoreAssignmentRepository();
 
 // Services
 const saleService = new SaleService(saleRepo, inventoryRepo, recipeRepo);
@@ -72,7 +76,7 @@ const dashboardService = new DashboardService(saleRepo, inventoryRepo, supplyRep
 const authService = new SupabaseAuthService();
 const physicalCountService = new PhysicalCountService(physicalCountRepo, inventoryRepo);
 const productionService = new ProductionService(productionRecipeRepo, productionRecordRepo, inventoryRepo);
-const demandEstimationService = new DemandEstimationService(demandEstimateRepo, recipeRepo, inventoryRepo, supplyRepo);
+const demandEstimationService = new DemandEstimationService(demandEstimateRepo, recipeRepo, inventoryRepo, supplyRepo, productRepo, productStoreAssignmentRepo);
 const alertService = new AlertService(dailyAlertRepo, validationService, physicalCountRepo, supplyRepo, transferRepo);
 const writeoffService = new WriteoffService(writeoffRepo, inventoryRepo);
 const cashClosingService = new CashClosingService(cashClosingRepo, saleRepo, expenseRepo, alertService);
@@ -100,6 +104,8 @@ export const container = {
   dailyAlertRepo,
   stockMinimumRepo,
   writeoffRepo,
+  productFormatRepo,
+  productStoreAssignmentRepo,
 
   // Services
   saleService,

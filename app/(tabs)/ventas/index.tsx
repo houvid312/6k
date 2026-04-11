@@ -26,8 +26,8 @@ import { PaymentMethodPicker } from '../../../src/components/ventas/PaymentMetho
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useSaleStore, CartItem } from '../../../src/stores/useSaleStore';
-import { Product, Sale } from '../../../src/domain/entities';
-import { PizzaSize, PaymentMethod, PORTIONS_PER_SIZE, InventoryLevel, WriteoffReason, UserRole } from '../../../src/domain/enums';
+import { Product, Sale, ProductFormat } from '../../../src/domain/entities';
+import { PaymentMethod, InventoryLevel, WriteoffReason, UserRole } from '../../../src/domain/enums';
 import { supabase } from '../../../src/lib/supabase';
 import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
@@ -36,7 +36,7 @@ import { formatDate, todayColombia } from '../../../src/utils/dates';
 
 export default function VentasScreen() {
   const theme = useTheme();
-  const { saleService, writeoffService } = useDI();
+  const { saleService, writeoffService, productFormatRepo, productStoreAssignmentRepo } = useDI();
   const { selectedStoreId, userId, userRole } = useAppStore();
   const { products: cachedProducts, supplies } = useMasterDataStore();
   const {
@@ -55,7 +55,7 @@ export default function VentasScreen() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
-  const [selectedSize, setSelectedSize] = useState<PizzaSize | null>(null);
+  const [selectedFormatId, setSelectedFormatId] = useState<string | null>(null);
   const [sizeModalVisible, setSizeModalVisible] = useState(false);
   const [beverageModalVisible, setBeverageModalVisible] = useState(false);
   const [beverageQuantity, setBeverageQuantity] = useState(1);
@@ -67,8 +67,7 @@ export default function VentasScreen() {
   const [isPaid, setIsPaid] = useState(false);
   const [observations, setObservations] = useState('');
   const [modalQuantity, setModalQuantity] = useState(1);
-  const [pricesBySize, setPricesBySize] = useState<Record<string, number>>({});
-  const [beveragePrices, setBeveragePrices] = useState<Record<string, number>>({});
+  const [formatsByProductId, setFormatsByProductId] = useState<Record<string, ProductFormat[]>>({});
   const [snackbar, setSnackbar] = useState<{ visible: boolean; success: boolean; message: string }>({
     visible: false,
     success: true,
@@ -153,33 +152,41 @@ export default function VentasScreen() {
       .upsert(rows, { onConflict: 'store_id,product_id,date' });
   }, [selectedStoreId]);
 
+  // Cargar productos disponibles en este local
   useEffect(() => {
-    setProducts(cachedProducts.filter((p) => p.isActive));
-  }, [cachedProducts]);
-
-  useEffect(() => {
+    if (!selectedStoreId) {
+      setProducts(cachedProducts.filter((p) => p.isActive));
+      return;
+    }
     (async () => {
-      const { data: prices } = await supabase
-        .from('product_prices')
-        .select('product_id, size, price')
-        .eq('is_active', true);
-
-      if (prices) {
-        const sizeMap: Record<string, number> = {};
-        const bevMap: Record<string, number> = {};
-        for (const p of prices) {
-          const product = cachedProducts.find((pr) => pr.id === p.product_id);
-          if (product?.category === 'BEBIDA') {
-            bevMap[p.product_id] = p.price;
-          } else if (p.size) {
-            sizeMap[`${p.product_id}_${p.size}`] = p.price;
-          }
-        }
-        setPricesBySize(sizeMap);
-        setBeveragePrices(bevMap);
+      try {
+        const assignedIds = await productStoreAssignmentRepo.getProductIdsByStore(selectedStoreId);
+        const assignedSet = new Set(assignedIds);
+        setProducts(cachedProducts.filter((p) => p.isActive && assignedSet.has(p.id)));
+      } catch {
+        setProducts(cachedProducts.filter((p) => p.isActive));
       }
     })();
-  }, [cachedProducts]);
+  }, [selectedStoreId, cachedProducts, productStoreAssignmentRepo]);
+
+  // Cargar formatos de todos los productos
+  useEffect(() => {
+    const ids = cachedProducts.map((p) => p.id);
+    if (ids.length === 0) return;
+    (async () => {
+      try {
+        const formats = await productFormatRepo.getByProductIds(ids);
+        const map: Record<string, ProductFormat[]> = {};
+        for (const f of formats) {
+          if (!map[f.productId]) map[f.productId] = [];
+          map[f.productId].push(f);
+        }
+        setFormatsByProductId(map);
+      } catch {
+        // silently fail
+      }
+    })();
+  }, [cachedProducts, productFormatRepo]);
 
   const loadPendingSales = useCallback(async () => {
     if (!selectedStoreId) return;
@@ -232,50 +239,66 @@ export default function VentasScreen() {
     const product = products.find((p) => p.id === productId);
     if (!product) return;
 
-    if (product.category === 'BEBIDA') {
+    const activeFormats = formatsByProductId[productId]?.filter((f) => f.isActive) ?? [];
+
+    if (activeFormats.length === 0) {
+      setSnackbar({ visible: true, success: false, message: `"${product.name}" no tiene formatos activos. Configúralo en Inventario → Productos.` });
+      return;
+    }
+
+    if (activeFormats.length <= 1) {
+      // Single format: simple quantity modal
       setSelectedProductId(productId);
       setBeverageQuantity(1);
       setBeverageModalVisible(true);
     } else {
+      // Multiple formats: show format selector
       setSelectedProductId(productId);
-      setSelectedSize(PizzaSize.INDIVIDUAL);
+      setSelectedFormatId(activeFormats[0]?.id ?? null);
       setModalQuantity(1);
       setSizeModalVisible(true);
     }
-  }, [products]);
+  }, [products, formatsByProductId]);
 
   const handleSizeConfirm = useCallback(() => {
-    if (!selectedProduct || !selectedSize) return;
+    if (!selectedProduct || !selectedFormatId) return;
+    const format = formatsByProductId[selectedProduct.id]?.find((f) => f.id === selectedFormatId);
+    if (!format) return;
 
-    const price = pricesBySize[`${selectedProduct.id}_${selectedSize}`] ?? 0;
     addToCart({
       productId: selectedProduct.id,
       productName: selectedProduct.name,
-      size: selectedSize,
+      formatId: format.id,
+      formatName: format.name,
+      portionsPerUnit: format.portions,
       quantity: modalQuantity,
-      unitPrice: price,
+      unitPrice: format.price,
     });
     setSizeModalVisible(false);
     setSelectedProductId(null);
-    setSelectedSize(null);
+    setSelectedFormatId(null);
     setModalQuantity(1);
-  }, [selectedProduct, selectedSize, modalQuantity, addToCart, pricesBySize]);
+  }, [selectedProduct, selectedFormatId, modalQuantity, addToCart, formatsByProductId]);
 
   const handleBeverageConfirm = useCallback(() => {
     if (!selectedProduct) return;
+    const formats = formatsByProductId[selectedProduct.id]?.filter((f) => f.isActive) ?? [];
+    const format = formats[0];
+    if (!format) return;
 
-    const price = beveragePrices[selectedProduct.id] ?? 0;
     addToCart({
       productId: selectedProduct.id,
       productName: selectedProduct.name,
-      size: PizzaSize.INDIVIDUAL,
+      formatId: format.id,
+      formatName: format.name,
+      portionsPerUnit: format.portions,
       quantity: beverageQuantity,
-      unitPrice: price,
+      unitPrice: format.price,
     });
     setBeverageModalVisible(false);
     setSelectedProductId(null);
     setBeverageQuantity(1);
-  }, [selectedProduct, beverageQuantity, addToCart, beveragePrices]);
+  }, [selectedProduct, beverageQuantity, addToCart, formatsByProductId]);
 
   const totalAmount = cart.reduce((sum, i) => sum + i.subtotal, 0);
 
@@ -315,7 +338,9 @@ export default function VentasScreen() {
     try {
       const items = cart.map((c) => ({
         productId: c.productId,
-        size: c.size,
+        formatId: c.formatId,
+        formatName: c.formatName,
+        portionsPerUnit: c.portionsPerUnit,
         quantity: c.quantity,
         unitPrice: c.unitPrice,
       }));
@@ -358,7 +383,7 @@ export default function VentasScreen() {
       const updatedSold = { ...soldPortions };
       for (const c of cart) {
         const prod = products.find((p) => p.id === c.productId);
-        if (prod?.category === 'PIZZA') {
+        if (prod?.hasRecipe) {
           updatedSold[c.productId] = (updatedSold[c.productId] ?? 0) + c.portions;
         }
       }
@@ -622,7 +647,7 @@ export default function VentasScreen() {
           onPress={() => {
             // Siempre empieza en 0 — lo ingresado se SUMA al disponible actual
             const input: Record<string, string> = {};
-            for (const p of products.filter((pr) => pr.category === 'PIZZA')) {
+            for (const p of products.filter((pr) => pr.hasRecipe)) {
               input[p.id] = '0';
             }
             setPortionsInput(input);
@@ -764,11 +789,18 @@ export default function VentasScreen() {
           <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>
             Selecciona el tamano
           </Text>
-          <SizeSelector selected={selectedSize} onSelect={(size) => { setSelectedSize(size); setModalQuantity(1); }} />
-          {selectedSize && (
+          <SizeSelector
+            formats={formatsByProductId[selectedProduct?.id ?? '']?.filter((f) => f.isActive) ?? []}
+            selected={selectedFormatId}
+            onSelect={(formatId) => { setSelectedFormatId(formatId); setModalQuantity(1); }}
+          />
+          {selectedFormatId && (() => {
+            const fmt = formatsByProductId[selectedProduct?.id ?? '']?.find((f) => f.id === selectedFormatId);
+            if (!fmt) return null;
+            return (
             <View style={styles.sizeInfo}>
               <Text variant="bodyLarge" style={{ fontWeight: '600' }}>
-                {formatCOP((pricesBySize[`${selectedProduct?.id}_${selectedSize}`] ?? 0) * modalQuantity)} - {PORTIONS_PER_SIZE[selectedSize] * modalQuantity} porciones
+                {formatCOP(fmt.price * modalQuantity)} - {fmt.portions * modalQuantity} porciones
               </Text>
               <View style={styles.modalQuantityRow}>
                 <IconButton
@@ -787,21 +819,22 @@ export default function VentasScreen() {
                 />
               </View>
             </View>
-          )}
+            );
+          })()}
           <Divider style={{ marginVertical: 16 }} />
           <View style={styles.modalActions}>
             <Button onPress={() => setSizeModalVisible(false)}>Cancelar</Button>
             <Button
               mode="contained"
               onPress={handleSizeConfirm}
-              disabled={!selectedSize}
+              disabled={!selectedFormatId}
             >
               Agregar al carrito
             </Button>
           </View>
         </Modal>
 
-        {/* Beverage Quantity Modal */}
+        {/* Single-format / Beverage Quantity Modal */}
         <Modal
           visible={beverageModalVisible}
           onDismiss={() => setBeverageModalVisible(false)}
@@ -811,7 +844,7 @@ export default function VentasScreen() {
             {selectedProduct?.name}
           </Text>
           <Text variant="bodyLarge" style={{ fontWeight: '600', textAlign: 'center' }}>
-            {formatCOP((beveragePrices[selectedProduct?.id ?? ''] ?? 0) * beverageQuantity)}
+            {formatCOP((formatsByProductId[selectedProduct?.id ?? '']?.filter((f) => f.isActive)?.[0]?.price ?? 0) * beverageQuantity)}
           </Text>
           <View style={styles.modalQuantityRow}>
             <IconButton
@@ -853,7 +886,7 @@ export default function VentasScreen() {
             Ingresa las porciones que llegan. Se suman al disponible actual.
           </Text>
           <ScrollView>
-            {products.filter((p) => p.category === 'PIZZA').map((pizza) => {
+            {products.filter((p) => p.hasRecipe).map((pizza) => {
               const current = availablePortions[pizza.id] ?? 0;
               return (
                 <View key={pizza.id} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>

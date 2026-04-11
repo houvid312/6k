@@ -54,6 +54,7 @@ export default function InventarioLayout() {
       <Stack.Screen name="demanda" options={{ title: 'Demanda Estimada' }} />
       <Stack.Screen name="insumos" options={{ title: 'Insumos' }} />
       <Stack.Screen name="bajas" options={{ title: 'Bajas de Inventario' }} />
+      <Stack.Screen name="productos" options={{ title: 'Catálogo de Productos' }} />
     </Stack>
   );
 }

@@ -3,7 +3,10 @@ import { PizzaSize } from '../enums/PizzaSize';
 export interface SaleItem {
   id: string;
   productId: string;
-  size: PizzaSize;
+  /** @deprecated Presente en ventas históricas. Usar formatId/formatName para ventas nuevas. */
+  size?: PizzaSize;
+  formatId?: string;
+  formatName: string;
   quantity: number;
   portions: number;
   unitPrice: number;

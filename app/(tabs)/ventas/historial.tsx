@@ -8,7 +8,7 @@ import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { Sale } from '../../../src/domain/entities';
-import { PaymentMethod, PizzaSize } from '../../../src/domain/enums';
+import { PaymentMethod } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDateTime, toISODate } from '../../../src/utils/dates';
 
@@ -18,12 +18,6 @@ const PAYMENT_ICONS: Record<PaymentMethod, string> = {
   [PaymentMethod.MIXTO]: 'swap-horizontal',
 };
 
-const SIZE_SHORT: Record<PizzaSize, string> = {
-  [PizzaSize.INDIVIDUAL]: 'Ind.',
-  [PizzaSize.DIAMANTE]: 'Diam.',
-  [PizzaSize.MEDIANA]: 'Med.',
-  [PizzaSize.FAMILIAR]: 'Fam.',
-};
 
 export default function HistorialScreen() {
   const theme = useTheme();
@@ -128,7 +122,7 @@ export default function HistorialScreen() {
                 {getProductName(si.productId)}
               </Text>
               <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, minWidth: 40 }}>
-                {SIZE_SHORT[si.size]}
+                {si.formatName}
               </Text>
               <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, minWidth: 20, textAlign: 'center' }}>
                 x{si.quantity}

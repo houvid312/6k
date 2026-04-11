@@ -21,11 +21,20 @@ interface SaleRow {
   workers?: { name: string } | null;
 }
 
+const LEGACY_SIZE_LABELS: Record<string, string> = {
+  INDIVIDUAL: 'Individual',
+  DIAMANTE: 'Diamante',
+  MEDIANA: 'Mediana',
+  FAMILIAR: 'Familiar',
+};
+
 interface SaleItemRow {
   id: string;
   sale_id: string;
   product_id: string;
-  size: string;
+  size: string | null;
+  format_id: string | null;
+  format_name: string | null;
   quantity: number;
   portions: number;
   unit_price: number;
@@ -36,7 +45,9 @@ function saleItemRowToEntity(row: SaleItemRow): SaleItem {
   return {
     id: row.id,
     productId: row.product_id,
-    size: row.size as SaleItem['size'],
+    size: row.size ? (row.size as SaleItem['size']) : undefined,
+    formatId: row.format_id ?? undefined,
+    formatName: row.format_name ?? (row.size ? (LEGACY_SIZE_LABELS[row.size] ?? row.size) : ''),
     quantity: row.quantity,
     portions: row.portions,
     unitPrice: row.unit_price,
@@ -197,7 +208,9 @@ export class SupabaseSaleRepository implements ISaleRepository {
     const itemRows = sale.items.map((item) => ({
       sale_id: saleRow.id,
       product_id: item.productId,
-      size: item.size,
+      size: item.size ?? null,
+      format_id: item.formatId ?? null,
+      format_name: item.formatName ?? null,
       quantity: item.quantity,
       portions: item.portions,
       unit_price: item.unitPrice,

@@ -3,15 +3,18 @@ import { View, StyleSheet } from 'react-native';
 import { Card, Text, TextInput, Button, Divider, IconButton, Snackbar, Portal, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
+import { SearchableSelect, SelectOption } from '../../../src/components/common/SearchableSelect';
 import { useDI } from '../../../src/di/providers';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
+import { useAppStore } from '../../../src/stores/useAppStore';
 import { useSnackbar } from '../../../src/hooks';
 import { Product } from '../../../src/domain/entities/Product';
 import { Recipe } from '../../../src/domain/entities/Recipe';
+import { InventoryLevel } from '../../../src/domain/enums';
 
 interface EditableIngredient {
   supplyId: string;
-  gramsPerPortion: string; // string for TextInput
+  gramsPerPortion: string;
 }
 
 interface RecipeCardState {
@@ -22,22 +25,38 @@ interface RecipeCardState {
 
 export default function RecetasScreen() {
   const theme = useTheme();
-  const { recipeRepo } = useDI();
+  const { recipeRepo, inventoryService } = useDI();
   const { products: cachedProducts, supplies } = useMasterDataStore();
+  const { selectedStoreId } = useAppStore();
 
   const [loading, setLoading] = useState(true);
   const [cards, setCards] = useState<RecipeCardState[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editIngredients, setEditIngredients] = useState<EditableIngredient[]>([]);
   const [editSaving, setEditSaving] = useState(false);
+  const [storeSupplyIds, setStoreSupplyIds] = useState<Set<string>>(new Set());
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
+
+  // Cargar insumos disponibles en nivel STORE para el picker
+  useEffect(() => {
+    if (!selectedStoreId) return;
+    (async () => {
+      try {
+        const summary = await inventoryService.getInventorySummary(selectedStoreId, InventoryLevel.STORE);
+        setStoreSupplyIds(new Set(summary.map((s) => s.supplyId)));
+      } catch {
+        // fallback: show all supplies
+        setStoreSupplyIds(new Set(supplies.map((s) => s.id)));
+      }
+    })();
+  }, [selectedStoreId, inventoryService, supplies]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const allRecipes = await recipeRepo.getAll();
 
-      const pizzaProducts = cachedProducts.filter((p) => p.category === 'PIZZA' && p.isActive);
+      const pizzaProducts = cachedProducts.filter((p) => p.hasRecipe && p.isActive);
       const recipeByProductId = new Map(allRecipes.map((r) => [r.productId, r]));
 
       const cardStates: RecipeCardState[] = pizzaProducts
@@ -65,6 +84,11 @@ export default function RecetasScreen() {
 
   const supplyMap = new Map(supplies.map((s) => [s.id, s]));
 
+  // Opciones del picker: solo insumos en nivel STORE
+  const supplyOptions: SelectOption[] = supplies
+    .filter((s) => storeSupplyIds.has(s.id))
+    .map((s) => ({ value: s.id, label: s.name }));
+
   const startEditing = (card: RecipeCardState) => {
     setEditingId(card.recipe.id);
     setEditIngredients(card.ingredients.map((i) => ({ ...i })));
@@ -83,6 +107,19 @@ export default function RecetasScreen() {
     });
   };
 
+  const handleAddIngredient = (supplyId: string) => {
+    // Prevent duplicates
+    if (editIngredients.some((i) => i.supplyId === supplyId)) {
+      showError('Ese insumo ya está en la receta');
+      return;
+    }
+    setEditIngredients((prev) => [...prev, { supplyId, gramsPerPortion: '0' }]);
+  };
+
+  const handleRemoveIngredient = (index: number) => {
+    setEditIngredients((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleSave = async (card: RecipeCardState) => {
     const parsed = editIngredients.map((ing) => ({
       supplyId: ing.supplyId,
@@ -91,7 +128,7 @@ export default function RecetasScreen() {
 
     const invalid = parsed.some((p) => isNaN(p.gramsPerPortion) || p.gramsPerPortion <= 0);
     if (invalid) {
-      showError('Todos los gramajes deben ser numeros positivos');
+      showError('Todos los gramajes deben ser números positivos');
       return;
     }
 
@@ -121,7 +158,7 @@ export default function RecetasScreen() {
               {card.product.name}
             </Text>
             <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
-              {card.ingredients.length} insumos por porcion
+              {card.ingredients.length} insumos por porción
             </Text>
           </View>
           <IconButton
@@ -134,7 +171,7 @@ export default function RecetasScreen() {
 
         <Divider style={{ backgroundColor: '#333', marginVertical: 8 }} />
         <Text variant="bodySmall" style={{ color: '#999', marginBottom: 4 }}>
-          Consume por porcion:
+          Consume por porción:
         </Text>
         {card.ingredients.map((ing) => {
           const supply = supplyMap.get(ing.supplyId);
@@ -157,7 +194,7 @@ export default function RecetasScreen() {
 
         <Divider style={{ backgroundColor: '#333', marginVertical: 8 }} />
         <Text variant="bodyMedium" style={{ color: '#F5F0EB', fontWeight: '600', marginBottom: 8 }}>
-          Gramajes por porcion:
+          Gramajes por porción:
         </Text>
 
         {editIngredients.map((ing, ingIndex) => {
@@ -183,9 +220,27 @@ export default function RecetasScreen() {
                 textColor="#F5F0EB"
                 right={<TextInput.Affix text="g" textStyle={{ color: '#999' }} />}
               />
+              <IconButton
+                icon="close-circle"
+                size={18}
+                iconColor="#E63946"
+                onPress={() => handleRemoveIngredient(ingIndex)}
+                style={{ margin: 0 }}
+              />
             </View>
           );
         })}
+
+        <Divider style={{ backgroundColor: '#333', marginVertical: 12 }} />
+        <Text variant="bodySmall" style={{ color: '#999', marginBottom: 6 }}>
+          Agregar insumo (nivel STORE):
+        </Text>
+        <SearchableSelect
+          options={supplyOptions.filter((o) => !editIngredients.some((i) => i.supplyId === o.value))}
+          placeholder="+ Agregar insumo..."
+          icon="plus"
+          onSelect={handleAddIngredient}
+        />
 
         <View style={[styles.row, { marginTop: 16 }]}>
           <Button
@@ -213,10 +268,10 @@ export default function RecetasScreen() {
   return (
     <ScreenContainer scrollable padded>
       <Text variant="titleMedium" style={[styles.title, { color: theme.colors.onBackground }]}>
-        Recetas de Pizza
+        Recetas de Productos
       </Text>
       <Text variant="bodySmall" style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]}>
-        Gramajes por porcion de cada pizza
+        Gramajes por porción · Agrega o quita insumos
       </Text>
 
       {cards.map((card) =>
@@ -260,14 +315,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
   supplyName: {
     flex: 1,
-    marginRight: 12,
+    marginRight: 8,
   },
   gramsInput: {
-    width: 110,
+    width: 100,
     backgroundColor: '#111111',
   },
   row: {

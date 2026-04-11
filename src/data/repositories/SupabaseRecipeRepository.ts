@@ -86,6 +86,16 @@ export class SupabaseRecipeRepository implements IRecipeRepository {
     return recipeRowToEntity(row, ingredients);
   }
 
+  async create(productId: string): Promise<Recipe> {
+    const { data, error } = await supabase
+      .from('recipes')
+      .insert({ product_id: productId })
+      .select()
+      .single();
+    if (error) throw error;
+    return recipeRowToEntity(data as RecipeRow, []);
+  }
+
   async updateIngredients(
     recipeId: string,
     ingredients: { supplyId: string; gramsPerPortion: number }[],

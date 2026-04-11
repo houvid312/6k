@@ -1,31 +1,24 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
-import { PizzaSize, PORTIONS_PER_SIZE } from '../../domain/enums';
-
-const SIZE_LABELS: Record<PizzaSize, string> = {
-  [PizzaSize.INDIVIDUAL]: 'Individual',
-  [PizzaSize.DIAMANTE]: 'Diamante',
-  [PizzaSize.MEDIANA]: 'Mediana',
-  [PizzaSize.FAMILIAR]: 'Familiar',
-};
+import { ProductFormat } from '../../domain/entities/ProductFormat';
 
 interface Props {
-  selected: PizzaSize | null;
-  onSelect: (size: PizzaSize) => void;
+  formats: ProductFormat[];
+  selected: string | null;
+  onSelect: (formatId: string) => void;
 }
 
-export function SizeSelector({ selected, onSelect }: Props) {
+export function SizeSelector({ formats, selected, onSelect }: Props) {
   const theme = useTheme();
-  const sizes = [PizzaSize.INDIVIDUAL, PizzaSize.DIAMANTE, PizzaSize.MEDIANA, PizzaSize.FAMILIAR];
 
   return (
     <View style={styles.container}>
-      {sizes.map((size) => {
-        const isSelected = size === selected;
+      {formats.map((format) => {
+        const isSelected = format.id === selected;
         return (
           <TouchableOpacity
-            key={size}
+            key={format.id}
             style={[
               styles.button,
               {
@@ -33,20 +26,20 @@ export function SizeSelector({ selected, onSelect }: Props) {
                 borderColor: isSelected ? theme.colors.primary : theme.colors.outline,
               },
             ]}
-            onPress={() => onSelect(size)}
+            onPress={() => onSelect(format.id)}
             activeOpacity={0.7}
           >
             <Text
               variant="labelLarge"
               style={{ color: isSelected ? '#FFFFFF' : theme.colors.onSurface, fontWeight: '600' }}
             >
-              {SIZE_LABELS[size]}
+              {format.name}
             </Text>
             <Text
               variant="labelSmall"
               style={{ color: isSelected ? '#FFFFFF' : theme.colors.onSurfaceVariant }}
             >
-              ({PORTIONS_PER_SIZE[size]} porc.)
+              ({format.portions} porc.)
             </Text>
           </TouchableOpacity>
         );

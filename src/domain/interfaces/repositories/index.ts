@@ -19,3 +19,5 @@ export type { IDemandEstimateRepository } from './IDemandEstimateRepository';
 export type { IDailyAlertRepository } from './IDailyAlertRepository';
 export type { IStockMinimumRepository } from './IStockMinimumRepository';
 export type { IWriteoffRepository } from './IWriteoffRepository';
+export type { IProductFormatRepository } from './IProductFormatRepository';
+export type { IProductStoreAssignmentRepository } from './IProductStoreAssignmentRepository';

@@ -22,7 +22,7 @@ export default function DemandaScreen() {
   const { products: cachedProducts } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
-  const [products, setProducts] = useState(cachedProducts.filter((p) => p.category === 'PIZZA' && p.isActive));
+  const [products, setProducts] = useState(cachedProducts.filter((p) => p.hasRecipe && p.isActive));
   const [estimates, setEstimates] = useState<EstimateMap>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -33,7 +33,7 @@ export default function DemandaScreen() {
     try {
       const allEstimates = await demandEstimationService.getAllEstimates(selectedStoreId);
 
-      const pizzas = cachedProducts.filter((p) => p.category === 'PIZZA' && p.isActive);
+      const pizzas = cachedProducts.filter((p) => p.hasRecipe && p.isActive);
       setProducts(pizzas);
 
       const map: EstimateMap = {};

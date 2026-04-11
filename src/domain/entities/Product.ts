@@ -5,4 +5,5 @@ export interface Product {
   name: string;
   category: ProductCategory;
   isActive: boolean;
+  hasRecipe: boolean;
 }
