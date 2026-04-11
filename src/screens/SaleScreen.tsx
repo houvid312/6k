@@ -23,12 +23,12 @@ import { useSaleStore } from '../stores/useSaleStore';
 import { useAppStore } from '../stores';
 import { useDI } from '../hooks';
 import { PaymentMethod } from '../domain/enums';
-import { Product, Sale } from '../domain/entities';
+import { Product, ProductFormat, Sale } from '../domain/entities';
 import { formatCOP } from '../utils/currency';
 
 export function SaleScreen() {
   const theme = useTheme();
-  const { saleService, productRepo } = useDI();
+  const { saleService, productRepo, productFormatRepo } = useDI();
   const selectedStoreId = useAppStore((s) => s.selectedStoreId);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -49,6 +49,7 @@ export function SaleScreen() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string | undefined>();
+  const [formats, setFormats] = useState<ProductFormat[]>([]);
   const [selectedFormatId, setSelectedFormatId] = useState<string | null>(null);
   const [quantity, setQuantity] = useState('1');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.EFECTIVO);
@@ -58,6 +59,16 @@ export function SaleScreen() {
   useEffect(() => {
     productRepo.getAll().then(setProducts).catch(() => {});
   }, [productRepo]);
+
+  useEffect(() => {
+    setSelectedFormatId(null);
+    setFormats([]);
+    if (!selectedProductId) return;
+    productFormatRepo
+      .getByProductId(selectedProductId)
+      .then((f) => setFormats(f.filter((fmt) => fmt.isActive)))
+      .catch(() => {});
+  }, [selectedProductId, productFormatRepo]);
 
   const loadPendingSales = useCallback(async () => {
     if (!selectedStoreId) return;
@@ -81,21 +92,24 @@ export function SaleScreen() {
     const product = products.find((p) => p.id === selectedProductId);
     if (!product) return;
 
+    const format = formats.find((f) => f.id === selectedFormatId);
+    if (!format) return;
+
     const qty = parseInt(quantity, 10);
     if (isNaN(qty) || qty <= 0) return;
 
     addToCart({
       productId: selectedProductId,
       productName: product.name,
-      formatId: selectedFormatId ?? '',
-      formatName: selectedFormatId ?? '',
-      portionsPerUnit: 1,
+      formatId: format.id,
+      formatName: format.name,
+      portionsPerUnit: format.portions,
       quantity: qty,
-      unitPrice: 0,
+      unitPrice: format.price,
     });
 
     setQuantity('1');
-  }, [selectedProductId, selectedFormatId, quantity, products, addToCart]);
+  }, [selectedProductId, selectedFormatId, formats, quantity, products, addToCart]);
 
   const totalAmount = cart.reduce((sum, i) => sum + i.subtotal, 0);
 
@@ -282,7 +296,7 @@ export function SaleScreen() {
               titleVariant="titleMedium"
             />
             <Card.Content>
-              <SizeSelector formats={[]} selected={selectedFormatId} onSelect={setSelectedFormatId} />
+              <SizeSelector formats={formats} selected={selectedFormatId} onSelect={setSelectedFormatId} />
               <View style={styles.quantityRow}>
                 <Text variant="bodyMedium">Cantidad:</Text>
                 <TextInput

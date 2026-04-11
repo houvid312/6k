@@ -1,5 +1,5 @@
 import { Validation, AlertType } from '../domain/entities';
-import { PORTIONS_PER_SIZE, InventoryLevel } from '../domain/enums';
+import { InventoryLevel } from '../domain/enums';
 import { ISaleRepository, IRecipeRepository, IInventoryRepository, IWriteoffRepository } from '../domain/interfaces/repositories';
 
 export interface TheoreticalConsumption {

@@ -23,7 +23,6 @@ interface SaleRow {
 
 const LEGACY_SIZE_LABELS: Record<string, string> = {
   INDIVIDUAL: 'Individual',
-  DIAMANTE: 'Diamante',
   MEDIANA: 'Mediana',
   FAMILIAR: 'Familiar',
 };
