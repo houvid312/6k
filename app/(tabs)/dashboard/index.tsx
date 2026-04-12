@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Card, Text, Divider, useTheme } from 'react-native-paper';
+import { Card, Text, Chip, Divider, SegmentedButtons, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { KpiCard } from '../../../src/components/common/KpiCard';
@@ -23,6 +23,10 @@ export default function DashboardScreen() {
   const { dashboardService, saleService, expenseRepo } = useDI();
   const { selectedStoreId } = useAppStore();
   const { products: cachedProducts } = useMasterDataStore();
+
+  // D1: Period filter
+  type DashPeriod = 'today' | '7d' | '30d';
+  const [dashPeriod, setDashPeriod] = useState<DashPeriod>('7d');
 
   const [loading, setLoading] = useState(true);
   const [totalSales, setTotalSales] = useState(0);
@@ -50,8 +54,10 @@ export default function DashboardScreen() {
     try {
       const now = new Date();
       const endDate = toISODate(now);
-      const startDate = toISODate(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000));
       const today = toISODate(now);
+      // D1: Period-based start date
+      const periodDays = dashPeriod === 'today' ? 0 : dashPeriod === '7d' ? 7 : 30;
+      const startDate = periodDays === 0 ? today : toISODate(new Date(now.getTime() - periodDays * 24 * 60 * 60 * 1000));
 
       // Get daily summary for KPIs
       const summary = await dashboardService.getDailySummary(selectedStoreId, today);
@@ -157,7 +163,7 @@ export default function DashboardScreen() {
     } finally {
       setLoading(false);
     }
-  }, [selectedStoreId, dashboardService, cachedProducts, saleService, expenseRepo]);
+  }, [selectedStoreId, dashboardService, cachedProducts, saleService, expenseRepo, dashPeriod]);
 
   useEffect(() => {
     loadData();
@@ -174,6 +180,33 @@ export default function DashboardScreen() {
         <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
           {formatDate(new Date())}
         </Text>
+      </View>
+
+      {/* D1: Period filter */}
+      <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+        {([
+          { value: 'today' as DashPeriod, label: 'Hoy' },
+          { value: '7d' as DashPeriod, label: '7 dias' },
+          { value: '30d' as DashPeriod, label: '30 dias' },
+        ]).map((opt) => (
+          <Chip
+            key={opt.value}
+            selected={dashPeriod === opt.value}
+            onPress={() => setDashPeriod(opt.value)}
+            mode="flat"
+            compact
+            style={{
+              backgroundColor: dashPeriod === opt.value ? theme.colors.primary : '#2A2A2A',
+            }}
+            textStyle={{
+              color: dashPeriod === opt.value ? '#FFFFFF' : '#999',
+              fontWeight: dashPeriod === opt.value ? '600' : '400',
+            }}
+            showSelectedOverlay={false}
+          >
+            {opt.label}
+          </Chip>
+        ))}
       </View>
 
       {/* KPI Cards Row 1 */}

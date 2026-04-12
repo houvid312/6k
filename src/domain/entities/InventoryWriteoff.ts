@@ -6,6 +6,7 @@ export interface InventoryWriteoff {
   id: string;
   storeId: string;
   supplyId: string;
+  productId?: string;   // V8: optional product for prepared-portion writeoffs
   level: InventoryLevel;
   quantityGrams: number;
   reason: WriteoffReason;

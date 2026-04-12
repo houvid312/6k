@@ -82,4 +82,23 @@ export class SupabaseWorkerRepository implements IWorkerRepository {
     if (error) throw error;
     return toEntity(data as WorkerRow);
   }
+
+  async update(id: string, updates: Partial<Omit<Worker, 'id'>>): Promise<Worker> {
+    const row: Record<string, unknown> = {};
+    if (updates.name !== undefined) row.name = updates.name;
+    if (updates.role !== undefined) row.role = updates.role;
+    if (updates.hourlyRate !== undefined) row.hourly_rate = updates.hourlyRate;
+    if (updates.isActive !== undefined) row.is_active = updates.isActive;
+    if (updates.phone !== undefined) row.phone = updates.phone;
+    if (updates.pin !== undefined) row.pin = updates.pin;
+
+    const { data, error } = await supabase
+      .from('workers')
+      .update(row)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return toEntity(data as WorkerRow);
+  }
 }

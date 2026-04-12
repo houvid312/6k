@@ -24,6 +24,7 @@ export const EXPENSE_CATEGORIES: string[] = [
   'Proveedores',
   'Insumos',
   'Transporte',
+  'Compra Turno',
   'Otro',
 ];
 

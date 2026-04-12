@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, View, StyleSheet } from 'react-native';
+import { ScrollView, View, StyleSheet, Pressable } from 'react-native';
 import { Text, useTheme, Surface } from 'react-native-paper';
 import { Schedule, Worker } from '../../domain/entities';
 import { DAYS_OF_WEEK } from '../../utils/constants';
@@ -7,9 +7,10 @@ import { DAYS_OF_WEEK } from '../../utils/constants';
 interface Props {
   workers: Worker[];
   schedules: Schedule[];
+  onCellPress?: (worker: Worker, dayOfWeek: number) => void;  // H2
 }
 
-export function ScheduleGrid({ workers, schedules }: Props) {
+export function ScheduleGrid({ workers, schedules, onCellPress }: Props) {
   const theme = useTheme();
 
   const getScheduleForWorkerDay = (workerId: string, dayIndex: number): Schedule | undefined => {
@@ -45,26 +46,27 @@ export function ScheduleGrid({ workers, schedules }: Props) {
             </View>
             {DAYS_OF_WEEK.map((_, dayIndex) => {
               const schedule = getScheduleForWorkerDay(worker.id, dayIndex);
+              const cell = schedule ? (
+                <Surface
+                  style={[styles.scheduleBlock, { backgroundColor: theme.colors.primaryContainer }]}
+                  elevation={0}
+                >
+                  <Text variant="labelSmall" style={{ fontSize: 9, textAlign: 'center' }}>
+                    {schedule.startTime}
+                  </Text>
+                  <Text variant="labelSmall" style={{ fontSize: 9, textAlign: 'center' }}>
+                    {schedule.endTime}
+                  </Text>
+                </Surface>
+              ) : (
+                <Text variant="labelSmall" style={{ color: theme.colors.outline, textAlign: 'center' }}>
+                  --
+                </Text>
+              );
               return (
-                <View key={dayIndex} style={styles.dayCell}>
-                  {schedule ? (
-                    <Surface
-                      style={[styles.scheduleBlock, { backgroundColor: theme.colors.primaryContainer }]}
-                      elevation={0}
-                    >
-                      <Text variant="labelSmall" style={{ fontSize: 9, textAlign: 'center' }}>
-                        {schedule.startTime}
-                      </Text>
-                      <Text variant="labelSmall" style={{ fontSize: 9, textAlign: 'center' }}>
-                        {schedule.endTime}
-                      </Text>
-                    </Surface>
-                  ) : (
-                    <Text variant="labelSmall" style={{ color: theme.colors.outline, textAlign: 'center' }}>
-                      --
-                    </Text>
-                  )}
-                </View>
+                <Pressable key={dayIndex} style={styles.dayCell} onPress={() => onCellPress?.(worker, dayIndex)}>
+                  {cell}
+                </Pressable>
               );
             })}
           </View>

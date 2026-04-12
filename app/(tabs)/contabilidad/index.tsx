@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, Alert } from 'react-native';
-import { Card, Text, Button, Divider, IconButton, Portal, Modal, TextInput, useTheme } from 'react-native-paper';
+import { Card, Text, Button, Chip, Divider, IconButton, Portal, Modal, TextInput, useTheme } from 'react-native-paper';
 import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
@@ -11,18 +11,27 @@ import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { Sale, Expense } from '../../../src/domain/entities';
 import { formatCOP } from '../../../src/utils/currency';
-import { formatDateTime, toISODate } from '../../../src/utils/dates';
+import { formatDateTime, toISODate, todayColombia } from '../../../src/utils/dates';
 
 export default function ContabilidadScreen() {
   const theme = useTheme();
-  const { dashboardService, saleService, expenseRepo, saleRepo } = useDI();
+  const { dashboardService, saleService, expenseRepo, saleRepo, cashClosingService } = useDI();
   const { selectedStoreId } = useAppStore();
+
+  type ContaPeriod = 'hoy' | 'ayer' | 'semana' | 'mes';
+  const [period, setPeriod] = useState<ContaPeriod>('hoy');
 
   const [ingresos, setIngresos] = useState(0);
   const [egresos, setEgresos] = useState(0);
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [recentExpenses, setRecentExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // C1: Daily audit
+  const [openingBase, setOpeningBase] = useState(0);
+  const [todayCashSales, setTodayCashSales] = useState(0);
+  const [todayCashExpenses, setTodayCashExpenses] = useState(0);
+  const [closingActual, setClosingActual] = useState<number | null>(null);
 
   // Edit expense modal
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -33,33 +42,65 @@ export default function ContabilidadScreen() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // Resumen del mes actual (no solo hoy)
-      const now = new Date();
-      const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const startDate = toISODate(firstOfMonth);
-      const endDate = toISODate(now);
+      const today = todayColombia();
+      let startDate: string;
+      let endDate: string;
 
-      const sales = await saleService.getSalesByDateRange(selectedStoreId, startDate, endDate);
+      if (period === 'hoy') {
+        startDate = today;
+        endDate = today;
+      } else if (period === 'ayer') {
+        const yesterday = new Date(today + 'T12:00:00');
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yStr = toISODate(yesterday);
+        startDate = yStr;
+        endDate = yStr;
+      } else if (period === 'semana') {
+        const weekAgo = new Date(today + 'T12:00:00');
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        startDate = toISODate(weekAgo);
+        endDate = today;
+      } else {
+        const d = new Date(today + 'T12:00:00');
+        startDate = toISODate(new Date(d.getFullYear(), d.getMonth(), 1));
+        endDate = today;
+      }
+
+      const sales = await saleService.getSalesByDateRange(selectedStoreId, startDate, `${endDate}T23:59:59`);
       const totalRevenue = sales.reduce((sum, s) => sum + s.totalAmount, 0);
 
-      const allExpenses = await expenseRepo.getByDateRange(selectedStoreId, startDate, endDate + 'T23:59:59');
+      const allExpenses = await expenseRepo.getByDateRange(selectedStoreId, startDate, `${endDate}T23:59:59`);
       const totalExpenses = allExpenses.reduce((sum, e) => sum + e.amount, 0);
 
       setIngresos(totalRevenue);
       setEgresos(totalExpenses);
 
-      // Transacciones recientes (sin filtro de fecha, las últimas 5)
-      const recentSalesData = await saleService.getSalesByStore(selectedStoreId);
-      setRecentSales(recentSalesData.slice(-5).reverse());
+      // Transacciones del periodo (últimas 10)
+      setRecentSales(sales.slice(0, 10));
+      setRecentExpenses(allExpenses.slice(0, 10));
 
-      const recentExpensesData = await expenseRepo.getAll(selectedStoreId);
-      setRecentExpenses(recentExpensesData.slice(-5).reverse());
+      // C1: Daily audit data (solo para hoy)
+      if (period === 'hoy') {
+        try {
+          const opening = await cashClosingService.getOpeningByDate(selectedStoreId, today);
+          setOpeningBase(opening?.total ?? 0);
+
+          const dailySales = await saleService.getDailySummary(selectedStoreId, today);
+          setTodayCashSales(dailySales.totalCashAmount ?? dailySales.totalAmount ?? 0);
+
+          const dailyExpenses = allExpenses.reduce((sum, e) => sum + e.amount, 0);
+          setTodayCashExpenses(dailyExpenses);
+
+          const closing = await cashClosingService.getClosingByDate(selectedStoreId, today);
+          setClosingActual(closing?.actualTotal ?? null);
+        } catch { /* ignore */ }
+      }
     } catch {
       // keep defaults
     } finally {
       setLoading(false);
     }
-  }, [selectedStoreId, dashboardService, saleService, expenseRepo]);
+  }, [selectedStoreId, saleService, expenseRepo, cashClosingService, period]);
 
   useEffect(() => {
     loadData();
@@ -143,6 +184,21 @@ export default function ContabilidadScreen() {
         <StoreSelector />
       </View>
 
+      {/* Period filter */}
+      <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+        {(['hoy', 'ayer', 'semana', 'mes'] as const).map((p) => (
+          <Chip
+            key={p}
+            selected={period === p}
+            onPress={() => setPeriod(p)}
+            mode={period === p ? 'flat' : 'outlined'}
+            style={period === p ? { backgroundColor: theme.colors.primaryContainer } : undefined}
+          >
+            {p === 'hoy' ? 'Hoy' : p === 'ayer' ? 'Ayer' : p === 'semana' ? 'Semana' : 'Mes'}
+          </Chip>
+        ))}
+      </View>
+
       {/* KPI Cards */}
       <View style={styles.kpiRow}>
         <KpiCard icon="arrow-down-circle" label="Ingresos" value={formatCOP(ingresos)} color="#388E3C" />
@@ -180,7 +236,54 @@ export default function ContabilidadScreen() {
         >
           Cierres
         </Button>
+        <Button
+          mode="outlined"
+          icon="cart"
+          onPress={() => router.push('/(tabs)/inventario/compras')}
+        >
+          Compras
+        </Button>
+        <Button
+          mode="outlined"
+          icon="scale-balance"
+          onPress={() => router.push('/(tabs)/contabilidad/balances')}
+        >
+          Balances
+        </Button>
       </View>
+
+      {/* C1: Daily Audit / Arqueo Diario — solo para Hoy */}
+      {period === 'hoy' && <Card style={styles.txCard} mode="elevated">
+        <Card.Content>
+          <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 8 }}>
+            Arqueo Diario
+          </Text>
+          <View style={styles.txRow}>
+            <Text variant="bodySmall">Apertura</Text>
+            <Text variant="bodySmall" style={{ fontWeight: '600' }}>{formatCOP(openingBase)}</Text>
+          </View>
+          <View style={styles.txRow}>
+            <Text variant="bodySmall">+ Ventas Efectivo</Text>
+            <Text variant="bodySmall" style={{ fontWeight: '600', color: '#388E3C' }}>{formatCOP(todayCashSales)}</Text>
+          </View>
+          <View style={styles.txRow}>
+            <Text variant="bodySmall">- Egresos Efectivo</Text>
+            <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>{formatCOP(todayCashExpenses)}</Text>
+          </View>
+          <View style={[styles.txRow, { borderTopWidth: 1, borderTopColor: '#333', paddingTop: 6, marginTop: 4 }]}>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Saldo Teorico</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+              {formatCOP(openingBase + todayCashSales - todayCashExpenses)}
+            </Text>
+          </View>
+          {closingActual !== null && (
+            <View style={styles.txRow}>
+              <Text variant="bodySmall">Conteo Fisico (cierre)</Text>
+              <Text variant="bodySmall" style={{ fontWeight: '600' }}>{formatCOP(closingActual)}</Text>
+            </View>
+          )}
+        </Card.Content>
+      </Card>}
 
       {/* Recent transactions */}
       <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600' }]}>

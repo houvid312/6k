@@ -23,6 +23,8 @@ import {
   SupabaseProductFormatRepository,
   SupabaseProductStoreAssignmentRepository,
   SupabaseAdditionCatalogRepository,
+  SupabaseCashOpeningRepository,
+  SupabaseChecklistRepository,
 } from '../data/repositories';
 import {
   SaleService,
@@ -66,6 +68,8 @@ const writeoffRepo = new SupabaseWriteoffRepository();
 const productFormatRepo = new SupabaseProductFormatRepository();
 const productStoreAssignmentRepo = new SupabaseProductStoreAssignmentRepository();
 const additionCatalogRepo = new SupabaseAdditionCatalogRepository();
+const cashOpeningRepo = new SupabaseCashOpeningRepository();
+const checklistRepo = new SupabaseChecklistRepository();
 
 // Services
 const saleService = new SaleService(saleRepo, inventoryRepo, recipeRepo);
@@ -81,7 +85,7 @@ const productionService = new ProductionService(productionRecipeRepo, production
 const demandEstimationService = new DemandEstimationService(demandEstimateRepo, recipeRepo, inventoryRepo, supplyRepo, productRepo, productStoreAssignmentRepo);
 const alertService = new AlertService(dailyAlertRepo, validationService, physicalCountRepo, supplyRepo, transferRepo);
 const writeoffService = new WriteoffService(writeoffRepo, inventoryRepo);
-const cashClosingService = new CashClosingService(cashClosingRepo, saleRepo, expenseRepo, alertService);
+const cashClosingService = new CashClosingService(cashClosingRepo, saleRepo, expenseRepo, alertService, cashOpeningRepo, scheduleRepo, attendanceRepo, workerRepo);
 
 export const container = {
   // Repositories
@@ -109,6 +113,8 @@ export const container = {
   productFormatRepo,
   productStoreAssignmentRepo,
   additionCatalogRepo,
+  cashOpeningRepo,
+  checklistRepo,
 
   // Services
   saleService,

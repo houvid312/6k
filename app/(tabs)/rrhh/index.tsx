@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { FlatList, View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { Card, Text, Chip, Button, FAB, useTheme, Modal, Portal, TextInput, RadioButton } from 'react-native-paper';
+import { Card, Text, Chip, Button, FAB, IconButton, useTheme, Modal, Portal, TextInput, RadioButton } from 'react-native-paper';
 import { router } from 'expo-router';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
@@ -96,6 +96,29 @@ export default function RRHHScreen() {
     }
   }, [name, phone, pin, hourlyRate, role, closeModal, loadWorkers]);
 
+  // H1: Deactivate worker
+  const handleDeactivate = useCallback((worker: Worker) => {
+    Alert.alert(
+      'Desactivar Empleado',
+      `¿Seguro que deseas desactivar a ${worker.name}?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Desactivar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await container.workerRepo.update(worker.id, { isActive: false });
+              await loadWorkers();
+            } catch {
+              Alert.alert('Error', 'No se pudo desactivar el empleado');
+            }
+          },
+        },
+      ],
+    );
+  }, [loadWorkers]);
+
   const renderWorker = ({ item }: { item: Worker }) => (
     <Card style={styles.card} mode="elevated">
       <Card.Content>
@@ -119,14 +142,24 @@ export default function RRHHScreen() {
               )}
             </View>
           </View>
-          <View style={{ alignItems: 'flex-end' }}>
-            <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
-              {formatCOP(item.hourlyRate)}/hr
-            </Text>
-            {item.phone && (
-              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                {item.phone}
+          <View style={{ alignItems: 'flex-end', flexDirection: 'row', gap: 4 }}>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
+                {formatCOP(item.hourlyRate)}/hr
               </Text>
+              {item.phone && (
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                  {item.phone}
+                </Text>
+              )}
+            </View>
+            {item.isActive && (
+              <IconButton
+                icon="account-off"
+                size={18}
+                iconColor={theme.colors.error}
+                onPress={() => handleDeactivate(item)}
+              />
             )}
           </View>
         </View>

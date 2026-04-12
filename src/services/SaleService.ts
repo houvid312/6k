@@ -123,6 +123,14 @@ export class SaleService {
     return this.saleRepo.markAsPaid(saleId);
   }
 
+  async markAsUnpaid(saleId: string): Promise<void> {
+    return this.saleRepo.markAsUnpaid(saleId);
+  }
+
+  async updatePaymentMethod(saleId: string, paymentMethod: PaymentMethod): Promise<void> {
+    return this.saleRepo.updatePaymentMethod(saleId, paymentMethod);
+  }
+
   /**
    * Marks a sale as dispatched.
    */

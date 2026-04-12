@@ -80,4 +80,14 @@ export class SupabaseAttendanceRepository implements IAttendanceRepository {
     if (error) throw error;
     return (data as AttendanceRow[]).map(toEntity);
   }
+
+  async upsert(attendance: Omit<Attendance, 'id'>): Promise<Attendance> {
+    const { data, error } = await supabase
+      .from('attendance')
+      .upsert(toRow(attendance), { onConflict: 'worker_id,store_id,date' })
+      .select()
+      .single();
+    if (error) throw error;
+    return toEntity(data as AttendanceRow);
+  }
 }

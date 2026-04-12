@@ -46,5 +46,5 @@ export function ScreenContainer({ children, style, scrollable = true, padded = t
 
 const styles = StyleSheet.create({
   container: { flex: 1, overflow: 'hidden' },
-  content: { padding: 16, paddingBottom: 80 },
+  content: { padding: 16, paddingBottom: 120 },
 });

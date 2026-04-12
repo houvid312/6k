@@ -83,4 +83,19 @@ export class SupabaseScheduleRepository implements IScheduleRepository {
     if (error) throw error;
     return toEntity(data as ScheduleRow);
   }
+
+  async upsert(schedule: Omit<Schedule, 'id'>): Promise<Schedule> {
+    const { data, error } = await supabase
+      .from('schedules')
+      .upsert(toRow(schedule), { onConflict: 'worker_id,store_id,day_of_week' })
+      .select()
+      .single();
+    if (error) throw error;
+    return toEntity(data as ScheduleRow);
+  }
+
+  async delete(id: string): Promise<void> {
+    const { error } = await supabase.from('schedules').delete().eq('id', id);
+    if (error) throw error;
+  }
 }

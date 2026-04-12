@@ -5,4 +5,6 @@ export interface IScheduleRepository {
   getByStore(storeId: string): Promise<Schedule[]>;
   getWeekSchedule(storeId: string, weekStart: string): Promise<Schedule[]>;
   create(schedule: Omit<Schedule, 'id'>): Promise<Schedule>;
+  upsert(schedule: Omit<Schedule, 'id'>): Promise<Schedule>;
+  delete(id: string): Promise<void>;
 }

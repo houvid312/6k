@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Text, Button, Card, Divider, Portal, Snackbar, useTheme, Searchbar } from 'react-native-paper';
+import { Text, Button, Card, Divider, Portal, Snackbar, SegmentedButtons, TextInput, useTheme, Searchbar } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
@@ -11,7 +11,7 @@ import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
-import { PhysicalCountItem } from '../../../src/domain/entities';
+import { PhysicalCountItem, ChecklistItem } from '../../../src/domain/entities';
 import { PACKAGING_SUPPLY_IDS } from '../../../src/domain/enums';
 
 interface CountEntry {
@@ -25,7 +25,7 @@ interface CountEntry {
 
 export default function CierreFisicoScreen() {
   const theme = useTheme();
-  const { physicalCountService, recipeRepo } = useDI();
+  const { physicalCountService, recipeRepo, checklistRepo } = useDI();
   const { selectedStoreId, stores } = useAppStore();
   const { supplies: cachedSupplies, workers: cachedWorkers } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
@@ -38,6 +38,11 @@ export default function CierreFisicoScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [confirmVisible, setConfirmVisible] = useState(false);
+
+  // Checklist de implementos de aseo
+  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
+  const [checklistStatuses, setChecklistStatuses] = useState<Record<string, 'OK' | 'BAJO' | 'AGOTADO'>>({});
+  const [checklistNotes, setChecklistNotes] = useState<Record<string, string>>({});
 
   const filteredCounts = useMemo(() => {
     if (!searchQuery.trim()) return counts;
@@ -105,6 +110,21 @@ export default function CierreFisicoScreen() {
       });
     }
   }, [cachedSupplies, selectedStoreId, isProductionCenter]);
+
+  // Load checklist items
+  useEffect(() => {
+    checklistRepo.getActiveItems().then((items) => {
+      setChecklistItems(items);
+      const statuses: Record<string, 'OK' | 'BAJO' | 'AGOTADO'> = {};
+      const notes: Record<string, string> = {};
+      for (const item of items) {
+        statuses[item.id] = 'OK';
+        notes[item.id] = '';
+      }
+      setChecklistStatuses(statuses);
+      setChecklistNotes(notes);
+    }).catch(() => {});
+  }, [checklistRepo]);
 
   const updateBags = useCallback((supplyId: string, bags: number) => {
     setCounts((prev) => prev.map((c) => (c.supplyId === supplyId ? { ...c, bags } : c)));
@@ -195,6 +215,45 @@ export default function CierreFisicoScreen() {
           {index < filteredCounts.length - 1 && <Divider />}
         </View>
       ))}
+
+      {/* Checklist de implementos de aseo */}
+      {checklistItems.length > 0 && (
+        <Card style={{ borderRadius: 12, marginTop: 16 }} mode="elevated">
+          <Card.Content>
+            <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 12 }}>
+              Implementos de Aseo
+            </Text>
+            {checklistItems.map((item) => (
+              <View key={item.id} style={{ marginBottom: 12 }}>
+                <Text variant="bodyMedium" style={{ marginBottom: 4, fontWeight: '500' }}>
+                  {item.name}
+                </Text>
+                <SegmentedButtons
+                  value={checklistStatuses[item.id] ?? 'OK'}
+                  onValueChange={(v) => setChecklistStatuses((prev) => ({ ...prev, [item.id]: v as 'OK' | 'BAJO' | 'AGOTADO' }))}
+                  buttons={[
+                    { value: 'OK', label: 'OK' },
+                    { value: 'BAJO', label: 'Bajo' },
+                    { value: 'AGOTADO', label: 'Agotado' },
+                  ]}
+                  density="small"
+                  style={{ marginBottom: 4 }}
+                />
+                {checklistStatuses[item.id] !== 'OK' && (
+                  <TextInput
+                    label="Nota"
+                    value={checklistNotes[item.id] ?? ''}
+                    onChangeText={(v) => setChecklistNotes((prev) => ({ ...prev, [item.id]: v }))}
+                    mode="outlined"
+                    dense
+                    style={{ marginTop: 4 }}
+                  />
+                )}
+              </View>
+            ))}
+          </Card.Content>
+        </Card>
+      )}
 
       <Button
         mode="contained"

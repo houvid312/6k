@@ -8,7 +8,9 @@ import { LoadingIndicator } from '../../../src/components/common/LoadingIndicato
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { formatCOP } from '../../../src/utils/currency';
-import { toISODate } from '../../../src/utils/dates';
+import { toISODate, formatDate } from '../../../src/utils/dates';
+import { CashClosing } from '../../../src/domain/entities';
+import { ClosingStatus } from '../../../src/domain/enums';
 
 const MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -17,7 +19,7 @@ const MONTH_NAMES = [
 
 export default function CierresMensualesScreen() {
   const theme = useTheme();
-  const { saleService, expenseRepo } = useDI();
+  const { saleService, expenseRepo, cashClosingService } = useDI();
   const { selectedStoreId } = useAppStore();
 
   const now = new Date();
@@ -33,6 +35,9 @@ export default function CierresMensualesScreen() {
 
   // Breakdown
   const [topCategories, setTopCategories] = useState<{ category: string; total: number }[]>([]);
+
+  // Historial de cierres de caja diarios
+  const [dailyClosings, setDailyClosings] = useState<CashClosing[]>([]);
 
   const loadData = useCallback(async () => {
     if (!selectedStoreId) return;
@@ -70,6 +75,14 @@ export default function CierresMensualesScreen() {
         .sort((a, b) => b.total - a.total)
         .slice(0, 5);
       setTopCategories(sorted);
+
+      // Historial de cierres de caja del mes
+      try {
+        const closings = await cashClosingService.getClosingsByDateRange(selectedStoreId, startDate, endDate);
+        setDailyClosings(closings.sort((a, b) => b.date.localeCompare(a.date)));
+      } catch {
+        setDailyClosings([]);
+      }
     } catch {
       // keep defaults
     } finally {
@@ -186,6 +199,51 @@ export default function CierresMensualesScreen() {
           )}
         </Card.Content>
       </Card>
+
+      {/* Historial de Cierres de Caja */}
+      {dailyClosings.length > 0 && (
+        <Card style={[styles.breakdownCard, { marginTop: 12 }]} mode="elevated">
+          <Card.Content>
+            <Text variant="titleMedium" style={{ fontWeight: '600', color: '#F5F0EB', marginBottom: 12 }}>
+              Cierres de Caja ({dailyClosings.length})
+            </Text>
+            {dailyClosings.map((closing) => {
+              const statusColor = closing.status === ClosingStatus.APPROVED ? '#388E3C'
+                : closing.status === ClosingStatus.CONFIRMED ? '#1976D2' : '#F57C00';
+              const statusLabel = closing.status === ClosingStatus.APPROVED ? 'Aprobado'
+                : closing.status === ClosingStatus.CONFIRMED ? 'Confirmado' : 'Borrador';
+              const discColor = Math.abs(closing.discrepancy) < 1000 ? '#388E3C' : '#D32F2F';
+
+              return (
+                <View key={closing.id} style={{ borderBottomWidth: 1, borderBottomColor: '#333', paddingVertical: 8 }}>
+                  <View style={styles.statRow}>
+                    <Text variant="bodyMedium" style={{ color: '#F5F0EB', fontWeight: '600' }}>
+                      {formatDate(closing.date)}
+                    </Text>
+                    <Text variant="labelSmall" style={{ color: statusColor, fontWeight: '700' }}>
+                      {statusLabel}
+                    </Text>
+                  </View>
+                  <View style={styles.statRow}>
+                    <Text variant="bodySmall" style={{ color: '#999' }}>Esperado</Text>
+                    <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>{formatCOP(closing.expectedTotal)}</Text>
+                  </View>
+                  <View style={styles.statRow}>
+                    <Text variant="bodySmall" style={{ color: '#999' }}>Real</Text>
+                    <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>{formatCOP(closing.actualTotal)}</Text>
+                  </View>
+                  <View style={styles.statRow}>
+                    <Text variant="bodySmall" style={{ color: '#999' }}>Discrepancia</Text>
+                    <Text variant="bodySmall" style={{ color: discColor, fontWeight: '700' }}>
+                      {formatCOP(closing.discrepancy)}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </Card.Content>
+        </Card>
+      )}
 
       <View style={{ height: 100 }} />
     </ScreenContainer>

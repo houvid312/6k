@@ -25,6 +25,7 @@ export default function ContabilidadLayout() {
       <Stack.Screen name="gastos" options={{ title: 'Gastos' }} />
       <Stack.Screen name="bancos" options={{ title: 'Bancos' }} />
       <Stack.Screen name="cierres" options={{ title: 'Cierres Mensuales' }} />
+      <Stack.Screen name="balances" options={{ title: 'Balances' }} />
     </Stack>
   );
 }

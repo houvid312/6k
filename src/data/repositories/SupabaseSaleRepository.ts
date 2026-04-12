@@ -145,11 +145,12 @@ export class SupabaseSaleRepository implements ISaleRepository {
   }
 
   async getUnpaid(storeId: string): Promise<Sale[]> {
+    // Get sales that are not fully resolved (unpaid OR not dispatched)
     const { data, error } = await supabase
       .from('sales')
       .select('*, workers(name)')
       .eq('store_id', storeId)
-      .eq('is_paid', false)
+      .or('is_paid.eq.false,is_dispatched.eq.false')
       .order('created_at', { ascending: false });
     if (error) throw error;
 
@@ -185,6 +186,26 @@ export class SupabaseSaleRepository implements ISaleRepository {
       throw new Error(
         `No se pudo actualizar la venta ${saleId}. Verifica permisos RLS o que el registro exista.`
       );
+    }
+  }
+
+  async updatePaymentMethod(saleId: string, paymentMethod: string): Promise<void> {
+    const { error } = await supabase
+      .from('sales')
+      .update({ payment_method: paymentMethod })
+      .eq('id', saleId);
+    if (error) throw error;
+  }
+
+  async markAsUnpaid(saleId: string): Promise<void> {
+    const { data, error } = await supabase
+      .from('sales')
+      .update({ is_paid: false })
+      .eq('id', saleId)
+      .select('id');
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      throw new Error(`No se pudo actualizar la venta ${saleId}.`);
     }
   }
 

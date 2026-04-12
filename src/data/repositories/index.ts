@@ -22,3 +22,5 @@ export { SupabaseWriteoffRepository } from './SupabaseWriteoffRepository';
 export { SupabaseProductFormatRepository } from './SupabaseProductFormatRepository';
 export { SupabaseProductStoreAssignmentRepository } from './SupabaseProductStoreAssignmentRepository';
 export { SupabaseAdditionCatalogRepository } from './SupabaseAdditionCatalogRepository';
+export { SupabaseCashOpeningRepository } from './SupabaseCashOpeningRepository';
+export { SupabaseChecklistRepository } from './SupabaseChecklistRepository';

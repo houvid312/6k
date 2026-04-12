@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, FlatList } from 'react-native';
-import { Card, Text, Divider, useTheme } from 'react-native-paper';
+import { Card, Text, Divider, SegmentedButtons, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { EmptyState } from '../../../src/components/common/EmptyState';
@@ -12,6 +12,24 @@ import { PayrollReport } from '../../../src/services/PayrollService';
 import { formatCOP } from '../../../src/utils/currency';
 import { toISODate, getWeekRange, formatDate } from '../../../src/utils/dates';
 
+type PeriodType = 'SEMANAL' | 'QUINCENAL' | 'MENSUAL';
+
+function getPeriodRange(type: PeriodType): { start: Date; end: Date } {
+  const now = new Date();
+  if (type === 'SEMANAL') {
+    return getWeekRange(now);
+  } else if (type === 'QUINCENAL') {
+    const day = now.getDate();
+    const start = new Date(now.getFullYear(), now.getMonth(), day <= 15 ? 1 : 16);
+    const end = new Date(now.getFullYear(), now.getMonth(), day <= 15 ? 15 : new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate());
+    return { start, end };
+  } else {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return { start, end };
+  }
+}
+
 export default function NominaScreen() {
   const theme = useTheme();
   const { payrollService } = useDI();
@@ -19,12 +37,13 @@ export default function NominaScreen() {
 
   const [report, setReport] = useState<PayrollReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [periodType, setPeriodType] = useState<PeriodType>('SEMANAL');
 
   const loadPayroll = useCallback(async () => {
     setLoading(true);
     try {
       await loadWorkers();
-      const { start, end } = getWeekRange(new Date());
+      const { start, end } = getPeriodRange(periodType);
       const data = await payrollService.generateReport(
         toISODate(start),
         toISODate(end),
@@ -35,7 +54,7 @@ export default function NominaScreen() {
     } finally {
       setLoading(false);
     }
-  }, [payrollService, loadWorkers]);
+  }, [payrollService, loadWorkers, periodType]);
 
   useEffect(() => {
     loadPayroll();
@@ -49,6 +68,19 @@ export default function NominaScreen() {
 
   return (
     <ScreenContainer>
+      {/* H5: Period type selector */}
+      <SegmentedButtons
+        value={periodType}
+        onValueChange={(v) => setPeriodType(v as PeriodType)}
+        buttons={[
+          { value: 'SEMANAL', label: 'Semanal' },
+          { value: 'QUINCENAL', label: 'Quincenal' },
+          { value: 'MENSUAL', label: 'Mensual' },
+        ]}
+        density="small"
+        style={{ marginBottom: 12 }}
+      />
+
       {report && (
         <>
           <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 8 }}>

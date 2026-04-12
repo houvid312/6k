@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Text, Card, Button, Chip, Divider, Portal, Snackbar, useTheme } from 'react-native-paper';
+import { Text, Card, Button, Chip, Divider, IconButton, Portal, Snackbar, useTheme } from 'react-native-paper';
+import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
@@ -22,7 +23,7 @@ const STATUS_CONFIG: Record<ClosingStatus, { label: string; color: string; icon:
 
 export default function CierreCajaScreen() {
   const theme = useTheme();
-  const { cashClosingService } = useDI();
+  const { cashClosingService, expenseRepo } = useDI();
   const { selectedStoreId, userRole } = useAppStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
   const {
@@ -55,13 +56,26 @@ export default function CierreCajaScreen() {
         setExpectedTotal(summary.totalAmount);
         setBankTotal(summary.totalBankAmount);
 
+        // Auto-load expenses from today (Compra Turno, etc.)
+        try {
+          const dayExpenses = await expenseRepo.getByDateRange(selectedStoreId, today, today + 'T23:59:59');
+          const totalExpenses = dayExpenses.reduce((sum, e) => sum + e.amount, 0);
+          if (totalExpenses > 0) setExpenses(totalExpenses);
+        } catch { /* ignore */ }
+
+        // Auto-load opening base
+        try {
+          const opening = await cashClosingService.getOpeningByDate(selectedStoreId, today);
+          if (opening) setCashBase(opening.total);
+        } catch { /* ignore */ }
+
         const existing = await cashClosingService.getClosingByDate(selectedStoreId, today);
         setExistingClosing(existing);
       } catch {
         setExpectedTotal(0);
       }
     })();
-  }, [selectedStoreId, today, cashClosingService]);
+  }, [selectedStoreId, today, cashClosingService, expenseRepo]);
 
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
@@ -146,6 +160,15 @@ export default function CierreCajaScreen() {
   return (
     <ScreenContainer>
       <View style={styles.header}>
+        <Button
+          mode="text"
+          icon="arrow-left"
+          compact
+          onPress={() => router.replace('/(tabs)/ventas')}
+          style={{ marginRight: 8 }}
+        >
+          Ventas
+        </Button>
         <StoreSelector excludeProductionCenter />
         <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
           {formatDate(new Date())}

@@ -22,3 +22,5 @@ export type { IWriteoffRepository } from './IWriteoffRepository';
 export type { IProductFormatRepository } from './IProductFormatRepository';
 export type { IProductStoreAssignmentRepository } from './IProductStoreAssignmentRepository';
 export type { IAdditionCatalogRepository } from './IAdditionCatalogRepository';
+export type { ICashOpeningRepository } from './ICashOpeningRepository';
+export type { IChecklistRepository } from './IChecklistRepository';

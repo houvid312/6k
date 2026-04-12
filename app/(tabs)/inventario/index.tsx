@@ -18,18 +18,59 @@ interface NavItem {
   route: string;
 }
 
-const ADMIN_PRODUCTION_NAV: NavItem[] = [
-  { icon: 'truck', label: 'Traslados', route: '/(tabs)/inventario/traslados' },
-  { icon: 'clipboard-check', label: 'Cierre', route: '/(tabs)/inventario/cierre-fisico' },
-  { icon: 'alert', label: 'Alertas', route: '/(tabs)/inventario/validaciones' },
-  { icon: 'package-variant-remove', label: 'Bajas', route: '/(tabs)/inventario/bajas' },
-  { icon: 'book-open-variant', label: 'Recetas', route: '/(tabs)/inventario/recetas' },
-  { icon: 'calculator', label: 'Sugerencia', route: '/(tabs)/inventario/sugerencia-envio' },
-  { icon: 'chart-bar', label: 'Demanda', route: '/(tabs)/inventario/demanda' },
-  { icon: 'package-variant', label: 'Insumos', route: '/(tabs)/inventario/insumos' },
-  { icon: 'tag-multiple', label: 'Productos', route: '/(tabs)/inventario/productos' },
-  { icon: 'food', label: 'Consumo', route: '/(tabs)/ventas/consumo-ventas' },
+// I2: Grouped navigation by process stage
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+const ADMIN_PRODUCTION_GROUPS: NavGroup[] = [
+  { label: 'Entrada', items: [
+    { icon: 'cart', label: 'Compras', route: '/(tabs)/inventario/compras' },
+    { icon: 'package-variant', label: 'Insumos', route: '/(tabs)/inventario/insumos' },
+  ]},
+  { label: 'Proceso', items: [
+    { icon: 'factory', label: 'Produccion', route: '/(tabs)/inventario/produccion' },
+    { icon: 'book-cog', label: 'Rec. Prod.', route: '/(tabs)/inventario/recetas-produccion' },
+  ]},
+  { label: 'Salida', items: [
+    { icon: 'alert', label: 'Alertas', route: '/(tabs)/inventario/validaciones' },
+    { icon: 'chart-bar', label: 'Demanda', route: '/(tabs)/inventario/demanda' },
+    { icon: 'calculator', label: 'Sugerencia', route: '/(tabs)/inventario/sugerencia-envio' },
+    { icon: 'truck', label: 'Traslados', route: '/(tabs)/inventario/traslados' },
+  ]},
+  { label: 'General', items: [
+    { icon: 'book-open-variant', label: 'Recetas', route: '/(tabs)/inventario/recetas' },
+    { icon: 'package-variant-remove', label: 'Bajas', route: '/(tabs)/inventario/bajas' },
+    { icon: 'tag-multiple', label: 'Productos', route: '/(tabs)/inventario/productos' },
+    { icon: 'clipboard-check', label: 'Cierre', route: '/(tabs)/inventario/cierre-fisico' },
+    { icon: 'food', label: 'Consumo', route: '/(tabs)/ventas/consumo-ventas' },
+  ]},
 ];
+
+const ADMIN_STORE_GROUPS: NavGroup[] = [
+  { label: 'Operacion', items: [
+    { icon: 'truck', label: 'Traslados', route: '/(tabs)/inventario/traslados' },
+    { icon: 'clipboard-check', label: 'Cierre', route: '/(tabs)/inventario/cierre-fisico' },
+    { icon: 'alert', label: 'Alertas', route: '/(tabs)/inventario/validaciones' },
+    { icon: 'chart-bar', label: 'Demanda', route: '/(tabs)/inventario/demanda' },
+  ]},
+  { label: 'General', items: [
+    { icon: 'package-variant-remove', label: 'Bajas', route: '/(tabs)/inventario/bajas' },
+    { icon: 'tag-multiple', label: 'Productos', route: '/(tabs)/inventario/productos' },
+    { icon: 'food', label: 'Consumo', route: '/(tabs)/ventas/consumo-ventas' },
+  ]},
+];
+
+const COLABORADOR_GROUPS: NavGroup[] = [
+  { label: '', items: [
+    { icon: 'food', label: 'Consumo', route: '/(tabs)/ventas/consumo-ventas' },
+    { icon: 'truck', label: 'Traslados', route: '/(tabs)/inventario/traslados' },
+  ]},
+];
+
+// Keep flat arrays for backward compat
+const ADMIN_PRODUCTION_NAV: NavItem[] = ADMIN_PRODUCTION_GROUPS.flatMap(g => g.items);
 
 const LEVEL_NAV: Record<string, NavItem[]> = {
   [InventoryLevel.RAW]: [
@@ -41,15 +82,7 @@ const LEVEL_NAV: Record<string, NavItem[]> = {
   ],
 };
 
-const ADMIN_STORE_NAV: NavItem[] = [
-  { icon: 'truck', label: 'Traslados', route: '/(tabs)/inventario/traslados' },
-  { icon: 'clipboard-check', label: 'Cierre', route: '/(tabs)/inventario/cierre-fisico' },
-  { icon: 'alert', label: 'Alertas', route: '/(tabs)/inventario/validaciones' },
-  { icon: 'chart-bar', label: 'Demanda', route: '/(tabs)/inventario/demanda' },
-  { icon: 'package-variant-remove', label: 'Bajas', route: '/(tabs)/inventario/bajas' },
-  { icon: 'tag-multiple', label: 'Productos', route: '/(tabs)/inventario/productos' },
-  { icon: 'food', label: 'Consumo', route: '/(tabs)/ventas/consumo-ventas' },
-];
+const ADMIN_STORE_NAV: NavItem[] = ADMIN_STORE_GROUPS.flatMap(g => g.items);
 
 const COLABORADOR_NAV: NavItem[] = [
   { icon: 'food', label: 'Consumo', route: '/(tabs)/ventas/consumo-ventas' },
@@ -89,6 +122,13 @@ export default function InventarioScreen() {
     : isProductionCenter
       ? ADMIN_PRODUCTION_NAV
       : ADMIN_STORE_NAV;
+
+  // I2: Grouped nav
+  const navGroups = !isAdmin
+    ? COLABORADOR_GROUPS
+    : isProductionCenter
+      ? ADMIN_PRODUCTION_GROUPS
+      : ADMIN_STORE_GROUPS;
 
   const levelNavItems = isAdmin && isProductionCenter ? (LEVEL_NAV[level] ?? []) : [];
 
@@ -207,19 +247,29 @@ export default function InventarioScreen() {
             </Chip>
           ))}
 
-          {/* General nav chips */}
-          {navItems.map((nav) => (
-            <Chip
-              key={nav.route}
-              onPress={() => router.push(nav.route as any)}
-              mode="outlined"
-              compact
-              icon={nav.icon}
-              style={styles.chipNav}
-              textStyle={styles.chipNavText}
-            >
-              {nav.label}
-            </Chip>
+          {/* I2: Grouped nav chips */}
+          {navGroups.map((group, gi) => (
+            <React.Fragment key={group.label || gi}>
+              {gi > 0 && <View style={styles.chipSeparator} />}
+              {group.label ? (
+                <Text variant="labelSmall" style={{ color: '#666', marginRight: 4, fontSize: 10 }}>
+                  {group.label}
+                </Text>
+              ) : null}
+              {group.items.map((nav) => (
+                <Chip
+                  key={nav.route}
+                  onPress={() => router.push(nav.route as any)}
+                  mode="outlined"
+                  compact
+                  icon={nav.icon}
+                  style={styles.chipNav}
+                  textStyle={styles.chipNavText}
+                >
+                  {nav.label}
+                </Chip>
+              ))}
+            </React.Fragment>
           ))}
         </ScrollView>
 

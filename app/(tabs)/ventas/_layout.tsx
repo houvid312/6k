@@ -50,6 +50,15 @@ export default function VentasLayout() {
           headerRight: () => <HeaderUserMenu />,
         }}
       />
+      <Stack.Screen
+        name="apertura-caja"
+        options={{
+          headerTitle: () => <HeaderLogo />,
+          headerBackVisible: true,
+          headerBackTitle: 'Volver',
+          headerRight: () => <HeaderUserMenu />,
+        }}
+      />
     </Stack>
   );
 }

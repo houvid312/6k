@@ -1,6 +1,6 @@
-import { CashClosing, DenominationCount } from '../domain/entities';
+import { CashClosing, CashOpening, DenominationCount } from '../domain/entities';
 import { ClosingStatus } from '../domain/enums';
-import { ICashClosingRepository, ISaleRepository, IExpenseRepository } from '../domain/interfaces/repositories';
+import { ICashClosingRepository, ISaleRepository, IExpenseRepository, ICashOpeningRepository, IScheduleRepository, IAttendanceRepository, IWorkerRepository } from '../domain/interfaces/repositories';
 import { AlertService } from './AlertService';
 
 /** Denomination values matching the DenominationCount keys. */
@@ -20,6 +20,10 @@ export class CashClosingService {
     private saleRepo: ISaleRepository,
     private expenseRepo: IExpenseRepository,
     private alertService?: AlertService,
+    private cashOpeningRepo?: ICashOpeningRepository,
+    private scheduleRepo?: IScheduleRepository,
+    private attendanceRepo?: IAttendanceRepository,
+    private workerRepo?: IWorkerRepository,
   ) {}
 
   /**
@@ -129,7 +133,16 @@ export class CashClosingService {
    * Admin approves the closing (locks it).
    */
   async approveClosing(id: string, workerId: string): Promise<CashClosing> {
-    return this.cashClosingRepo.updateStatus(id, ClosingStatus.APPROVED, workerId);
+    const closing = await this.cashClosingRepo.updateStatus(id, ClosingStatus.APPROVED, workerId);
+
+    // H3: Auto-load attendance hours after closing approval
+    try {
+      await this.autoLoadAttendance(closing.storeId, closing.date);
+    } catch {
+      // Don't fail closing if attendance auto-load fails
+    }
+
+    return closing;
   }
 
   /**
@@ -165,7 +178,72 @@ export class CashClosingService {
     return this.cashClosingRepo.getByDateRange(storeId, from, to);
   }
 
+  // --- Cash Opening ---
+
+  /**
+   * Creates a cash opening for the day.
+   */
+  async createOpening(
+    storeId: string,
+    date: string,
+    denominations: DenominationCount,
+    openedBy?: string,
+  ): Promise<CashOpening> {
+    if (!this.cashOpeningRepo) throw new Error('CashOpeningRepository not configured');
+    const total = this.calculateDenominationTotal(denominations);
+    return this.cashOpeningRepo.create({ storeId, date, denominations, total, openedBy });
+  }
+
+  /**
+   * Checks if there's already a cash opening for today.
+   */
+  async hasOpeningForToday(storeId: string, date: string): Promise<boolean> {
+    if (!this.cashOpeningRepo) return true; // Skip gate if repo not configured
+    const opening = await this.cashOpeningRepo.getByDate(storeId, date);
+    return opening !== null;
+  }
+
+  /**
+   * Gets the opening for a given date (used by closing to calculate discrepancy).
+   */
+  async getOpeningByDate(storeId: string, date: string): Promise<CashOpening | null> {
+    if (!this.cashOpeningRepo) return null;
+    return this.cashOpeningRepo.getByDate(storeId, date);
+  }
+
   // --- Private ---
+
+  /**
+   * H3: Auto-create attendance records from schedules after closing approval.
+   */
+  private async autoLoadAttendance(storeId: string, date: string): Promise<void> {
+    if (!this.scheduleRepo || !this.attendanceRepo || !this.workerRepo) return;
+
+    const dayOfWeek = new Date(date + 'T12:00:00').getDay();
+    // Convert JS day (0=Sun) to our format (0=Mon)
+    const adjustedDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+
+    const schedules = await this.scheduleRepo.getByStore(storeId);
+    const daySchedules = schedules.filter((s) => s.dayOfWeek === adjustedDay);
+
+    const workers = await this.workerRepo.getAll();
+    const workerMap = new Map(workers.map((w) => [w.id, w]));
+
+    for (const schedule of daySchedules) {
+      const worker = workerMap.get(schedule.workerId);
+      if (!worker || !worker.isActive) continue;
+
+      await this.attendanceRepo.upsert({
+        date,
+        workerId: schedule.workerId,
+        storeId,
+        scheduledHours: schedule.hours,
+        actualHours: schedule.hours,
+        hourlyRate: worker.hourlyRate,
+        subtotal: schedule.hours * worker.hourlyRate,
+      });
+    }
+  }
 
   private async generateAlerts(storeId: string, date: string): Promise<void> {
     if (!this.alertService) return;

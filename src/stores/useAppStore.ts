@@ -47,7 +47,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       isActive: s.is_active,
     }));
 
-    const defaultStore = stores.find((s) => !s.isProductionCenter) ?? stores[0];
+    // I1: ADMIN defaults to production center, COLABORADOR defaults to retail store
+    const role = get().userRole;
+    const defaultStore = role === UserRole.ADMIN
+      ? (stores.find((s) => s.isProductionCenter) ?? stores[0])
+      : (stores.find((s) => !s.isProductionCenter) ?? stores[0]);
     set({
       stores,
       storesLoaded: true,

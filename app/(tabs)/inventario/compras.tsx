@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { TextInput, Button, Text, Portal, Snackbar, useTheme } from 'react-native-paper';
+import { TextInput, Button, Text, Portal, Snackbar, Chip, Divider, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
@@ -12,10 +12,11 @@ import { PaymentMethod } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
+import { supabase } from '../../../src/lib/supabase';
 
 export default function ComprasScreen() {
   const theme = useTheme();
-  const { purchaseRepo } = useDI();
+  const { purchaseRepo, supplyRepo } = useDI();
   const { stores, selectedStoreId } = useAppStore();
   const { supplies } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
@@ -29,6 +30,65 @@ export default function ComprasScreen() {
   const [supplier, setSupplier] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.EFECTIVO);
   const [submitting, setSubmitting] = useState(false);
+
+  // I4: Frequent supplies
+  const [recentSupplyIds, setRecentSupplyIds] = useState<string[]>([]);
+  // I4: Inline new supply
+  const [showNewSupply, setShowNewSupply] = useState(false);
+  const [newSupplyName, setNewSupplyName] = useState('');
+  const [newSupplyUnit, setNewSupplyUnit] = useState('g');
+  const [newSupplyGramsPerBag, setNewSupplyGramsPerBag] = useState('');
+  const [creatingSupply, setCreatingSupply] = useState(false);
+
+  // Load recent purchases to determine frequent supplies
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('purchases')
+          .select('supply_id')
+          .eq('store_id', productionCenterId)
+          .order('created_at', { ascending: false })
+          .limit(30);
+        if (data) {
+          const seen = new Set<string>();
+          const ids: string[] = [];
+          for (const row of data) {
+            if (!seen.has(row.supply_id)) {
+              seen.add(row.supply_id);
+              ids.push(row.supply_id);
+              if (ids.length >= 8) break;
+            }
+          }
+          setRecentSupplyIds(ids);
+        }
+      } catch { /* ignore */ }
+    })();
+  }, [productionCenterId]);
+
+  const { refreshMasterData } = useMasterDataStore();
+
+  const handleCreateSupply = useCallback(async () => {
+    if (!newSupplyName.trim()) return;
+    setCreatingSupply(true);
+    try {
+      const supply = await supplyRepo.create({
+        name: newSupplyName.trim(),
+        unit: newSupplyUnit as any,
+        gramsPerBag: parseInt(newSupplyGramsPerBag, 10) || 0,
+      });
+      await refreshMasterData();
+      setSelectedSupplyId(supply.id);
+      setShowNewSupply(false);
+      setNewSupplyName('');
+      setNewSupplyGramsPerBag('');
+      showSuccess(`Insumo "${supply.name}" creado`);
+    } catch {
+      showError('Error al crear insumo');
+    } finally {
+      setCreatingSupply(false);
+    }
+  }, [newSupplyName, newSupplyUnit, newSupplyGramsPerBag, supplyRepo, refreshMasterData, showSuccess, showError]);
 
   const supplyOptions = useMemo(
     () => supplies.map((s) => ({ value: s.id, label: s.name, subtitle: `${s.gramsPerBag}g/bolsa` })),
@@ -100,6 +160,32 @@ export default function ComprasScreen() {
         Nueva Compra de Insumo
       </Text>
 
+      {/* I4: Frequent supplies */}
+      {recentSupplyIds.length > 0 && (
+        <View style={{ marginBottom: 12 }}>
+          <Text variant="labelLarge" style={{ marginBottom: 6, color: theme.colors.onSurfaceVariant }}>
+            Frecuentes
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            {recentSupplyIds.map((id) => {
+              const s = supplies.find((sup) => sup.id === id);
+              if (!s) return null;
+              return (
+                <Chip
+                  key={id}
+                  selected={selectedSupplyId === id}
+                  onPress={() => setSelectedSupplyId(id)}
+                  mode="outlined"
+                  compact
+                >
+                  {s.name}
+                </Chip>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
       <SearchableSelect
         options={supplyOptions}
         selectedValue={selectedSupplyId}
@@ -107,6 +193,52 @@ export default function ComprasScreen() {
         icon="package-variant"
         onSelect={setSelectedSupplyId}
       />
+
+      {/* I4: Inline new supply creation */}
+      {!showNewSupply ? (
+        <Button
+          mode="text"
+          icon="plus"
+          compact
+          onPress={() => setShowNewSupply(true)}
+          style={{ alignSelf: 'flex-start', marginBottom: 8 }}
+        >
+          Nuevo Insumo
+        </Button>
+      ) : (
+        <View style={{ backgroundColor: '#1E1E1E', padding: 12, borderRadius: 12, marginBottom: 12 }}>
+          <Text variant="labelLarge" style={{ marginBottom: 8 }}>Crear Insumo</Text>
+          <TextInput
+            label="Nombre"
+            value={newSupplyName}
+            onChangeText={setNewSupplyName}
+            mode="outlined"
+            dense
+            style={{ marginBottom: 8 }}
+          />
+          <TextInput
+            label="Gramos por bolsa"
+            value={newSupplyGramsPerBag}
+            onChangeText={setNewSupplyGramsPerBag}
+            keyboardType="numeric"
+            mode="outlined"
+            dense
+            style={{ marginBottom: 8 }}
+          />
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Button mode="text" onPress={() => setShowNewSupply(false)}>Cancelar</Button>
+            <Button
+              mode="contained"
+              onPress={handleCreateSupply}
+              loading={creatingSupply}
+              disabled={!newSupplyName.trim() || creatingSupply}
+              compact
+            >
+              Crear
+            </Button>
+          </View>
+        </View>
+      )}
 
       <TextInput
         label="Cantidad (gramos)"

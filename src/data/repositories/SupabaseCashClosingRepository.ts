@@ -84,11 +84,9 @@ export class SupabaseCashClosingRepository implements ICashClosingRepository {
       .select('*')
       .eq('store_id', storeId)
       .eq('date', date)
-      .single();
-    if (error) {
-      if (error.code === 'PGRST116') return null;
-      throw error;
-    }
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
     return toEntity(data as CashClosingRow);
   }
 

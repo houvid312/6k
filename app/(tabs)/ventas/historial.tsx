@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { FlatList, View, StyleSheet } from 'react-native';
 import { Button, Card, Text, Chip, Divider, Snackbar, useTheme, Searchbar } from 'react-native-paper';
+import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
@@ -10,7 +11,7 @@ import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { Sale } from '../../../src/domain/entities';
 import { PaymentMethod } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
-import { formatDateTime, toISODate } from '../../../src/utils/dates';
+import { formatDateTime, toISODate, todayColombia } from '../../../src/utils/dates';
 
 const PAYMENT_ICONS: Record<PaymentMethod, string> = {
   [PaymentMethod.EFECTIVO]: 'cash',
@@ -27,32 +28,40 @@ export default function HistorialScreen() {
 
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'hoy' | 'semana' | 'mes'>('hoy');
+  const [filter, setFilter] = useState<'hoy' | 'ayer' | 'semana' | 'mes'>('hoy');
 
   const loadSales = useCallback(async () => {
     setLoading(true);
     try {
-      const now = new Date();
+      const today = todayColombia(); // YYYY-MM-DD in Colombia timezone
       let startDate: string;
-      const endDate = new Date(now);
-      endDate.setHours(23, 59, 59, 999);
+      let endDate: string;
 
       if (filter === 'hoy') {
-        startDate = toISODate(now);
+        startDate = `${today}T00:00:00`;
+        endDate = `${today}T23:59:59`;
+      } else if (filter === 'ayer') {
+        const yesterday = new Date(today + 'T12:00:00');
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yStr = toISODate(yesterday);
+        startDate = `${yStr}T00:00:00`;
+        endDate = `${yStr}T23:59:59`;
       } else if (filter === 'semana') {
-        const weekAgo = new Date(now);
+        const weekAgo = new Date(today + 'T12:00:00');
         weekAgo.setDate(weekAgo.getDate() - 7);
         startDate = toISODate(weekAgo);
+        endDate = `${today}T23:59:59`;
       } else {
-        const monthAgo = new Date(now);
+        const monthAgo = new Date(today + 'T12:00:00');
         monthAgo.setMonth(monthAgo.getMonth() - 1);
         startDate = toISODate(monthAgo);
+        endDate = `${today}T23:59:59`;
       }
 
       const data = await saleService.getSalesByDateRange(
         selectedStoreId,
         startDate,
-        endDate.toISOString(),
+        endDate,
       );
       setSales(data.sort((a, b) => b.timestamp.localeCompare(a.timestamp)));
     } catch {
@@ -203,9 +212,21 @@ export default function HistorialScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+        <Button
+          mode="text"
+          icon="arrow-left"
+          compact
+          onPress={() => router.replace('/(tabs)/ventas')}
+          style={{ alignSelf: 'flex-start' }}
+        >
+          Ventas
+        </Button>
+      </View>
+
       {/* Filter chips */}
       <View style={styles.filterRow}>
-        {(['hoy', 'semana', 'mes'] as const).map((f) => (
+        {(['hoy', 'ayer', 'semana', 'mes'] as const).map((f) => (
           <Chip
             key={f}
             selected={filter === f}
@@ -213,7 +234,7 @@ export default function HistorialScreen() {
             mode={filter === f ? 'flat' : 'outlined'}
             style={filter === f ? { backgroundColor: theme.colors.primaryContainer } : undefined}
           >
-            {f === 'hoy' ? 'Hoy' : f === 'semana' ? 'Semana' : 'Mes'}
+            {f === 'hoy' ? 'Hoy' : f === 'ayer' ? 'Ayer' : f === 'semana' ? 'Semana' : 'Mes'}
           </Chip>
         ))}
       </View>
