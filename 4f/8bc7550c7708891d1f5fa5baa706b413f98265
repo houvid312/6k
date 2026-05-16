@@ -1,0 +1,53 @@
+src/utils/dates.ts
+  s_9974dc7b4441c2::t_da781fb46dc96b 22-28
+src/domain/entities/Transfer.ts
+  s_9974dc7b4441c2::t_88b8303cc6ac42 14
+app/(tabs)/ventas/index.tsx
+  s_9974dc7b4441c2::t_fa246b7c48be25 512
+app/(tabs)/_layout.tsx
+  s_9974dc7b4441c2::t_88b8303cc6ac42 1,8,11-13
+src/services/DemandEstimationService.ts
+  s_9974dc7b4441c2::t_1fafe081b75f29 93
+src/services/TransferService.ts
+  s_9974dc7b4441c2::t_88b8303cc6ac42 56-59,134-139
+  s_9974dc7b4441c2::t_be81f8206fbd26 4-11,73-107
+docs/inventory-flow-manual-test.md
+  s_9974dc7b4441c2::t_28cc8b156a03de 1-167,169,171,176-272
+  s_9974dc7b4441c2::t_9e76cbd2c2291f 174-175
+  s_9974dc7b4441c2::t_327d7c3109da41 168,170,172-173
+supabase/migrations/027_inventory_flow_fixes.sql
+  s_9974dc7b4441c2::t_75d793d65a777f 182,187
+  s_9974dc7b4441c2::t_88b8303cc6ac42 1-125,127-132,134-139,141-146,148-155,157-164,166-173,175-181,183-186,188-190
+  s_9974dc7b4441c2::t_192996780f20d9 126,133,140,147,156,165,174
+app/(tabs)/inventario/sugerencia-envio.tsx
+  s_9974dc7b4441c2::t_0372557ff3ea5c 30-34,78-82,89-94,103,111
+  s_9974dc7b4441c2::t_5301a0760474d1 96-98
+AGENTS.md
+  s_9974dc7b4441c2::t_e2a63a01d2ff66 1-120
+app/(tabs)/inventario/traslados.tsx
+  s_9974dc7b4441c2::t_88b8303cc6ac42 105-106
+  s_9974dc7b4441c2::t_dde7f6746574a2 39
+  s_9974dc7b4441c2::t_b257ee7235aff6 78-81,84-85,87-88,90-91,98-100
+app/(tabs)/inventario/index.tsx
+  s_9974dc7b4441c2::t_88b8303cc6ac42 140-143,145-152,154,158,163
+src/data/repositories/SupabaseTransferRepository.ts
+  s_9974dc7b4441c2::t_5fad99dbfb91f7 5,126
+  s_9974dc7b4441c2::t_75d793d65a777f 12,43
+  s_9974dc7b4441c2::t_88b8303cc6ac42 13,44,84-85,123-125,127-128,131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "4f8bc7550c7708891d1f5fa5baa706b413f98265",
+  "prompts": {},
+  "sessions": {
+    "s_9974dc7b4441c2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e32ae-3d79-7de0-962f-0077b6dc7b23",
+        "model": "gpt-5.5"
+      },
+      "human_author": "David Gómez González <davidgg312@gmail.com>"
+    }
+  }
+}
