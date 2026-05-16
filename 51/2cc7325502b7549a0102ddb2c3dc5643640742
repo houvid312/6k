@@ -1,0 +1,37 @@
+docs/specs/06-cartera.spec.md
+  s_fa1d770ae35018::t_0dcfc16ea36a58 1-117
+docs/specs/01-auth-navigation.spec.md
+  s_fa1d770ae35018::t_0dcfc16ea36a58 1-121
+docs/specs/05-contabilidad.spec.md
+  s_fa1d770ae35018::t_0dcfc16ea36a58 1-153
+docs/specs/09-supabase-datos.spec.md
+  s_fa1d770ae35018::t_0dcfc16ea36a58 1-210
+docs/specs/03-inventario-operacion.spec.md
+  s_fa1d770ae35018::t_0dcfc16ea36a58 1-328
+docs/specs/04-catalogos-recetas.spec.md
+  s_fa1d770ae35018::t_0dcfc16ea36a58 1-208
+docs/specs/08-dashboard-analitica.spec.md
+  s_fa1d770ae35018::t_0dcfc16ea36a58 1-159
+docs/specs/00-general.spec.md
+  s_fa1d770ae35018::t_0dcfc16ea36a58 1-96
+docs/specs/02-ventas-caja.spec.md
+  s_fa1d770ae35018::t_0dcfc16ea36a58 1-321
+docs/specs/07-rrhh.spec.md
+  s_fa1d770ae35018::t_0dcfc16ea36a58 1-183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "512cc7325502b7549a0102ddb2c3dc5643640742",
+  "prompts": {},
+  "sessions": {
+    "s_fa1d770ae35018": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e32fa-d015-7940-a1d7-5fa589ffa2d0",
+        "model": "gpt-5.5"
+      },
+      "human_author": "David Gómez González <davidgg312@gmail.com>"
+    }
+  }
+}
