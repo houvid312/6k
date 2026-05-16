@@ -137,19 +137,30 @@ export default function InventarioScreen() {
     : STORE_LEVEL_OPTIONS;
 
   const loadInventory = useCallback(async () => {
-    if (!selectedStoreId) {
+    let storeId = selectedStoreId;
+
+    if (!storeId) {
+      setLoading(true);
       await loadStores();
-      return;
+      storeId = useAppStore.getState().selectedStoreId;
+
+      if (!storeId) {
+        setItems([]);
+        setMinimums({});
+        setLoading(false);
+        return;
+      }
     }
+
     const gen = ++loadGenRef.current;
     setLoading(true);
     try {
-      const summary = await inventoryService.getInventorySummary(selectedStoreId, level);
+      const summary = await inventoryService.getInventorySummary(storeId, level);
       if (gen !== loadGenRef.current) return;
       setItems(summary);
 
       try {
-        const mins = await stockMinimumRepo.getByStoreAndLevel(selectedStoreId, level);
+        const mins = await stockMinimumRepo.getByStoreAndLevel(storeId, level);
         if (gen !== loadGenRef.current) return;
         const minMap: Record<string, number> = {};
         for (const m of mins) {

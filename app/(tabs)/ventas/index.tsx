@@ -509,7 +509,7 @@ export default function VentasScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [cart, paymentMethod, cashAmount, bankAmount, totalAmount, selectedStoreId, saleService, clearCart, isPaid, observations, loadPendingSales, portionsSet, availablePortions, savePortionsToDB, soldPortions, products]);
+  }, [cart, paymentMethod, cashAmount, bankAmount, totalAmount, selectedStoreId, saleService, clearCart, isPaid, observations, cartPackagingSupplyId, loadPendingSales, portionsSet, availablePortions, savePortionsToDB, soldPortions, products]);
 
   const handleFabPress = useCallback(() => {
     if (cart.length === 0) {

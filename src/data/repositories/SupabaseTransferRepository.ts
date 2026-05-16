@@ -2,13 +2,15 @@ import { supabase } from '../../lib/supabase';
 import { Transfer, TransferItem } from '../../domain/entities';
 import { ITransferRepository } from '../../domain/interfaces/repositories';
 import { TransferStatus } from '../../domain/enums';
+import { todayColombia } from '../../utils/dates';
 
 // --- Row types ---
 
 interface TransferRow {
   id: string;
   order_date: string;
-  shipping_date: string;
+  shipping_date: string | null;
+  received_at: string | null;
   from_store_id: string;
   to_store_id: string;
   status: string;
@@ -38,7 +40,8 @@ function transferRowToEntity(row: TransferRow, items: TransferItem[]): Transfer 
   return {
     id: row.id,
     orderDate: row.order_date,
-    shippingDate: row.shipping_date,
+    shippingDate: row.shipping_date ?? '',
+    receivedAt: row.received_at ?? undefined,
     fromStoreId: row.from_store_id,
     toStoreId: row.to_store_id,
     status: row.status as TransferStatus,
@@ -78,8 +81,8 @@ export class SupabaseTransferRepository implements ITransferRepository {
       .select('*')
       .eq('to_store_id', toStoreId)
       .eq('status', 'RECEIVED')
-      .gte('order_date', fromDate)
-      .lte('order_date', toDate + 'T23:59:59');
+      .gte('received_at', `${fromDate}T00:00:00`)
+      .lte('received_at', `${toDate}T23:59:59`);
     if (error) throw error;
     return this.hydrateTransfers(data as TransferRow[]);
   }
@@ -117,9 +120,15 @@ export class SupabaseTransferRepository implements ITransferRepository {
   }
 
   async updateStatus(id: string, status: TransferStatus): Promise<Transfer> {
+    const updates: Record<string, unknown> = { status };
+    if (status === TransferStatus.RECEIVED) {
+      updates.received_at = new Date().toISOString();
+      updates.shipping_date = todayColombia();
+    }
+
     const { data, error } = await supabase
       .from('transfers')
-      .update({ status })
+      .update(updates)
       .eq('id', id)
       .select()
       .single();

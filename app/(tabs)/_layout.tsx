@@ -1,11 +1,16 @@
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAppStore } from '../../src/stores/useAppStore';
 import { UserRole } from '../../src/domain/enums';
 
 export default function TabLayout() {
   const userRole = useAppStore((s) => s.userRole);
+  const isAuthenticated = useAppStore((s) => s.isAuthenticated);
   const isAdmin = userRole === UserRole.ADMIN;
+
+  if (!isAuthenticated) {
+    return <Redirect href="/login" />;
+  }
 
   return (
     <Tabs

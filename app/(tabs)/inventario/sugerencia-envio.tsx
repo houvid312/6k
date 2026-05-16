@@ -27,6 +27,11 @@ function getTomorrowDay(): string {
   return String(tomorrow.getDay());
 }
 
+function parseBagCount(value?: string): number {
+  const parsed = Number.parseInt(value ?? '0', 10);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+}
+
 export default function SugerenciaEnvioScreen() {
   const theme = useTheme();
   const { demandEstimationService, transferService } = useDI();
@@ -70,23 +75,32 @@ export default function SugerenciaEnvioScreen() {
   }, [selectedStoreId, selectedDay, demandEstimationService, showSuccess, showError]);
 
   const handleCreateTransfer = useCallback(async () => {
+    if (!selectedStoreId) {
+      showError('Selecciona un local');
+      return;
+    }
+
     const productionCenter = stores.find((s) => s.isProductionCenter);
     if (!productionCenter) {
       showError('No hay centro de produccion configurado');
       return;
     }
 
-    const minTargets: Record<string, number> = {};
-    for (const req of requirements) {
-      const bags = parseInt(editableBags[req.supplyId] || '0', 10);
-      if (bags > 0) {
-        minTargets[req.supplyId] = bags * req.gramsPerBag;
-      }
+    const items = requirements.map((req) => ({
+      supplyId: req.supplyId,
+      currentInventoryGrams: req.currentGrams,
+      bagsToSend: parseBagCount(editableBags[req.supplyId]),
+      gramsPerBag: req.gramsPerBag,
+    }));
+
+    if (!items.some((item) => item.bagsToSend > 0)) {
+      showError('Ingresa al menos una bolsa para crear el traslado');
+      return;
     }
 
     setCreating(true);
     try {
-      await transferService.generateTransferOrder(productionCenter.id, selectedStoreId, minTargets);
+      await transferService.createTransferOrderFromBags(productionCenter.id, selectedStoreId, items);
       showSuccess('Orden de traslado creada');
       setTimeout(() => router.push('/(tabs)/inventario/traslados'), 1500);
     } catch {
@@ -94,7 +108,7 @@ export default function SugerenciaEnvioScreen() {
     } finally {
       setCreating(false);
     }
-  }, [stores, selectedStoreId, requirements, transferService, showSuccess, showError]);
+  }, [stores, selectedStoreId, requirements, editableBags, transferService, showSuccess, showError]);
 
   return (
     <ScreenContainer scrollable padded>

@@ -36,13 +36,12 @@ const CONFIRM_CONFIG: Record<ConfirmAction, { title: string; message: string; la
 export default function TrasladosScreen() {
   const theme = useTheme();
   const { transferService } = useDI();
-  const { selectedStoreId, stores } = useAppStore();
+  const { selectedStoreId } = useAppStore();
   const { supplies } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
@@ -76,47 +75,35 @@ export default function TrasladosScreen() {
   };
 
   const handleConfirmAction = useCallback(async () => {
-    if (!selectedTransfer || !confirmAction) return;
+    const transferId = selectedTransfer?.id;
+    const action = confirmAction;
+    if (!transferId || !action) return;
+
     setActionLoading(true);
     try {
-      if (confirmAction === 'transit') {
-        await transferService.markInTransit(selectedTransfer.id);
+      if (action === 'transit') {
+        await transferService.markInTransit(transferId);
         showSuccess('Traslado marcado en transito');
-      } else if (confirmAction === 'receive') {
-        await transferService.executeTransfer(selectedTransfer.id);
+      } else if (action === 'receive') {
+        await transferService.executeTransfer(transferId);
         showSuccess('Traslado recibido. Inventario actualizado.');
-      } else if (confirmAction === 'cancel') {
-        await transferService.cancelTransfer(selectedTransfer.id);
+      } else if (action === 'cancel') {
+        await transferService.cancelTransfer(transferId);
         showSuccess('Traslado cancelado');
       }
-      loadTransfers();
     } catch {
       showError('No se pudo procesar la accion');
     } finally {
       setActionLoading(false);
-      closeConfirm();
+      setConfirmAction(null);
+      setSelectedTransfer(null);
+      await loadTransfers();
     }
   }, [selectedTransfer, confirmAction, transferService, loadTransfers, showSuccess, showError]);
 
   const handleCreateTransfer = useCallback(async () => {
-    const productionCenter = stores.find((s) => s.isProductionCenter);
-    if (!productionCenter) {
-      showError('No hay centro de produccion configurado');
-      return;
-    }
-
-    setCreating(true);
-    try {
-      const minTargets: Record<string, number> = {};
-      await transferService.generateTransferOrder(productionCenter.id, selectedStoreId, minTargets);
-      showSuccess('Orden de traslado generada');
-      loadTransfers();
-    } catch {
-      showError('No se pudo crear el traslado');
-    } finally {
-      setCreating(false);
-    }
-  }, [stores, selectedStoreId, transferService, loadTransfers, showSuccess, showError]);
+    router.push('/(tabs)/inventario/sugerencia-envio');
+  }, []);
 
   const confirmConfig = confirmAction ? CONFIRM_CONFIG[confirmAction] : null;
 
@@ -128,8 +115,6 @@ export default function TrasladosScreen() {
             mode="contained"
             icon="plus"
             onPress={handleCreateTransfer}
-            loading={creating}
-            disabled={creating}
             style={{ borderRadius: 8, flex: 1 }}
           >
             Nuevo Traslado

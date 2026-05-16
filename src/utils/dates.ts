@@ -19,6 +19,13 @@ export function todayColombia(): string {
  * Formats a date as DD/MM/YYYY using Colombia timezone.
  */
 export function formatDate(date: string | Date): string {
+  if (typeof date === 'string') {
+    const dateOnly = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dateOnly) {
+      return `${dateOnly[3]}/${dateOnly[2]}/${dateOnly[1]}`;
+    }
+  }
+
   const d = typeof date === 'string' ? new Date(date) : date;
   const parts = new Intl.DateTimeFormat('es-CO', {
     timeZone: TIMEZONE,

@@ -90,7 +90,7 @@ export class DemandEstimationService {
   /**
    * Generates a suggested transfer: what a destination store needs based on
    * demand estimates minus current inventory.
-   * Returns the minTargets map compatible with TransferService.generateTransferOrder().
+   * Returns editable requirements that the shipment screen turns into transfer items.
    */
   async generateSuggestedTransfer(
     toStoreId: string,

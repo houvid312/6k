@@ -1,6 +1,14 @@
 import { Transfer, TransferItem } from '../domain/entities';
 import { TransferStatus, InventoryLevel } from '../domain/enums';
 import { ITransferRepository, IInventoryRepository, ISupplyRepository } from '../domain/interfaces/repositories';
+import { todayColombia } from '../utils/dates';
+
+export interface TransferOrderInputItem {
+  supplyId: string;
+  currentInventoryGrams: number;
+  bagsToSend: number;
+  gramsPerBag: number;
+}
 
 export class TransferService {
   constructor(
@@ -45,6 +53,10 @@ export class TransferService {
       }
     }
 
+    if (items.length === 0) {
+      throw new Error('No hay insumos para trasladar');
+    }
+
     const now = new Date().toISOString();
     const transfer = await this.transferRepo.create({
       fromStoreId,
@@ -56,6 +68,43 @@ export class TransferService {
     } as Omit<Transfer, 'id'>);
 
     return transfer;
+  }
+
+  /**
+   * Creates a transfer order from user-edited bag quantities.
+   */
+  async createTransferOrderFromBags(
+    fromStoreId: string,
+    toStoreId: string,
+    inputItems: TransferOrderInputItem[],
+  ): Promise<Transfer> {
+    const items: TransferItem[] = inputItems
+      .map((item) => {
+        const bagsToSend = Math.max(0, Math.trunc(item.bagsToSend));
+        const currentInventoryGrams = item.currentInventoryGrams ?? 0;
+        const targetGrams = currentInventoryGrams + bagsToSend * item.gramsPerBag;
+
+        return {
+          supplyId: item.supplyId,
+          currentInventoryGrams,
+          targetGrams,
+          bagsToSend,
+        };
+      })
+      .filter((item) => item.bagsToSend > 0);
+
+    if (items.length === 0) {
+      throw new Error('No hay bolsas para trasladar');
+    }
+
+    return this.transferRepo.create({
+      fromStoreId,
+      toStoreId,
+      orderDate: todayColombia(),
+      shippingDate: '',
+      items,
+      status: TransferStatus.PENDING,
+    } as Omit<Transfer, 'id'>);
   }
 
   /**
@@ -82,7 +131,12 @@ export class TransferService {
         : item.targetGrams - item.currentInventoryGrams;
 
       // Deduct from source
-      await this.inventoryRepo.deductGrams(transfer.fromStoreId, item.supplyId, gramsToTransfer);
+      await this.inventoryRepo.deductGrams(
+        transfer.fromStoreId,
+        item.supplyId,
+        gramsToTransfer,
+        InventoryLevel.PROCESSED,
+      );
       // Add to destination
       await this.inventoryRepo.addGrams(
         transfer.toStoreId,

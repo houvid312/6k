@@ -11,6 +11,7 @@ export interface Transfer {
   id: string;
   orderDate: string;
   shippingDate: string;
+  receivedAt?: string;
   fromStoreId: string;
   toStoreId: string;
   status: TransferStatus;
