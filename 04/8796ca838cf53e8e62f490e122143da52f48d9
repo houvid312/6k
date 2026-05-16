@@ -1,0 +1,19 @@
+.npmrc
+  s_10d7da67682958::t_e5376e18f1f60a 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "048796ca838cf53e8e62f490e122143da52f48d9",
+  "prompts": {},
+  "sessions": {
+    "s_10d7da67682958": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e2df9-d6fe-7952-86b3-047582238445",
+        "model": "gpt-5.5"
+      },
+      "human_author": "David Gómez González <davidgg312@gmail.com>"
+    }
+  }
+}
