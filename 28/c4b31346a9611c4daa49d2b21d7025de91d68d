@@ -1,0 +1,179 @@
+supabase/migrations/034_cash_closing_opening_base_discrepancy.sql
+  s_2a00af60a3914a::t_8c13070193b6a4 10
+  s_2a00af60a3914a::t_ab361f02968393 1-9,11
+src/data/repositories/SupabaseCreditRepository.ts
+  s_2a00af60a3914a::t_ca399ea1b8aa17 13-14,31-32,47-48,105-111
+app/(tabs)/cartera/[id].tsx
+  s_2a00af60a3914a::t_f4ab8bda3b715f 188-192
+app/(tabs)/inventario/traslados.tsx
+  s_2a00af60a3914a::t_d6b3094d0b88ff 18-38,81
+  s_2a00af60a3914a::t_acd1afd3160dd4 47,70-75
+app/(tabs)/inventario/sugerencia-envio.tsx
+  s_2a00af60a3914a::t_d021f33f399397 10,14,41,50-57,185-194,199-205,243-254,315-321,326-328
+supabase/migrations/031_edit_pending_sale_orders.sql
+  s_2a00af60a3914a::t_11b2a2b869a5fb 1-139,145-170,174-194
+  s_2a00af60a3914a::t_13973624fd70fe 140-144,171-173
+app/(tabs)/inventario/index.tsx
+  s_2a00af60a3914a::t_00d8d3a80b8c38 30,79
+src/components/inventario/TransferOrderCard.tsx
+  s_2a00af60a3914a::t_30cd11836991a2 6,16-27,76
+  s_2a00af60a3914a::t_edeb8b43004628 7,30-35,57,59-65,78-79,112-116,118-123,125-128,130-146,150-158,233-244
+docs/reports/franchise-billing-flow-2026-05-17/payment-verification.json
+  s_b898df182f3c2b::t_f90108b1541082 1-31
+src/domain/interfaces/repositories/ISupplyRepository.ts
+  s_2a00af60a3914a::t_35eae0449f6a2c 4
+src/data/repositories/SupabaseSaleRepository.ts
+  s_2a00af60a3914a::t_74ae09b97b4c4c 14,44-48,86-90,102,250,276-280,334-338,354
+  s_2a00af60a3914a::t_48828e19391ec3 323-333,339-353,355-372
+app/(tabs)/cartera/index.tsx
+  s_2a00af60a3914a::t_bc44fd205420ee 167-171,173,322,341-359,420-424
+  s_2a00af60a3914a::t_9186c12555828c 230-240,244-245,247-248,442-444
+  s_2a00af60a3914a::t_cddd26025824d7 3,11,17,19-20,48-88,103,113-123,141,143,146-147,149,151-165,172,174-179,205-218,252-253,265,297,323-339,411-419
+  s_2a00af60a3914a::t_ed5465bea3b235 4,241-243,246,445-449
+app/(tabs)/ventas/index.tsx
+  s_2a00af60a3914a::t_4543c351dbd56f 308-311
+  s_2a00af60a3914a::t_2091e28d2c56bc 31-40,104
+  s_2a00af60a3914a::t_69f91a89c1bf4d 1135-1143,1764-1766
+  s_2a00af60a3914a::t_6ea5f97fb47534 1791-1798
+  s_2a00af60a3914a::t_2795eada570fec 516-533,539-618,634-636,650,654-681,685,697-699,702,710,715
+  s_2a00af60a3914a::t_f8da0bdcccabe2 738-742,745,775-777,786
+  s_2a00af60a3914a::t_8b8f7f6cdc4474 1667
+  s_2a00af60a3914a::t_7eb8b84f246711 60,97
+  s_2a00af60a3914a::t_0db9ba1da14392 306-307,313-381,398,405,409
+  s_2a00af60a3914a::t_6857b66a5c6d9d 1229-1233
+  s_2a00af60a3914a::t_ce801b4febb137 461-463,470-471,488-490,496-497
+  s_2a00af60a3914a::t_ad997976ac35d0 534-538,644-647
+  s_2a00af60a3914a::t_1b6c5798515451 98,691
+  s_2a00af60a3914a::t_53a2befb2be0b6 1003,1009,1014-1034
+  s_2a00af60a3914a::t_b4c440bed466f0 888,933-944
+  s_2a00af60a3914a::t_1625d872eecb18 1258,1260,1273,1277,1328,1333
+  s_2a00af60a3914a::t_013e224805d306 1695-1701,1726-1743
+app/(tabs)/inventario/insumos.tsx
+  s_2a00af60a3914a::t_c71dceef7e55b0 40,50,95,120-123,136,148,219-221,302-308
+  s_2a00af60a3914a::t_9dfa04a7ed7b2e 12,19,21,25-26,38-39,41,44-49,51-58,63,66,93-94,96,111-117,128,132-135,137-139,146-147,149,217-218,222-227,283-301,309-329,399-403
+app/(tabs)/inventario/historial-compras.tsx
+  s_2a00af60a3914a::t_08bde4a49a0eb4 328,336,344,350-351,410,415-416
+  s_2a00af60a3914a::t_61869922cb8ef3 1-327,329-335,337-343,345-349,352-409,411-414,417-438
+app/(tabs)/inventario/_layout.tsx
+  s_2a00af60a3914a::t_aee8097fdabb19 38
+  s_2a00af60a3914a::t_db3b07b2667997 6-11,13-16,68-74
+  s_2a00af60a3914a::t_0969a3ed7614ff 12
+app/(tabs)/inventario/bajas.tsx
+  s_2a00af60a3914a::t_03f8b96e4cdec1 78
+  s_2a00af60a3914a::t_81b79693ac0f13 2,10-11,57-59,92-95,97-130,201,211,267-323,372-380
+  s_2a00af60a3914a::t_69d7c163a81255 3,227-236,336-343
+supabase/migrations/032_sale_item_packaging_pricing.sql
+  s_2a00af60a3914a::t_f3f40dfa2d6a86 1-306
+src/screens/SaleScreen.tsx
+  s_2a00af60a3914a::t_dbe8f8a76dc288 195-198
+src/domain/enums/index.ts
+  s_2a00af60a3914a::t_c2bd2ef58bd276 1-7
+app/(tabs)/ventas/cierre-caja.tsx
+  s_2a00af60a3914a::t_ae03c5d42618fd 50-51,57-58,61,64,73-84,89,105,116,169-176,202,205,241,253,260,267,336,399
+src/domain/interfaces/repositories/ISaleRepository.ts
+  s_2a00af60a3914a::t_82f57ddcdee351 17
+src/utils/currency.ts
+  s_2a00af60a3914a::t_1b69539f81a1d2 14-23
+src/components/ventas/DenominationCounter.tsx
+  s_2a00af60a3914a::t_b93e7bb5cda8b0 12,15,38,50,58
+supabase/migrations/030_franchise_billing_seed_rpc.sql
+  s_2a00af60a3914a::t_bf1df14554fb17 1-215
+src/stores/useMasterDataStore.ts
+  s_2a00af60a3914a::t_83be5d73720bef 14,30,33-34,40,44,51,55,59
+  s_2a00af60a3914a::t_765d1e6868a8b5 3,5
+src/domain/entities/CreditEntry.ts
+  s_2a00af60a3914a::t_df7034be4cfd0a 1,9-10
+src/domain/entities/Transfer.ts
+  s_2a00af60a3914a::t_60226a12ac9eef 8-12,21-22,26-27
+  s_2a00af60a3914a::t_44cde230ec711e 18
+src/services/SaleService.ts
+  s_2a00af60a3914a::t_c2a4d0dccd2b6e 18,37-41,57,73-94,116-139,141-149
+  s_2a00af60a3914a::t_54dcc61de1c545 24-27,48-51,65-69,102,140
+src/services/TransferService.ts
+  s_2a00af60a3914a::t_15f004fa5c1e44 102
+  s_2a00af60a3914a::t_8b6fff55501103 110-111,124
+supabase/migrations/029_franchise_billing_schema.sql
+  s_2a00af60a3914a::t_63fc937f5e09a1 61-64
+  s_2a00af60a3914a::t_915f7fbd45738d 57-60,65-91
+  s_2a00af60a3914a::t_0cb54c5422a828 1-56
+src/domain/enums/PizzaSize.ts
+  s_2a00af60a3914a::t_86a5024f3a9a8a 26,28-32
+  s_2a00af60a3914a::t_3d15192f7d2b55 27
+docs/reports/franchise-billing-flow-2026-05-17/index.html
+  s_2a00af60a3914a::t_f5b008d4433bc3 1-239,242-324,364-392,405-410
+  s_2a00af60a3914a::t_d290c200a58502 240-241,325-363,393-404
+src/domain/interfaces/repositories/ICreditRepository.ts
+  s_2a00af60a3914a::t_cd4eb18bdb30db 8
+src/components/ventas/ProductGrid.tsx
+  s_2a00af60a3914a::t_8dc1f069986d27 1,52,63,82-88,181,185
+  s_2a00af60a3914a::t_c164d82c059179 2,51,54,56-62,100,154,179-180,183,193-196,220,236-237,239
+  s_2a00af60a3914a::t_1cb6de27bdec61 55
+  s_2a00af60a3914a::t_ec1ac75aa61285 182,186
+src/domain/entities/SaleItem.ts
+  s_2a00af60a3914a::t_3ec71b71882a92 16-20
+src/domain/entities/Sale.ts
+  s_2a00af60a3914a::t_b3379ac446e97d 11
+src/components/ventas/CartSummary.tsx
+  s_2a00af60a3914a::t_fd3101ddbc2c65 6,105-116
+supabase/migrations/033_supply_sale_price.sql
+  s_2a00af60a3914a::t_49fd8878bdab2e 15-45
+  s_2a00af60a3914a::t_c4cf55f91f0627 1-14
+app/(tabs)/inventario/produccion.tsx
+  s_2a00af60a3914a::t_edab5f42d454ce 1,30,54-71,138-155,162-167,169,244-249
+src/stores/useSaleStore.ts
+  s_2a00af60a3914a::t_a59b245dff06c7 27-31,44-47,79-81,88-93,99-116,125,128-139,158-169,193,203
+  s_2a00af60a3914a::t_282d750077ce7e 53,207-208
+  s_2a00af60a3914a::t_57c5f2dc5d00b6 43
+src/services/CashClosingService.ts
+  s_2a00af60a3914a::t_e31790f04f056d 17-25,62,68,108,112,267-271
+src/services/CreditService.ts
+  s_2a00af60a3914a::t_82aed45560a2c4 45
+src/domain/entities/Supply.ts
+  s_2a00af60a3914a::t_5f0cb78cd90d80 10
+  s_2a00af60a3914a::t_d09b521c059fa8 8-9,11
+src/services/ValidationService.ts
+  s_2a00af60a3914a::t_4783c2b511a973 57-61,64
+src/data/repositories/SupabaseSupplyRepository.ts
+  s_2a00af60a3914a::t_083e20ab9376e8 44
+  s_2a00af60a3914a::t_8e47a58e8c10f2 14,28,39,69,85
+  s_2a00af60a3914a::t_a6c799dcab2d9a 13,15,26-27,29,67-68,70,83-84,86
+  s_2a00af60a3914a::t_d64df2d7313126 12,36-38,42
+src/data/repositories/SupabaseTransferRepository.ts
+  s_2a00af60a3914a::t_620d956213a4f2 14-15,19-20,30-34,45-49,60-61,65-66,161-171
+  s_2a00af60a3914a::t_2fd4b39d785edd 143,146
+  s_2a00af60a3914a::t_606cc36867550d 11,57
+src/domain/interfaces/repositories/ITransferRepository.ts
+  s_2a00af60a3914a::t_7703e7ed60e69c 10
+app/(tabs)/inventario/compras.tsx
+  s_2a00af60a3914a::t_4271f54adc4cb7 82
+  s_2a00af60a3914a::t_735ea26fd045bd 4,164-176,321-327
+  s_2a00af60a3914a::t_bacee1679691df 80-81,83
+docs/reports/franchise-billing-flow-2026-05-17/verification.json
+  s_b898df182f3c2b::t_0d3f4ca57a3c2d 1-76
+src/components/common/CurrencyInput.tsx
+  s_2a00af60a3914a::t_41756336367c63 10,13,52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "28c4b31346a9611c4daa49d2b21d7025de91d68d",
+  "prompts": {},
+  "sessions": {
+    "s_2a00af60a3914a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e35f2-e692-7f80-bdda-d53edec893f3",
+        "model": "gpt-5.5"
+      },
+      "human_author": "David Gómez González <davidgg312@gmail.com>"
+    },
+    "s_b898df182f3c2b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "019e35f2-e692-7f80-bdda-d53edec893f3",
+        "model": "unknown"
+      },
+      "human_author": "David Gómez González <davidgg312@gmail.com>"
+    }
+  }
+}
