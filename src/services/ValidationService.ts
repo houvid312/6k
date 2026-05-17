@@ -39,15 +39,26 @@ export class ValidationService {
     for (const sale of sales) {
       for (const item of sale.items) {
         const recipe = await this.recipeRepo.getByProductId(item.productId);
-        if (!recipe) continue;
+        if (recipe) {
+          const portions = item.portions;
 
-        const portions = item.portions;
-
-        for (const ingredient of recipe.ingredients) {
-          const grams = ingredient.gramsPerPortion * portions;
-          const current = consumptionMap.get(ingredient.supplyId) ?? 0;
-          consumptionMap.set(ingredient.supplyId, current + grams);
+          for (const ingredient of recipe.ingredients) {
+            const grams = ingredient.gramsPerPortion * portions;
+            const current = consumptionMap.get(ingredient.supplyId) ?? 0;
+            consumptionMap.set(ingredient.supplyId, current + grams);
+          }
         }
+
+        for (const addition of item.additions ?? []) {
+          const grams = addition.grams * addition.quantity;
+          const current = consumptionMap.get(addition.supplyId) ?? 0;
+          consumptionMap.set(addition.supplyId, current + grams);
+        }
+      }
+
+      if (sale.packagingSupplyId) {
+        const current = consumptionMap.get(sale.packagingSupplyId) ?? 0;
+        consumptionMap.set(sale.packagingSupplyId, current + 1);
       }
     }
 

@@ -33,7 +33,7 @@ import { supabase } from '../../../src/lib/supabase';
 import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { formatCOP } from '../../../src/utils/currency';
-import { formatDate, todayColombia } from '../../../src/utils/dates';
+import { colombiaDateRangeToUtc, formatDate, todayColombia } from '../../../src/utils/dates';
 
 export default function VentasScreen() {
   const theme = useTheme();
@@ -145,8 +145,7 @@ export default function VentasScreen() {
   const loadSoldPortions = useCallback(async () => {
     if (!selectedStoreId) return;
     const today = todayColombia();
-    const startOfDay = `${today}T00:00:00`;
-    const endOfDay = `${today}T23:59:59`;
+    const { fromUtc: startOfDay, toUtc: endOfDay } = colombiaDateRangeToUtc(today, today);
     const { data } = await supabase
       .from('sale_items')
       .select('product_id, portions, sales!inner(store_id, created_at)')

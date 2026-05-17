@@ -1,6 +1,7 @@
 import { ISaleRepository, IInventoryRepository, ISupplyRepository, IExpenseRepository, IPurchaseRepository } from '../domain/interfaces/repositories';
 import { IRecipeRepository } from '../domain/interfaces/repositories/IRecipeRepository';
 import { IProductRepository } from '../domain/interfaces/repositories/IProductRepository';
+import { toISODateTZ } from '../utils/dates';
 
 export interface DailySummary {
   date: string;
@@ -91,7 +92,7 @@ export class DashboardService {
 
     const byDate = new Map<string, { revenue: number; count: number }>();
     for (const sale of sales) {
-      const dateKey = sale.timestamp.substring(0, 10);
+      const dateKey = toISODateTZ(new Date(sale.timestamp));
       const existing = byDate.get(dateKey) ?? { revenue: 0, count: 0 };
       existing.revenue += sale.totalAmount;
       existing.count += 1;

@@ -2,6 +2,7 @@ import { supabase } from '../../lib/supabase';
 import { Sale, SaleItem, SaleItemAddition } from '../../domain/entities';
 import { ISaleRepository, DailySummary } from '../../domain/interfaces/repositories';
 import { PaymentMethod } from '../../domain/enums';
+import { colombiaDateRangeToUtc } from '../../utils/dates';
 
 interface SaleRow {
   id: string;
@@ -128,16 +129,14 @@ export class SupabaseSaleRepository implements ISaleRepository {
   }
 
   async getByDateRange(storeId: string, from: string, to: string): Promise<Sale[]> {
-    // Append time boundaries if only date strings (YYYY-MM-DD) are passed
-    const fromTs = from.includes('T') ? from : `${from}T00:00:00`;
-    const toTs = to.includes('T') ? to : `${to}T23:59:59`;
+    const { fromUtc, toUtc } = colombiaDateRangeToUtc(from, to);
 
     const { data, error } = await supabase
       .from('sales')
       .select('*, workers(name)')
       .eq('store_id', storeId)
-      .gte('created_at', fromTs)
-      .lte('created_at', toTs)
+      .gte('created_at', fromUtc)
+      .lte('created_at', toUtc)
       .order('created_at', { ascending: false });
     if (error) throw error;
 
@@ -304,15 +303,14 @@ export class SupabaseSaleRepository implements ISaleRepository {
   }
 
   async getDailySummary(storeId: string, date: string): Promise<DailySummary> {
-    const dayStart = `${date}T00:00:00`;
-    const dayEnd = `${date}T23:59:59`;
+    const { fromUtc, toUtc } = colombiaDateRangeToUtc(date, date);
 
     const { data, error } = await supabase
       .from('sales')
       .select('total_portions, total_amount, cash_amount, bank_amount')
       .eq('store_id', storeId)
-      .gte('created_at', dayStart)
-      .lte('created_at', dayEnd);
+      .gte('created_at', fromUtc)
+      .lte('created_at', toUtc);
     if (error) throw error;
 
     const rows = data as Pick<SaleRow, 'total_portions' | 'total_amount' | 'cash_amount' | 'bank_amount'>[];

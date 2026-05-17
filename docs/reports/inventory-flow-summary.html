@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>6K Pizza - Resumen flujo inventario UI</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111111;
+      --panel: #1e1e1e;
+      --panel-2: #242424;
+      --line: #343434;
+      --text: #f5f0eb;
+      --muted: #a79d94;
+      --primary: #e63946;
+      --gold: #d4a843;
+      --ok: #4caf50;
+      --warn: #f5a524;
+      --bad: #ef5350;
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      background: #151515;
+    }
+
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 20px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      border: 2px solid var(--gold);
+      color: var(--text);
+      font-weight: 900;
+      background: rgba(230, 57, 70, 0.12);
+    }
+
+    .eyebrow {
+      color: var(--gold);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(28px, 4vw, 46px);
+      line-height: 1.05;
+      max-width: 820px;
+      margin-top: 22px;
+    }
+
+    h2 {
+      font-size: 22px;
+      margin-bottom: 14px;
+    }
+
+    h3 {
+      font-size: 16px;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      max-width: 860px;
+      margin-top: 14px;
+      font-size: 16px;
+    }
+
+    .badge {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .metric {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 28px;
+      line-height: 1;
+      color: var(--primary);
+      margin-bottom: 8px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    main.wrap {
+      display: grid;
+      gap: 26px;
+    }
+
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--ok);
+      font-weight: 800;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 10px;
+      counter-reset: step;
+    }
+
+    .step {
+      counter-increment: step;
+      display: grid;
+      grid-template-columns: 38px 1fr;
+      gap: 12px;
+      align-items: start;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+    }
+
+    .step::before {
+      content: counter(step);
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: var(--primary);
+      color: #fff;
+      font-weight: 800;
+      font-size: 13px;
+    }
+
+    .step p {
+      color: var(--muted);
+      font-size: 14px;
+      margin-top: 3px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+    }
+
+    th,
+    td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      font-size: 14px;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: #191919;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .ok {
+      color: var(--ok);
+      font-weight: 800;
+    }
+
+    .warn {
+      color: var(--warn);
+      font-weight: 800;
+    }
+
+    .code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      color: #f1d7d9;
+      background: #151515;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+      overflow: auto;
+    }
+
+    .shots {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+
+    figure {
+      margin: 0;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    figure img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-bottom: 1px solid var(--line);
+    }
+
+    figcaption {
+      padding: 10px 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    a {
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .link {
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+
+    .link:hover {
+      border-color: var(--primary);
+    }
+
+    .note {
+      color: var(--muted);
+      border-left: 3px solid var(--gold);
+      padding-left: 12px;
+    }
+
+    @media (max-width: 860px) {
+      .hero-grid,
+      .grid-2,
+      .shots {
+        grid-template-columns: 1fr;
+      }
+
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .badge {
+        white-space: normal;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <div class="topbar">
+        <div class="brand">
+          <div class="logo">6K</div>
+          <div>
+            <div class="eyebrow">Pizza · Inventario</div>
+            <strong>Validacion funcional por UI</strong>
+          </div>
+        </div>
+        <div class="badge">Fecha operativa: 2026-05-16 · America/Bogota</div>
+      </div>
+
+      <h1>Resumen ejecutivo del flujo completo de inventario</h1>
+      <p class="subtitle">
+        La base fue reseteada preservando maestros, Auth y recetas. Luego se
+        ejecuto el flujo completo desde la UI local, usando Supabase solo para
+        auditar el resultado final.
+      </p>
+
+      <div class="hero-grid">
+        <div class="metric"><strong>1</strong><span>Compra UI</span></div>
+        <div class="metric"><strong>1</strong><span>Produccion UI</span></div>
+        <div class="metric"><strong>1</strong><span>Venta UI</span></div>
+        <div class="metric"><strong>6 OK</strong><span>Validaciones sin desvio</span></div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section>
+      <h2>Estado final</h2>
+      <div class="grid-2">
+        <div>
+          <p class="status"><span class="dot"></span> Flujo funcional OK</p>
+          <p class="subtitle">
+            Compra, produccion, traslado, venta, conteos, validaciones y cierre
+            de caja quedaron creados desde pantalla y confirmados en base de
+            datos.
+          </p>
+        </div>
+        <div class="code">Proyecto Supabase: xtgllllvmiomdhojqbru
+App local: http://localhost:8081
+Local: Local 2
+Centro: Centro de Produccion
+Cierre: APPROVED
+Discrepancia caja: $0</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Flujo ejecutado desde UI</h2>
+      <div class="timeline">
+        <div class="step">
+          <div>
+            <strong>Compra en Centro de Produccion</strong>
+            <p>Maicitos, 1000g, $5.000, proveedor UI_FLOW.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <strong>Produccion</strong>
+            <p>Receta Maicitos bolsa, 1 lote, produce 1000g y consume Maicitos RAW.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <strong>Conteo fisico inicial</strong>
+            <p>Stock base en Local 2 para receta, adicion, empaque y procesado.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <strong>Traslado recibido</strong>
+            <p>3 bolsas de Maicitos bolsa y 10 unidades de Empaque Diamante/Individual.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <strong>Venta</strong>
+            <p>Maicitos Individual + Extra Queso + Empaque, efectivo $8.000.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <strong>Conteo final y validaciones</strong>
+            <p>6 insumos OK, sin perdidas ni sobrantes.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <strong>Cierre de caja</strong>
+            <p>Esperado $8.000, real $8.000, discrepancia $0, estado APPROVED.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Auditoria DB</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Registro</th>
+            <th class="num">Cantidad</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Purchases</td><td class="num">1</td><td class="ok">OK</td></tr>
+          <tr><td>Production records</td><td class="num">1</td><td class="ok">OK</td></tr>
+          <tr><td>Transfers</td><td class="num">1</td><td class="ok">RECEIVED</td></tr>
+          <tr><td>Sales</td><td class="num">1</td><td class="ok">Paid / Dispatched</td></tr>
+          <tr><td>Physical counts</td><td class="num">2</td><td class="ok">Inicial + final</td></tr>
+          <tr><td>Daily alerts</td><td class="num">6</td><td class="ok">Todos OK</td></tr>
+          <tr><td>Cash openings</td><td class="num">1</td><td class="ok">Base $0</td></tr>
+          <tr><td>Cash closings</td><td class="num">1</td><td class="ok">APPROVED</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Saldos finales relevantes</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Ubicacion</th>
+            <th>Nivel</th>
+            <th>Insumo</th>
+            <th class="num">Saldo</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Centro de Produccion</td><td>RAW</td><td>Maicitos</td><td class="num">0g</td></tr>
+          <tr><td>Centro de Produccion</td><td>PROCESSED</td><td>Maicitos bolsa</td><td class="num">700g</td></tr>
+          <tr><td>Local 2</td><td>STORE</td><td>Empaque Diamante/Individual</td><td class="num">9 und.</td></tr>
+          <tr><td>Local 2</td><td>STORE</td><td>Maicitos bolsa</td><td class="num">270g</td></tr>
+          <tr><td>Local 2</td><td>STORE</td><td>Masa</td><td class="num">11924.8g</td></tr>
+          <tr><td>Local 2</td><td>STORE</td><td>Queso</td><td class="num">12441g</td></tr>
+          <tr><td>Local 2</td><td>STORE</td><td>Queso Bolsa</td><td class="num">9960.9g</td></tr>
+          <tr><td>Local 2</td><td>STORE</td><td>Salsa Napolitana</td><td class="num">11950g</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Validaciones</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Insumo</th>
+            <th class="num">Teorico</th>
+            <th class="num">Real</th>
+            <th class="num">Diferencia</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Masa</td><td class="num">11924.8g</td><td class="num">11924.8g</td><td class="num">0g</td><td class="ok">OK</td></tr>
+          <tr><td>Queso</td><td class="num">12441g</td><td class="num">12441g</td><td class="num">0g</td><td class="ok">OK</td></tr>
+          <tr><td>Salsa Napolitana</td><td class="num">11950g</td><td class="num">11950g</td><td class="num">0g</td><td class="ok">OK</td></tr>
+          <tr><td>Empaque Diamante/Individual</td><td class="num">9</td><td class="num">9</td><td class="num">0</td><td class="ok">OK</td></tr>
+          <tr><td>Queso Bolsa</td><td class="num">9960.9g</td><td class="num">9960.9g</td><td class="num">0g</td><td class="ok">OK</td></tr>
+          <tr><td>Maicitos bolsa</td><td class="num">270g</td><td class="num">270g</td><td class="num">0g</td><td class="ok">OK</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Hallazgos y fixes</h2>
+      <div class="grid-2">
+        <div>
+          <h3>Timezone de ventas</h3>
+          <p class="note">
+            La venta hecha a las 19:04 Colombia quedaba como
+            2026-05-17T00:04Z. Se corrigieron las consultas de ventas para usar
+            rango UTC equivalente al dia Colombia.
+          </p>
+        </div>
+        <div>
+          <h3>Validaciones teoricas</h3>
+          <p class="note">
+            El teorico ahora incluye receta base, adiciones y empaque, igual que
+            la RPC deduct_inventory_for_sale.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Capturas clave</h2>
+      <div class="shots">
+        <figure>
+          <img src="screenshots/ui-flow-27-sale-submitted.png" alt="Venta registrada desde UI">
+          <figcaption>Venta creada desde la UI.</figcaption>
+        </figure>
+        <figure>
+          <img src="screenshots/ui-flow-35-sales-history-fixed.png" alt="Historial de ventas">
+          <figcaption>Historial mostrando venta en fecha Colombia correcta.</figcaption>
+        </figure>
+        <figure>
+          <img src="screenshots/ui-flow-41-validations-regenerated.png" alt="Validaciones OK">
+          <figcaption>Validaciones: 6 OK, 0 perdidas, 0 sobrantes.</figcaption>
+        </figure>
+        <figure>
+          <img src="screenshots/ui-flow-46-cash-closing-approved.png" alt="Cierre aprobado">
+          <figcaption>Cierre de caja aprobado con discrepancia $0.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <h2>Documentos relacionados</h2>
+      <p class="subtitle">
+        Estos archivos quedan como soporte tecnico y handoff para la siguiente
+        iteracion.
+      </p>
+      <div class="links">
+        <a class="link" href="inventory-flow-technical-report.md">Reporte tecnico</a>
+        <a class="link" href="inventory-flow-next-iteration.md">Handoff siguiente iteracion</a>
+        <a class="link" href="../runbooks/inventory-flow-reset-runbook.md">Runbook reset</a>
+        <a class="link" href="../../supabase/sql/reset_inventory_flow.sql">SQL reset</a>
+        <a class="link" href="../../supabase/sql/inventory_recipe_deduction_audit.sql">SQL auditoria recetas</a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

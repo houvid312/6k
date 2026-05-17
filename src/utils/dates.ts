@@ -1,4 +1,7 @@
 const TIMEZONE = 'America/Bogota';
+const COLOMBIA_UTC_OFFSET = '-05:00';
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const HAS_TIMEZONE_PATTERN = /(Z|[+-]\d{2}:?\d{2})$/;
 
 /**
  * Returns the current date/time in Colombia (America/Bogota) timezone.
@@ -13,6 +16,39 @@ export function nowColombia(): Date {
  */
 export function todayColombia(): string {
   return toISODate(nowColombia());
+}
+
+/**
+ * Converts a Colombia-local date or datetime into an UTC ISO timestamp.
+ *
+ * Supabase stores timestamptz columns in UTC. Screens work with Colombia
+ * business dates, so day filters must query the matching UTC bounds.
+ */
+export function colombiaLocalToUtcISOString(value: string, endOfDay = false): string {
+  let localValue = value;
+
+  if (DATE_ONLY_PATTERN.test(value)) {
+    localValue = `${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}`;
+  }
+
+  if (!HAS_TIMEZONE_PATTERN.test(localValue)) {
+    localValue = `${localValue}${COLOMBIA_UTC_OFFSET}`;
+  }
+
+  return new Date(localValue).toISOString();
+}
+
+/**
+ * Returns UTC query bounds for Colombia-local date/datetime ranges.
+ */
+export function colombiaDateRangeToUtc(
+  from: string,
+  to: string,
+): { fromUtc: string; toUtc: string } {
+  return {
+    fromUtc: colombiaLocalToUtcISOString(from, false),
+    toUtc: colombiaLocalToUtcISOString(to, true),
+  };
 }
 
 /**
