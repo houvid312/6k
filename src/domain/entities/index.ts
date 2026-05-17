@@ -9,6 +9,7 @@ export type { InventoryItem } from './InventoryItem';
 export type { Purchase } from './Purchase';
 export type { Transfer, TransferItem } from './Transfer';
 export type { CashClosing, DenominationCount } from './CashClosing';
+export type { CashAuditEntry } from './CashAuditEntry';
 export type { PhysicalCount, PhysicalCountItem } from './PhysicalCount';
 export type { Validation, AlertType } from './Validation';
 export type { CreditEntry, DebtorType } from './CreditEntry';

@@ -59,16 +59,21 @@ export class SupabasePurchaseRepository implements IPurchaseRepository {
     return toEntity(data as PurchaseRow);
   }
 
-  async getByDateRange(from: string, to: string): Promise<Purchase[]> {
+  async getByDateRange(from: string, to: string, storeId?: string): Promise<Purchase[]> {
     const fromTs = from.includes('T') ? from : `${from}T00:00:00`;
     const toTs = to.includes('T') ? to : `${to}T23:59:59`;
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('purchases')
       .select('*')
       .gte('created_at', fromTs)
-      .lte('created_at', toTs)
-      .order('created_at', { ascending: false });
+      .lte('created_at', toTs);
+
+    if (storeId) {
+      query = query.eq('store_id', storeId);
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false });
     if (error) throw error;
     return (data as PurchaseRow[]).map(toEntity);
   }

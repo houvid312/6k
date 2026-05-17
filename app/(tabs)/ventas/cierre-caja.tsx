@@ -128,7 +128,7 @@ export default function CierreCajaScreen() {
     try {
       const updated = await cashClosingService.confirmClosing(existingClosing.id, '');
       setExistingClosing(updated);
-      showSuccess('Cierre confirmado');
+      showSuccess('Cierre confirmado y periodo bloqueado');
     } catch {
       showError('No se pudo confirmar el cierre');
     } finally {
@@ -142,7 +142,7 @@ export default function CierreCajaScreen() {
     try {
       const updated = await cashClosingService.returnToDraft(existingClosing.id);
       setExistingClosing(updated);
-      showSuccess('Cierre devuelto a borrador');
+      showSuccess('Cierre devuelto a borrador; periodo reabierto');
     } catch {
       showError('No se pudo devolver a borrador');
     } finally {

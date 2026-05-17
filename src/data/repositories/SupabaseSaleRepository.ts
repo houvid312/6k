@@ -12,6 +12,8 @@ interface SaleRow {
   total_portions: number;
   total_amount: number;
   packaging_total: number | null;
+  total_cost_cop: number | null;
+  gross_margin_cop: number | null;
   cash_amount: number;
   bank_amount: number;
   payment_method: string;
@@ -40,6 +42,10 @@ interface SaleItemRow {
   portions: number;
   unit_price: number;
   subtotal: number;
+  recipe_cost_cop: number | null;
+  additions_cost_cop: number | null;
+  packaging_cost_cop: number | null;
+  total_cost_cop: number | null;
   additions_total: number;
   packaging_supply_id: string | null;
   packaging_label: string | null;
@@ -81,6 +87,10 @@ function saleItemRowToEntity(row: SaleItemRow, additions?: SaleItemAddition[]): 
     portions: row.portions,
     unitPrice: row.unit_price,
     subtotal: row.subtotal,
+    recipeCostCop: row.recipe_cost_cop ?? 0,
+    additionsCostCop: row.additions_cost_cop ?? 0,
+    packagingCostCop: row.packaging_cost_cop ?? 0,
+    totalCostCop: row.total_cost_cop ?? 0,
     additions: additions && additions.length > 0 ? additions : undefined,
     additionsTotal: row.additions_total || undefined,
     packagingSupplyId: row.packaging_supply_id ?? undefined,
@@ -100,6 +110,8 @@ function saleRowToEntity(row: SaleRow, items: SaleItem[]): Sale {
     totalPortions: row.total_portions,
     totalAmount: row.total_amount,
     packagingTotal: row.packaging_total ?? 0,
+    totalCostCop: row.total_cost_cop ?? 0,
+    grossMarginCop: row.gross_margin_cop ?? (row.total_amount - (row.total_cost_cop ?? 0)),
     cashAmount: row.cash_amount,
     bankAmount: row.bank_amount,
     paymentMethod: row.payment_method as PaymentMethod,
@@ -248,6 +260,8 @@ export class SupabaseSaleRepository implements ISaleRepository {
         total_portions: sale.totalPortions,
         total_amount: sale.totalAmount,
         packaging_total: sale.packagingTotal ?? 0,
+        total_cost_cop: sale.totalCostCop ?? 0,
+        gross_margin_cop: sale.grossMarginCop ?? sale.totalAmount - (sale.totalCostCop ?? 0),
         cash_amount: sale.cashAmount,
         bank_amount: sale.bankAmount,
         observations: sale.observations ?? null,
@@ -272,6 +286,10 @@ export class SupabaseSaleRepository implements ISaleRepository {
       portions: item.portions,
       unit_price: item.unitPrice,
       subtotal: item.subtotal,
+      recipe_cost_cop: item.recipeCostCop ?? 0,
+      additions_cost_cop: item.additionsCostCop ?? 0,
+      packaging_cost_cop: item.packagingCostCop ?? 0,
+      total_cost_cop: item.totalCostCop ?? 0,
       additions_total: item.additionsTotal ?? 0,
       packaging_supply_id: item.packagingSupplyId ?? null,
       packaging_label: item.packagingLabel ?? null,
@@ -330,6 +348,10 @@ export class SupabaseSaleRepository implements ISaleRepository {
       portions: item.portions,
       unit_price: item.unitPrice,
       subtotal: item.subtotal,
+      recipe_cost_cop: item.recipeCostCop ?? 0,
+      additions_cost_cop: item.additionsCostCop ?? 0,
+      packaging_cost_cop: item.packagingCostCop ?? 0,
+      total_cost_cop: item.totalCostCop ?? 0,
       additions_total: item.additionsTotal ?? 0,
       packaging_supply_id: item.packagingSupplyId ?? null,
       packaging_label: item.packagingLabel ?? null,
@@ -358,6 +380,8 @@ export class SupabaseSaleRepository implements ISaleRepository {
       p_is_paid: sale.isPaid,
       p_customer_note: sale.customerNote ?? '',
       p_packaging_supply_id: sale.packagingSupplyId ?? null,
+      p_total_cost_cop: sale.totalCostCop ?? 0,
+      p_gross_margin_cop: sale.grossMarginCop ?? sale.totalAmount - (sale.totalCostCop ?? 0),
       p_items: itemPayload,
     });
 

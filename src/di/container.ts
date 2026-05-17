@@ -8,6 +8,7 @@ import {
   SupabasePurchaseRepository,
   SupabaseTransferRepository,
   SupabaseCashClosingRepository,
+  SupabaseCashAuditRepository,
   SupabaseCreditRepository,
   SupabaseWorkerRepository,
   SupabaseScheduleRepository,
@@ -53,6 +54,7 @@ const storeRepo = new SupabaseStoreRepository();
 const purchaseRepo = new SupabasePurchaseRepository();
 const transferRepo = new SupabaseTransferRepository();
 const cashClosingRepo = new SupabaseCashClosingRepository();
+const cashAuditRepo = new SupabaseCashAuditRepository();
 const creditRepo = new SupabaseCreditRepository();
 const workerRepo = new SupabaseWorkerRepository();
 const scheduleRepo = new SupabaseScheduleRepository();
@@ -72,7 +74,7 @@ const cashOpeningRepo = new SupabaseCashOpeningRepository();
 const checklistRepo = new SupabaseChecklistRepository();
 
 // Services
-const saleService = new SaleService(saleRepo, inventoryRepo, recipeRepo);
+const saleService = new SaleService(saleRepo, inventoryRepo, recipeRepo, supplyRepo);
 const inventoryService = new InventoryService(inventoryRepo, supplyRepo);
 const transferService = new TransferService(transferRepo, inventoryRepo, supplyRepo);
 const validationService = new ValidationService(saleRepo, recipeRepo, inventoryRepo, writeoffRepo);
@@ -98,6 +100,7 @@ export const container = {
   purchaseRepo,
   transferRepo,
   cashClosingRepo,
+  cashAuditRepo,
   creditRepo,
   workerRepo,
   scheduleRepo,

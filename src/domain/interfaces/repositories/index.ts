@@ -7,6 +7,7 @@ export type { IStoreRepository } from './IStoreRepository';
 export type { IPurchaseRepository } from './IPurchaseRepository';
 export type { ITransferRepository } from './ITransferRepository';
 export type { ICashClosingRepository } from './ICashClosingRepository';
+export type { ICashAuditRepository } from './ICashAuditRepository';
 export type { ICreditRepository } from './ICreditRepository';
 export type { IWorkerRepository } from './IWorkerRepository';
 export type { IScheduleRepository } from './IScheduleRepository';

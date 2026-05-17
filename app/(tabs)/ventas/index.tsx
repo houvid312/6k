@@ -497,6 +497,81 @@ export default function VentasScreen() {
   }, [addToCart, beverageQuantity, formatsByProductId, getPackagingSalePrice, selectedAdditions, selectedPackagingSupplyId, selectedProduct]);
 
   const totalAmount = cart.reduce((sum, i) => sum + i.subtotal, 0);
+  const mixedPaymentEditedFieldRef = useRef<'cash' | 'bank'>('cash');
+
+  const clampTenderAmount = useCallback((value: number) => {
+    if (!Number.isFinite(value)) return 0;
+    return Math.min(Math.max(value, 0), totalAmount);
+  }, [totalAmount]);
+
+  const normalizeMixedPayment = useCallback((anchor: 'cash' | 'bank' = mixedPaymentEditedFieldRef.current) => {
+    if (anchor === 'bank') {
+      const bank = clampTenderAmount(bankAmount);
+      return {
+        cash: Math.max(totalAmount - bank, 0),
+        bank,
+      };
+    }
+
+    const cash = clampTenderAmount(cashAmount);
+    return {
+      cash,
+      bank: Math.max(totalAmount - cash, 0),
+    };
+  }, [bankAmount, cashAmount, clampTenderAmount, totalAmount]);
+
+  const handleMixedCashChange = useCallback((value: number) => {
+    const cash = clampTenderAmount(value);
+    mixedPaymentEditedFieldRef.current = 'cash';
+    setCashAmount(cash);
+    setBankAmount(Math.max(totalAmount - cash, 0));
+  }, [clampTenderAmount, totalAmount]);
+
+  const handleMixedBankChange = useCallback((value: number) => {
+    const bank = clampTenderAmount(value);
+    mixedPaymentEditedFieldRef.current = 'bank';
+    setBankAmount(bank);
+    setCashAmount(Math.max(totalAmount - bank, 0));
+  }, [clampTenderAmount, totalAmount]);
+
+  const handlePaymentMethodChange = useCallback((method: PaymentMethod) => {
+    if (method === paymentMethod) return;
+
+    setPaymentMethod(method);
+
+    if (method === PaymentMethod.EFECTIVO) {
+      mixedPaymentEditedFieldRef.current = 'cash';
+      setCashAmount(totalAmount);
+      setBankAmount(0);
+      return;
+    }
+
+    if (method === PaymentMethod.TRANSFERENCIA) {
+      mixedPaymentEditedFieldRef.current = 'bank';
+      setCashAmount(0);
+      setBankAmount(totalAmount);
+      setAmountReceived(0);
+      return;
+    }
+
+    if (paymentMethod === PaymentMethod.TRANSFERENCIA) {
+      mixedPaymentEditedFieldRef.current = 'bank';
+      setCashAmount(0);
+      setBankAmount(totalAmount);
+      return;
+    }
+
+    mixedPaymentEditedFieldRef.current = 'cash';
+    setCashAmount(totalAmount);
+    setBankAmount(0);
+  }, [paymentMethod, totalAmount]);
+
+  useEffect(() => {
+    if (paymentMethod !== PaymentMethod.MIXTO) return;
+    const normalized = normalizeMixedPayment();
+    if (cashAmount !== normalized.cash) setCashAmount(normalized.cash);
+    if (bankAmount !== normalized.bank) setBankAmount(normalized.bank);
+  }, [bankAmount, cashAmount, normalizeMixedPayment, paymentMethod]);
 
   // V6 fix: only reset confirm state when cart becomes empty (not on every item change)
   const prevCartLengthRef = useRef(cart.length);
@@ -606,6 +681,7 @@ export default function VentasScreen() {
 
     setCart(saleToCartItems(sale), sale.packagingSupplyId);
     setEditingSale(sale);
+    mixedPaymentEditedFieldRef.current = sale.paymentMethod === PaymentMethod.TRANSFERENCIA ? 'bank' : 'cash';
     setPaymentMethod(sale.paymentMethod);
     setCashAmount(sale.cashAmount);
     setBankAmount(sale.bankAmount);
@@ -617,17 +693,13 @@ export default function VentasScreen() {
   }, [saleToCartItems, scrollToTop, setCart]);
 
   const handleSubmitSale = useCallback(async () => {
+    const mixedAmounts = normalizeMixedPayment();
     const effectiveCash = paymentMethod === PaymentMethod.TRANSFERENCIA ? 0
       : paymentMethod === PaymentMethod.EFECTIVO ? totalAmount
-      : cashAmount;
+      : mixedAmounts.cash;
     const effectiveBank = paymentMethod === PaymentMethod.EFECTIVO ? 0
       : paymentMethod === PaymentMethod.TRANSFERENCIA ? totalAmount
-      : bankAmount;
-
-    if (paymentMethod === PaymentMethod.MIXTO && effectiveCash + effectiveBank < totalAmount) {
-      Alert.alert('Error', 'Los montos no cubren el total de la venta');
-      return;
-    }
+      : mixedAmounts.bank;
 
     setSubmitting(true);
     try {
@@ -712,7 +784,7 @@ export default function VentasScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [applyPortionDelta, bankAmount, cart, cartPackagingSupplyId, cashAmount, clearCart, editingSale, isPaid, loadPendingSales, observations, paymentMethod, saleService, selectedStoreId, totalAmount]);
+  }, [applyPortionDelta, cart, cartPackagingSupplyId, clearCart, editingSale, isPaid, loadPendingSales, normalizeMixedPayment, observations, paymentMethod, saleService, selectedStoreId, totalAmount]);
 
   const handleFabPress = useCallback(() => {
     if (cart.length === 0) {
@@ -738,11 +810,11 @@ export default function VentasScreen() {
     if (editingSale?.id === saleId && completed) {
       setEditingSale(completed);
       if (updates.isPaid !== undefined) setIsPaid(updates.isPaid);
-      if (updates.paymentMethod !== undefined) setPaymentMethod(updates.paymentMethod);
+      if (updates.paymentMethod !== undefined) handlePaymentMethodChange(updates.paymentMethod);
     }
     setPendingSales(merged.filter((s) => !(s.isPaid && s.isDispatched)));
     return isFullyDone;
-  }, [editingSale, pendingSales, setPendingSales]);
+  }, [editingSale, handlePaymentMethodChange, pendingSales, setPendingSales]);
 
   const handleMarkAsPaid = useCallback(async (sale: Sale) => {
     try {
@@ -1047,19 +1119,19 @@ export default function VentasScreen() {
             <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 8 }}>
               Metodo de Pago
             </Text>
-            <PaymentMethodPicker value={paymentMethod} onChange={setPaymentMethod} />
+            <PaymentMethodPicker value={paymentMethod} onChange={handlePaymentMethodChange} />
 
             {cart.length > 0 && paymentMethod === PaymentMethod.MIXTO && (
               <View style={styles.mixtoInputs}>
                 <CurrencyInput
                   value={cashAmount}
-                  onChangeValue={setCashAmount}
+                  onChangeValue={handleMixedCashChange}
                   label="Efectivo"
                   style={styles.halfInput}
                 />
                 <CurrencyInput
                   value={bankAmount}
-                  onChangeValue={setBankAmount}
+                  onChangeValue={handleMixedBankChange}
                   label="Transferencia"
                   style={styles.halfInput}
                 />
@@ -1075,7 +1147,7 @@ export default function VentasScreen() {
                   label="Monto Recibido"
                 />
                 {amountReceived > 0 && (() => {
-                  const cashPortion = paymentMethod === PaymentMethod.MIXTO ? cashAmount : totalAmount;
+                  const cashPortion = paymentMethod === PaymentMethod.MIXTO ? normalizeMixedPayment().cash : totalAmount;
                   const change = amountReceived - cashPortion;
                   return (
                     <Text

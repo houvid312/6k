@@ -7,6 +7,7 @@ export { SupabaseStoreRepository } from './SupabaseStoreRepository';
 export { SupabasePurchaseRepository } from './SupabasePurchaseRepository';
 export { SupabaseTransferRepository } from './SupabaseTransferRepository';
 export { SupabaseCashClosingRepository } from './SupabaseCashClosingRepository';
+export { SupabaseCashAuditRepository } from './SupabaseCashAuditRepository';
 export { SupabaseCreditRepository } from './SupabaseCreditRepository';
 export { SupabaseWorkerRepository } from './SupabaseWorkerRepository';
 export { SupabaseScheduleRepository } from './SupabaseScheduleRepository';

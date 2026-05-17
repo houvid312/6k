@@ -11,6 +11,10 @@ export interface SaleItem {
   portions: number;
   unitPrice: number;
   subtotal: number;
+  recipeCostCop?: number;
+  additionsCostCop?: number;
+  packagingCostCop?: number;
+  totalCostCop?: number;
   additions?: SaleItemAddition[];
   additionsTotal?: number;
   packagingSupplyId?: string;

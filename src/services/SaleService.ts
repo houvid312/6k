@@ -1,8 +1,9 @@
-import { Sale, SaleItem } from '../domain/entities';
+import { Recipe, Sale, SaleItem, Supply } from '../domain/entities';
 import { PaymentMethod } from '../domain/enums';
 import { ISaleRepository, DailySummary } from '../domain/interfaces/repositories';
 import { IInventoryRepository } from '../domain/interfaces/repositories';
 import { IRecipeRepository } from '../domain/interfaces/repositories';
+import { ISupplyRepository } from '../domain/interfaces/repositories';
 
 export interface CreateSaleItemAdditionInput {
   additionCatalogId: string;
@@ -32,13 +33,52 @@ export class SaleService {
     private saleRepo: ISaleRepository,
     private inventoryRepo: IInventoryRepository,
     private recipeRepo: IRecipeRepository,
+    private supplyRepo: ISupplyRepository,
   ) {}
 
-  private buildSaleItems(items: CreateSaleItemInput[]): {
+  private valueQuantityAtStorePrice(
+    supplyById: Map<string, Supply>,
+    supplyId: string | undefined,
+    quantity: number,
+  ): number {
+    if (!supplyId || quantity <= 0) return 0;
+    const supply = supplyById.get(supplyId);
+    if (!supply?.isBillableToStore || supply.gramsPerBag <= 0 || supply.commercialPriceCop <= 0) {
+      return 0;
+    }
+    return Math.round((quantity / supply.gramsPerBag) * supply.commercialPriceCop);
+  }
+
+  private getRecipeCost(
+    recipeByProductId: Map<string, Recipe>,
+    supplyById: Map<string, Supply>,
+    productId: string,
+    portions: number,
+  ): number {
+    const recipe = recipeByProductId.get(productId);
+    return (recipe?.ingredients ?? []).reduce(
+      (sum, ingredient) => sum + this.valueQuantityAtStorePrice(
+        supplyById,
+        ingredient.supplyId,
+        ingredient.gramsPerPortion * portions,
+      ),
+      0,
+    );
+  }
+
+  private async buildSaleItems(items: CreateSaleItemInput[]): Promise<{
     saleItems: SaleItem[];
     totalPortions: number;
     totalAmount: number;
-  } {
+    totalCostCop: number;
+    grossMarginCop: number;
+  }> {
+    const [recipes, supplies] = await Promise.all([
+      this.recipeRepo.getAll(),
+      this.supplyRepo.getAll(false),
+    ]);
+    const recipeByProductId = new Map(recipes.map((recipe) => [recipe.productId, recipe]));
+    const supplyById = new Map(supplies.map((supply) => [supply.id, supply]));
     const saleItems: SaleItem[] = [];
     let totalPortions = 0;
 
@@ -49,6 +89,21 @@ export class SaleService {
       const packagingUnitPrice = item.packagingUnitPrice ?? 0;
       const packagingTotal = packagingUnitPrice * packagingQuantity;
       const subtotal = item.unitPrice * item.quantity + additionsTotal + packagingTotal;
+      const recipeCostCop = this.getRecipeCost(recipeByProductId, supplyById, item.productId, portions);
+      const additionsCostCop = (item.additions ?? []).reduce(
+        (sum, addition) => sum + this.valueQuantityAtStorePrice(
+          supplyById,
+          addition.supplyId,
+          addition.grams * addition.quantity,
+        ),
+        0,
+      );
+      const packagingCostCop = this.valueQuantityAtStorePrice(
+        supplyById,
+        item.packagingSupplyId,
+        packagingQuantity,
+      );
+      const totalCostCop = recipeCostCop + additionsCostCop + packagingCostCop;
       totalPortions += portions;
 
       saleItems.push({
@@ -60,6 +115,10 @@ export class SaleService {
         portions,
         unitPrice: item.unitPrice,
         subtotal,
+        recipeCostCop,
+        additionsCostCop,
+        packagingCostCop,
+        totalCostCop,
         additions: item.additions,
         additionsTotal: additionsTotal || undefined,
         packagingSupplyId: item.packagingSupplyId,
@@ -74,6 +133,9 @@ export class SaleService {
       saleItems,
       totalPortions,
       totalAmount: saleItems.reduce((sum, si) => sum + si.subtotal, 0),
+      totalCostCop: saleItems.reduce((sum, si) => sum + (si.totalCostCop ?? 0), 0),
+      grossMarginCop: saleItems.reduce((sum, si) => sum + si.subtotal, 0)
+        - saleItems.reduce((sum, si) => sum + (si.totalCostCop ?? 0), 0),
     };
   }
 
@@ -91,7 +153,7 @@ export class SaleService {
     customerNote?: string,
     packagingSupplyId?: string,
   ): Promise<Sale> {
-    const { saleItems, totalPortions, totalAmount } = this.buildSaleItems(items);
+    const { saleItems, totalPortions, totalAmount, totalCostCop, grossMarginCop } = await this.buildSaleItems(items);
 
     const sale = await this.saleRepo.create({
       storeId,
@@ -100,6 +162,8 @@ export class SaleService {
       totalPortions,
       totalAmount,
       packagingTotal: saleItems.reduce((sum, si) => sum + (si.packagingTotal ?? 0), 0),
+      totalCostCop,
+      grossMarginCop,
       paymentMethod,
       cashAmount,
       bankAmount,
@@ -128,7 +192,7 @@ export class SaleService {
     customerNote?: string,
     packagingSupplyId?: string,
   ): Promise<Sale> {
-    const { saleItems, totalPortions, totalAmount } = this.buildSaleItems(items);
+    const { saleItems, totalPortions, totalAmount, totalCostCop, grossMarginCop } = await this.buildSaleItems(items);
 
     return this.saleRepo.update({
       id: saleId,
@@ -138,6 +202,8 @@ export class SaleService {
       totalPortions,
       totalAmount,
       packagingTotal: saleItems.reduce((sum, si) => sum + (si.packagingTotal ?? 0), 0),
+      totalCostCop,
+      grossMarginCop,
       paymentMethod,
       cashAmount,
       bankAmount,

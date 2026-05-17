@@ -9,6 +9,8 @@ export interface Sale {
   totalPortions: number;
   totalAmount: number;
   packagingTotal?: number;
+  totalCostCop?: number;
+  grossMarginCop?: number;
   cashAmount: number;
   bankAmount: number;
   paymentMethod: PaymentMethod;

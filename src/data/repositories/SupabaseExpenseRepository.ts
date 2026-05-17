@@ -64,8 +64,15 @@ export class SupabaseExpenseRepository implements IExpenseRepository {
   }
 
   async delete(id: string): Promise<void> {
-    const { error } = await supabase.from('expenses').delete().eq('id', id);
+    const { data, error } = await supabase
+      .from('expenses')
+      .delete()
+      .eq('id', id)
+      .select('id');
     if (error) throw error;
+    if (!data || data.length === 0) {
+      throw new Error('No se elimino el gasto. Puede que no tengas permisos para borrar este registro.');
+    }
   }
 
   async update(id: string, expense: Partial<Omit<Expense, 'id'>>): Promise<Expense> {

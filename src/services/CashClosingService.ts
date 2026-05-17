@@ -99,8 +99,8 @@ export class CashClosingService {
   ): Promise<CashClosing> {
     const existing = await this.cashClosingRepo.getByDate(storeId, date);
     if (!existing) throw new Error('Cierre no encontrado');
-    if (existing.status === ClosingStatus.APPROVED) {
-      throw new Error('No se puede editar un cierre aprobado');
+    if (existing.status !== ClosingStatus.DRAFT) {
+      throw new Error('Devuelve el cierre a borrador antes de editar el periodo');
     }
 
     const cashTotal = this.calculateDenominationTotal(denominations);
