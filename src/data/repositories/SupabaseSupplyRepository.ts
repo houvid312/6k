@@ -9,6 +9,10 @@ interface SupplyRow {
   name: string;
   unit: string;
   grams_per_bag: number;
+  production_cost_cop?: number | null;
+  commercial_price_cop: number | null;
+  sale_price_cop: number | null;
+  is_billable_to_store: boolean | null;
 }
 
 // --- Mappers ---
@@ -19,18 +23,25 @@ function toEntity(row: SupplyRow): Supply {
     name: row.name,
     unit: row.unit as SupplyUnit,
     gramsPerBag: row.grams_per_bag,
+    productionCostCop: row.production_cost_cop ?? 0,
+    commercialPriceCop: row.commercial_price_cop ?? 0,
+    salePriceCop: row.sale_price_cop ?? 0,
+    isBillableToStore: row.is_billable_to_store ?? true,
   };
 }
 
 // --- Repository ---
 
 export class SupabaseSupplyRepository implements ISupplyRepository {
-  async getAll(): Promise<Supply[]> {
+  async getAll(includeProductionCost = false): Promise<Supply[]> {
+    const columns = includeProductionCost
+      ? '*'
+      : 'id,name,unit,grams_per_bag,commercial_price_cop,sale_price_cop,is_billable_to_store';
     const { data, error } = await supabase
       .from('supplies')
-      .select('*');
+      .select(columns);
     if (error) throw error;
-    return (data as SupplyRow[]).map(toEntity);
+    return (data as unknown as SupplyRow[]).map(toEntity);
   }
 
   async getById(id: string): Promise<Supply | null> {
@@ -53,6 +64,10 @@ export class SupabaseSupplyRepository implements ISupplyRepository {
         name: supply.name,
         unit: supply.unit,
         grams_per_bag: supply.gramsPerBag,
+        production_cost_cop: supply.productionCostCop,
+        commercial_price_cop: supply.commercialPriceCop,
+        sale_price_cop: supply.salePriceCop,
+        is_billable_to_store: supply.isBillableToStore,
       })
       .select()
       .single();
@@ -65,6 +80,10 @@ export class SupabaseSupplyRepository implements ISupplyRepository {
     if (updates.name !== undefined) row.name = updates.name;
     if (updates.unit !== undefined) row.unit = updates.unit;
     if (updates.gramsPerBag !== undefined) row.grams_per_bag = updates.gramsPerBag;
+    if (updates.productionCostCop !== undefined) row.production_cost_cop = updates.productionCostCop;
+    if (updates.commercialPriceCop !== undefined) row.commercial_price_cop = updates.commercialPriceCop;
+    if (updates.salePriceCop !== undefined) row.sale_price_cop = updates.salePriceCop;
+    if (updates.isBillableToStore !== undefined) row.is_billable_to_store = updates.isBillableToStore;
 
     const { data, error } = await supabase
       .from('supplies')

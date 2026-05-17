@@ -7,4 +7,5 @@ export interface ITransferRepository {
   getReceivedByDestination(toStoreId: string, fromDate: string, toDate: string): Promise<Transfer[]>;
   create(transfer: Omit<Transfer, 'id'>): Promise<Transfer>;
   updateStatus(id: string, status: TransferStatus): Promise<Transfer>;
+  receiveWithBilling(id: string): Promise<Transfer>;
 }

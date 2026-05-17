@@ -9,16 +9,21 @@ import {
   Portal,
   Modal,
   Snackbar,
+  Switch,
   useTheme,
 } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
+import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { useDI } from '../../../src/di/providers';
+import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
 import { Supply, SupplyUnit } from '../../../src/domain/entities';
+import { UserRole } from '../../../src/domain/enums';
+import { formatCOP, formatCOPDecimal } from '../../../src/utils/currency';
 
 const UNIT_OPTIONS: { value: SupplyUnit; label: string }[] = [
   { value: 'GRAMOS', label: 'Gramos' },
@@ -30,15 +35,35 @@ interface FormState {
   name: string;
   unit: SupplyUnit;
   gramsPerBag: string;
+  productionCostCop: string;
+  commercialPriceCop: number;
+  salePriceCop: number;
+  isBillableToStore: boolean;
 }
 
-const EMPTY_FORM: FormState = { name: '', unit: 'GRAMOS', gramsPerBag: '' };
+const EMPTY_FORM: FormState = {
+  name: '',
+  unit: 'GRAMOS',
+  gramsPerBag: '',
+  productionCostCop: '',
+  commercialPriceCop: 0,
+  salePriceCop: 0,
+  isBillableToStore: true,
+};
+
+function parseDecimal(value: string): number {
+  const normalized = value.replace(/\./g, '').replace(',', '.').replace(/[^0-9.]/g, '');
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
 export default function InsumosScreen() {
   const theme = useTheme();
   const { supplyRepo } = useDI();
+  const userRole = useAppStore((s) => s.userRole);
   const { supplies: cachedSupplies, refreshMasterData } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
+  const isAdmin = userRole === UserRole.ADMIN;
 
   const [supplies, setSupplies] = useState<Supply[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,6 +90,10 @@ export default function InsumosScreen() {
       name: supply.name,
       unit: supply.unit,
       gramsPerBag: String(supply.gramsPerBag),
+      productionCostCop: String(supply.productionCostCop),
+      commercialPriceCop: supply.commercialPriceCop,
+      salePriceCop: supply.salePriceCop,
+      isBillableToStore: supply.isBillableToStore,
     });
     setModalVisible(true);
   };
@@ -79,21 +108,45 @@ export default function InsumosScreen() {
       showError('Ingresa gramos por bolsa validos');
       return;
     }
+    const productionCost = parseDecimal(form.productionCostCop);
+    if (isAdmin && productionCost < 0) {
+      showError('Ingresa un costo de produccion valido');
+      return;
+    }
+    if (isAdmin && form.commercialPriceCop < 0) {
+      showError('Ingresa un precio comercial valido');
+      return;
+    }
+    if (isAdmin && form.salePriceCop < 0) {
+      showError('Ingresa un precio de venta valido');
+      return;
+    }
 
     setSaving(true);
     try {
       if (editingId) {
-        await supplyRepo.update(editingId, {
+        const updates: Partial<Omit<Supply, 'id'>> = {
           name: form.name.trim(),
           unit: form.unit,
           gramsPerBag: gpb,
-        });
+        };
+        if (isAdmin) {
+          updates.productionCostCop = productionCost;
+          updates.commercialPriceCop = form.commercialPriceCop;
+          updates.salePriceCop = form.salePriceCop;
+          updates.isBillableToStore = form.isBillableToStore;
+        }
+        await supplyRepo.update(editingId, updates);
         showSuccess(`${form.name.trim()} actualizado`);
       } else {
         await supplyRepo.create({
           name: form.name.trim(),
           unit: form.unit,
           gramsPerBag: gpb,
+          productionCostCop: isAdmin ? productionCost : 0,
+          commercialPriceCop: isAdmin ? form.commercialPriceCop : 0,
+          salePriceCop: isAdmin ? form.salePriceCop : 0,
+          isBillableToStore: isAdmin ? form.isBillableToStore : true,
         });
         showSuccess(`${form.name.trim()} creado`);
       }
@@ -161,6 +214,17 @@ export default function InsumosScreen() {
                 <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
                   {supply.gramsPerBag}g/bolsa | {supply.unit.toLowerCase()}
                 </Text>
+                <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
+                  Precio local: {formatCOP(supply.isBillableToStore ? supply.commercialPriceCop : 0)}
+                </Text>
+                <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
+                  Precio venta cliente: {formatCOP(supply.salePriceCop)}
+                </Text>
+                {isAdmin && (
+                  <Text variant="bodySmall" style={{ color: '#777', marginTop: 2 }}>
+                    Costo produccion: {formatCOPDecimal(supply.productionCostCop)}
+                  </Text>
+                )}
               </View>
               <IconButton
                 icon="pencil"
@@ -215,6 +279,53 @@ export default function InsumosScreen() {
             textColor="#F5F0EB"
             right={<TextInput.Affix text="g" textStyle={{ color: '#999' }} />}
           />
+
+          {isAdmin && (
+            <>
+              <TextInput
+                label="Costo de produccion"
+                value={form.productionCostCop}
+                onChangeText={(v) => setForm((p) => ({ ...p, productionCostCop: v }))}
+                keyboardType="decimal-pad"
+                mode="outlined"
+                style={styles.input}
+                outlineColor="#333"
+                activeOutlineColor="#E63946"
+                textColor="#F5F0EB"
+                left={<TextInput.Affix text="$" textStyle={{ color: '#999' }} />}
+              />
+
+              <CurrencyInput
+                label="Precio al local"
+                value={form.commercialPriceCop}
+                onChangeValue={(v) => setForm((p) => ({ ...p, commercialPriceCop: v }))}
+                style={styles.input}
+              />
+
+              <CurrencyInput
+                label="Precio venta cliente"
+                value={form.salePriceCop}
+                onChangeValue={(v) => setForm((p) => ({ ...p, salePriceCop: v }))}
+                style={styles.input}
+              />
+
+              <View style={styles.switchRow}>
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodyMedium" style={{ color: '#F5F0EB', fontWeight: '600' }}>
+                    Cobrable al local
+                  </Text>
+                  <Text variant="bodySmall" style={{ color: '#999' }}>
+                    Si esta apagado, el traslado factura este insumo en $0.
+                  </Text>
+                </View>
+                <Switch
+                  value={form.isBillableToStore}
+                  onValueChange={(v) => setForm((p) => ({ ...p, isBillableToStore: v }))}
+                  color="#E63946"
+                />
+              </View>
+            </>
+          )}
 
           <View style={styles.modalActions}>
             <Button
@@ -284,5 +395,11 @@ const styles = StyleSheet.create({
   modalActions: {
     flexDirection: 'row',
     marginTop: 8,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 12,
   },
 });

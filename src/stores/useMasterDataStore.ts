@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { Product, Supply, Worker } from '../domain/entities';
+import { UserRole } from '../domain/enums';
 import { container } from '../di/container';
+import { useAppStore } from './useAppStore';
 
 interface MasterDataState {
   supplies: Supply[];
@@ -9,6 +11,7 @@ interface MasterDataState {
   loaded: boolean;
   loading: boolean;
   lastLoadedAt: number | null;
+  loadedForRole: UserRole | null;
 
   loadMasterData: () => Promise<void>;
   refreshMasterData: () => Promise<void>;
@@ -24,33 +27,36 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
   loaded: false,
   loading: false,
   lastLoadedAt: null,
+  loadedForRole: null,
 
   loadMasterData: async () => {
-    if (get().loaded) return;
+    const role = useAppStore.getState().userRole;
+    if (get().loaded && get().loadedForRole === role) return;
     const state = get();
     if (state.loading) return;
     set({ loading: true });
     try {
       const [supplies, products, workers] = await Promise.all([
-        container.supplyRepo.getAll(),
+        container.supplyRepo.getAll(role === UserRole.ADMIN),
         container.productRepo.getAll(),
         container.workerRepo.getAll(),
       ]);
-      set({ supplies, products, workers, loaded: true, lastLoadedAt: Date.now() });
+      set({ supplies, products, workers, loaded: true, loadedForRole: role, lastLoadedAt: Date.now() });
     } finally {
       set({ loading: false });
     }
   },
 
   refreshMasterData: async () => {
+    const role = useAppStore.getState().userRole;
     set({ loading: true });
     try {
       const [supplies, products, workers] = await Promise.all([
-        container.supplyRepo.getAll(),
+        container.supplyRepo.getAll(role === UserRole.ADMIN),
         container.productRepo.getAll(),
         container.workerRepo.getAll(),
       ]);
-      set({ supplies, products, workers, loaded: true, lastLoadedAt: Date.now() });
+      set({ supplies, products, workers, loaded: true, loadedForRole: role, lastLoadedAt: Date.now() });
     } finally {
       set({ loading: false });
     }

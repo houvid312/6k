@@ -15,6 +15,27 @@ import { TransferStatus } from '../../../src/domain/enums';
 
 type ConfirmAction = 'receive' | 'cancel' | 'transit';
 
+const STATUS_SORT_ORDER: Record<TransferStatus, number> = {
+  [TransferStatus.PENDING]: 0,
+  [TransferStatus.IN_TRANSIT]: 1,
+  [TransferStatus.RECEIVED]: 2,
+  [TransferStatus.CANCELLED]: 3,
+};
+
+function getTransferTime(transfer: Transfer): number {
+  const timestamp = transfer.orderDate.includes('T')
+    ? transfer.orderDate
+    : transfer.createdAt ?? transfer.orderDate;
+  const value = new Date(timestamp).getTime();
+  return Number.isNaN(value) ? 0 : value;
+}
+
+function sortTransfers(a: Transfer, b: Transfer): number {
+  const statusDiff = STATUS_SORT_ORDER[a.status] - STATUS_SORT_ORDER[b.status];
+  if (statusDiff !== 0) return statusDiff;
+  return getTransferTime(b) - getTransferTime(a);
+}
+
 const CONFIRM_CONFIG: Record<ConfirmAction, { title: string; message: string; label: string }> = {
   transit: {
     title: 'Marcar En Transito',
@@ -23,7 +44,7 @@ const CONFIRM_CONFIG: Record<ConfirmAction, { title: string; message: string; la
   },
   receive: {
     title: 'Recibir Traslado',
-    message: 'Se actualizara el inventario del local con los items del traslado. Continuar?',
+    message: 'Se actualizara el inventario del local y se generara el cobro interno con los precios vigentes. Continuar?',
     label: 'Recibir',
   },
   cancel: {
@@ -46,13 +67,18 @@ export default function TrasladosScreen() {
   const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
 
-  const supplyMap = new Map(supplies.map((s) => [s.id, { name: s.name, gramsPerBag: s.gramsPerBag }]));
+  const supplyMap = new Map(supplies.map((s) => [s.id, {
+    name: s.name,
+    gramsPerBag: s.gramsPerBag,
+    commercialPriceCop: s.commercialPriceCop,
+    isBillableToStore: s.isBillableToStore,
+  }]));
 
   const loadTransfers = useCallback(async () => {
     setLoading(true);
     try {
       const data = await transferService.getTransfersByStore(selectedStoreId);
-      setTransfers(data.sort((a, b) => b.orderDate.localeCompare(a.orderDate)));
+      setTransfers([...data].sort(sortTransfers));
     } catch {
       setTransfers([]);
     } finally {

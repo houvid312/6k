@@ -1,13 +1,10 @@
-import React from 'react';
-import { StyleSheet, View, TouchableOpacity, Dimensions } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { StyleSheet, View, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 import { Product } from '../../domain/entities';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
 const GRID_PADDING = 12;
 const GRID_GAP = 8;
-const PIZZA_CARD_WIDTH = Math.floor((SCREEN_WIDTH - GRID_PADDING * 2 - GRID_GAP * 2) / 3);
-const BEV_CARD_WIDTH = Math.floor((SCREEN_WIDTH - GRID_PADDING * 2 - GRID_GAP * 3) / 4);
 
 const PIZZA_EMOJI: Record<string, string> = {
   'prod-hawaiana': '\uD83C\uDF4D',
@@ -51,6 +48,19 @@ function getPortionColor(count: number): string {
 
 export function ProductGrid({ products, onSelect, selectedId, availablePortions, soldPortions }: Props) {
   const theme = useTheme();
+  const { width } = useWindowDimensions();
+  const [gridWidth, setGridWidth] = useState(0);
+
+  const layout = useMemo(() => {
+    const availableWidth = Math.max(280, gridWidth || width - GRID_PADDING * 4);
+    const pizzaColumns = availableWidth >= 980 ? 4 : availableWidth >= 640 ? 3 : 2;
+    const beverageColumns = availableWidth >= 980 ? 6 : availableWidth >= 640 ? 4 : 3;
+
+    return {
+      pizzaCardWidth: Math.floor((availableWidth - GRID_GAP * (pizzaColumns - 1)) / pizzaColumns),
+      beverageCardWidth: Math.floor((availableWidth - GRID_GAP * (beverageColumns - 1)) / beverageColumns),
+    };
+  }, [gridWidth, width]);
 
   const pizzas = products.filter((p) => p.category === 'PIZZA');
   const beverages = products.filter((p) => p.category === 'BEBIDA');
@@ -69,7 +79,13 @@ export function ProductGrid({ products, onSelect, selectedId, availablePortions,
   }
 
   return (
-    <View>
+    <View
+      style={styles.container}
+      onLayout={(event) => {
+        const nextWidth = event.nativeEvent.layout.width;
+        setGridWidth((current) => Math.abs(current - nextWidth) < 1 ? current : nextWidth);
+      }}
+    >
       {/* Pizzas - 3 columns */}
       <View style={styles.grid}>
         {pizzas.map((item) => {
@@ -81,6 +97,7 @@ export function ProductGrid({ products, onSelect, selectedId, availablePortions,
               key={item.id}
               style={[
                 styles.pizzaCard,
+                { width: layout.pizzaCardWidth },
                 { backgroundColor: theme.colors.surface },
                 isSelected && { borderColor: theme.colors.primary },
               ]}
@@ -134,6 +151,7 @@ export function ProductGrid({ products, onSelect, selectedId, availablePortions,
                   key={item.id}
                   style={[
                     styles.bevCard,
+                    { width: layout.beverageCardWidth },
                     { backgroundColor: theme.colors.surface },
                     isSelected && { borderColor: theme.colors.primary },
                   ]}
@@ -158,16 +176,24 @@ export function ProductGrid({ products, onSelect, selectedId, availablePortions,
 }
 
 const styles = StyleSheet.create({
+  container: {
+    marginTop: 8,
+    width: '100%',
+    alignSelf: 'stretch',
+  },
   grid: {
+    width: '100%',
+    alignSelf: 'stretch',
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: GRID_GAP,
   },
   pizzaCard: {
-    width: PIZZA_CARD_WIDTH,
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 4,
+    justifyContent: 'center',
+    minHeight: 76,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
     borderRadius: 12,
     borderWidth: 2,
     borderColor: 'transparent',
@@ -191,7 +217,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   emoji: {
-    fontSize: 28,
+    fontSize: 24,
     marginBottom: 4,
   },
   productName: {
@@ -206,10 +232,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   bevCard: {
-    width: BEV_CARD_WIDTH,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 64,
     paddingVertical: 8,
-    paddingHorizontal: 2,
+    paddingHorizontal: 6,
     borderRadius: 10,
     borderWidth: 2,
     borderColor: 'transparent',

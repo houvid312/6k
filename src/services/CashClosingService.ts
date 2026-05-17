@@ -14,6 +14,15 @@ const DENOMINATION_VALUES: Record<keyof DenominationCount, number> = {
   coins: 1,
 };
 
+function calculateDiscrepancy(
+  actualTotal: number,
+  expectedTotal: number,
+  expenses: number,
+  openingBase: number,
+): number {
+  return actualTotal - openingBase - (expectedTotal - expenses);
+}
+
 export class CashClosingService {
   constructor(
     private cashClosingRepo: ICashClosingRepository,
@@ -50,12 +59,13 @@ export class CashClosingService {
   ): Promise<CashClosing> {
     const cashTotal = this.calculateDenominationTotal(denominations);
     const actualTotal = cashTotal + bankTotal;
+    const openingBase = await this.getOpeningBase(storeId, date);
 
     // Expected total from sales
     const summary = await this.saleRepo.getDailySummary(storeId, date);
     const expectedTotal = summary.totalAmount;
 
-    const discrepancy = actualTotal - (expectedTotal - expenses);
+    const discrepancy = calculateDiscrepancy(actualTotal, expectedTotal, expenses, openingBase);
 
     const closing = await this.cashClosingRepo.create({
       storeId,
@@ -95,10 +105,11 @@ export class CashClosingService {
 
     const cashTotal = this.calculateDenominationTotal(denominations);
     const actualTotal = cashTotal + bankTotal;
+    const openingBase = await this.getOpeningBase(storeId, date);
 
     const summary = await this.saleRepo.getDailySummary(storeId, date);
     const expectedTotal = summary.totalAmount;
-    const discrepancy = actualTotal - (expectedTotal - expenses);
+    const discrepancy = calculateDiscrepancy(actualTotal, expectedTotal, expenses, openingBase);
 
     const closing = await this.cashClosingRepo.update(id, {
       denominations,
@@ -252,5 +263,11 @@ export class CashClosingService {
     } catch {
       // Don't fail the cash closing if alert generation fails
     }
+  }
+
+  private async getOpeningBase(storeId: string, date: string): Promise<number> {
+    if (!this.cashOpeningRepo) return 0;
+    const opening = await this.cashOpeningRepo.getByDate(storeId, date);
+    return opening?.total ?? 0;
   }
 }

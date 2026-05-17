@@ -13,4 +13,9 @@ export interface SaleItem {
   subtotal: number;
   additions?: SaleItemAddition[];
   additionsTotal?: number;
+  packagingSupplyId?: string;
+  packagingLabel?: string;
+  packagingUnitPrice?: number;
+  packagingQuantity?: number;
+  packagingTotal?: number;
 }

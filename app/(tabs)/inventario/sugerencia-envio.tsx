@@ -7,9 +7,11 @@ import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
 import { SupplyRequirement } from '../../../src/services/DemandEstimationService';
 import { nowColombia } from '../../../src/utils/dates';
+import { formatCOP } from '../../../src/utils/currency';
 
 const DAY_OPTIONS = [
   { value: '1', label: 'Lun' },
@@ -36,6 +38,7 @@ export default function SugerenciaEnvioScreen() {
   const theme = useTheme();
   const { demandEstimationService, transferService } = useDI();
   const { selectedStoreId, stores } = useAppStore();
+  const { supplies } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [selectedDay, setSelectedDay] = useState<string>(getTomorrowDay());
@@ -44,6 +47,14 @@ export default function SugerenciaEnvioScreen() {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [calculated, setCalculated] = useState(false);
+  const supplyMap = new Map(supplies.map((s) => [s.id, s]));
+
+  const estimatedTotal = requirements.reduce((sum, req) => {
+    const supply = supplyMap.get(req.supplyId);
+    const bags = parseBagCount(editableBags[req.supplyId]);
+    const unitPrice = supply?.isBillableToStore ? supply.commercialPriceCop : 0;
+    return sum + bags * unitPrice;
+  }, 0);
 
   const handleCalculate = useCallback(async () => {
     if (!selectedStoreId) {
@@ -171,10 +182,27 @@ export default function SugerenciaEnvioScreen() {
           <Text variant="bodySmall" style={{ color: '#999', marginBottom: 8 }}>
             Ajusta las bolsas si necesitas enviar mas o menos de lo sugerido
           </Text>
+          <Card style={[styles.totalCard, { backgroundColor: '#1E1E1E' }]}>
+            <Card.Content style={styles.totalContent}>
+              <Text variant="bodySmall" style={{ color: '#999' }}>
+                Total estimado para el local
+              </Text>
+              <Text variant="headlineSmall" style={{ color: '#E63946', fontWeight: '800' }}>
+                {formatCOP(estimatedTotal)}
+              </Text>
+            </Card.Content>
+          </Card>
 
           {requirements.map((req) => (
             <Card key={req.supplyId} style={[styles.reqCard, { backgroundColor: '#1E1E1E' }]}>
               <Card.Content>
+                {(() => {
+                  const supply = supplyMap.get(req.supplyId);
+                  const bags = parseBagCount(editableBags[req.supplyId]);
+                  const unitPrice = supply?.isBillableToStore ? supply.commercialPriceCop : 0;
+                  const lineTotal = bags * unitPrice;
+                  return (
+                    <>
                 <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: '600' }}>
                   {req.supplyName}
                 </Text>
@@ -212,6 +240,18 @@ export default function SugerenciaEnvioScreen() {
                     />
                   </View>
                 </View>
+                <Divider style={{ backgroundColor: '#333', marginVertical: 8 }} />
+                <View style={styles.priceRow}>
+                  <Text variant="bodySmall" style={{ color: '#999' }}>
+                    {formatCOP(unitPrice)} c/u
+                  </Text>
+                  <Text variant="bodyMedium" style={{ color: '#E63946', fontWeight: '700' }}>
+                    {formatCOP(lineTotal)}
+                  </Text>
+                </View>
+                    </>
+                  );
+                })()}
               </Card.Content>
             </Card>
           ))}
@@ -272,8 +312,20 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderRadius: 12,
   },
+  totalCard: {
+    marginBottom: 8,
+    borderRadius: 12,
+  },
+  totalContent: {
+    alignItems: 'center',
+  },
   reqDetails: {
     flexDirection: 'row',
+    alignItems: 'center',
+  },
+  priceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
   bagsInputContainer: {

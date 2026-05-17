@@ -14,6 +14,7 @@ export interface ISaleRepository {
   getByDateRange(storeId: string, from: string, to: string): Promise<Sale[]>;
   getUnpaid(storeId: string): Promise<Sale[]>;
   create(sale: Omit<Sale, 'id'>): Promise<Sale>;
+  update(sale: Sale): Promise<Sale>;
   markAsPaid(saleId: string): Promise<void>;
   markAsUnpaid(saleId: string): Promise<void>;
   updatePaymentMethod(saleId: string, paymentMethod: string): Promise<void>;

@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reporte flujo facturacion interna de traslados</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111111;
+      --panel: #1e1e1e;
+      --panel-2: #262626;
+      --text: #f5f0eb;
+      --muted: #b8aca2;
+      --line: #3a3a3a;
+      --primary: #e63946;
+      --ok: #4caf50;
+      --warn: #d4a843;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    main {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 36px 0 56px;
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 24px;
+      margin-bottom: 24px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      font-size: 30px;
+      line-height: 1.15;
+      margin-bottom: 10px;
+    }
+
+    h2 {
+      font-size: 20px;
+      margin: 0 0 14px;
+    }
+
+    h3 {
+      font-size: 15px;
+      margin-bottom: 8px;
+    }
+
+    p {
+      color: var(--muted);
+    }
+
+    section {
+      margin-top: 24px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0;
+      margin-bottom: 6px;
+    }
+
+    .metric-value {
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: rgba(76, 175, 80, 0.14);
+      color: #88d18a;
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .status::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--ok);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    th,
+    td {
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--panel-2);
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .amount {
+      font-weight: 800;
+      color: var(--primary);
+      white-space: nowrap;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .note {
+      border-left: 3px solid var(--warn);
+      padding: 12px 14px;
+      background: rgba(212, 168, 67, 0.08);
+      color: var(--text);
+      border-radius: 0 8px 8px 0;
+    }
+
+    .shots {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    figure {
+      margin: 0;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    figcaption {
+      padding: 12px 14px;
+      font-weight: 700;
+      border-bottom: 1px solid var(--line);
+    }
+
+    img {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #0b0b0b;
+    }
+
+    code {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 2px 6px;
+      color: var(--text);
+    }
+
+    @media (max-width: 900px) {
+      .grid,
+      .shots {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="status">Validacion completa</p>
+      <h1>Flujo completo de facturacion interna por traslado</h1>
+      <p>
+        Este reporte documenta una prueba end-to-end del modelo de franquicia:
+        Centro de Produccion despacha bolsas a Local 2, la recepcion congela precios
+        vigentes y crea una cuenta por cobrar LOCAL. Los costos de produccion se
+        verifican solo como snapshot interno y no aparecen en las vistas operativas.
+      </p>
+    </header>
+
+    <section class="grid" aria-label="Resumen">
+      <article class="card">
+        <div class="metric-label">Traslado</div>
+        <div class="metric-value">8d7341</div>
+      </article>
+      <article class="card">
+        <div class="metric-label">Total comercial</div>
+        <div class="metric-value">$13.900</div>
+      </article>
+      <article class="card">
+        <div class="metric-label">Cuenta por cobrar</div>
+        <div class="metric-value">$13.900</div>
+      </article>
+      <article class="card">
+        <div class="metric-label">Estado final</div>
+        <div class="metric-value">Pagado</div>
+      </article>
+    </section>
+
+    <section>
+      <h2>Datos de prueba</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Insumo</th>
+            <th>Bolsas</th>
+            <th>Gramos por bolsa</th>
+            <th>Precio local</th>
+            <th>Subtotal local</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Masa</td>
+            <td>2</td>
+            <td>600g</td>
+            <td class="amount">$5.000</td>
+            <td class="amount">$10.000</td>
+          </tr>
+          <tr>
+            <td>Maicitos bolsa</td>
+            <td>3</td>
+            <td>100g</td>
+            <td class="amount">$1.300</td>
+            <td class="amount">$3.900</td>
+          </tr>
+          <tr>
+            <td colspan="4"><strong>Total cobrado al local</strong></td>
+            <td class="amount">$13.900</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Verificacion contra Supabase</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Chequeo</th>
+            <th>Resultado</th>
+            <th>Dato observado</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Traslado recibido</td>
+            <td class="status">OK</td>
+            <td><code>status = RECEIVED</code></td>
+          </tr>
+          <tr>
+            <td>Snapshot comercial del traslado</td>
+            <td class="status">OK</td>
+            <td><code>total_price_cop = 13900</code></td>
+          </tr>
+          <tr>
+            <td>Snapshot interno de costo</td>
+            <td class="status">OK</td>
+            <td><code>total_cost_cop = 4692.60</code>, solo para administracion/reportes internos</td>
+          </tr>
+          <tr>
+            <td>Cuenta por cobrar LOCAL</td>
+            <td class="status">OK</td>
+            <td><code>amount = 13900</code>, <code>balance = 13900</code>, <code>is_paid = false</code></td>
+          </tr>
+          <tr>
+            <td>Vinculos historicos</td>
+            <td class="status">OK</td>
+            <td><code>credit_entries.transfer_id = transfers.id</code> y <code>transfers.credit_entry_id = credit_entries.id</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="note">
+        Archivo de respaldo de la verificacion: <code>verification.json</code>. La UI de traslados y cartera
+        muestra precio unitario, subtotal y total comercial; no expone costos de produccion.
+      </p>
+    </section>
+
+    <section>
+      <h2>Pago de la cuenta por cobrar</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Chequeo</th>
+            <th>Resultado</th>
+            <th>Dato observado</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Pago registrado desde la app</td>
+            <td class="status">OK</td>
+            <td><code>$13.900 aplicado a Local 2</code></td>
+          </tr>
+          <tr>
+            <td>Saldo de la cuenta</td>
+            <td class="status">OK</td>
+            <td><code>balance = 0</code></td>
+          </tr>
+          <tr>
+            <td>Estado de cartera</td>
+            <td class="status">OK</td>
+            <td><code>is_paid = true</code> y <code>paid_date = 2026-05-17</code></td>
+          </tr>
+          <tr>
+            <td>Monto historico preservado</td>
+            <td class="status">OK</td>
+            <td><code>amount = 13900</code>, conservando el total originalmente facturado</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="note">
+        Archivo de respaldo del pago: <code>payment-verification.json</code>. Despues del pago,
+        el resumen de cartera vuelve a <code>Total Cartera = $0</code> y muestra <code>Sin deudas</code>.
+      </p>
+    </section>
+
+    <section>
+      <h2>Capturas del flujo</h2>
+      <div class="shots">
+        <figure>
+          <figcaption>1. Traslado antes de recibir</figcaption>
+          <img src="screenshots/01-transfer-list-before-receive.png" alt="Listado de traslados con total local antes de recibir">
+        </figure>
+        <figure>
+          <figcaption>2. Detalle con precios unitarios</figcaption>
+          <img src="screenshots/02-transfer-detail-before-receive.png" alt="Detalle del traslado con precios por item">
+        </figure>
+        <figure>
+          <figcaption>3. Confirmacion de recepcion</figcaption>
+          <img src="screenshots/03-receive-confirmation.png" alt="Dialogo de confirmacion para recibir traslado">
+        </figure>
+        <figure>
+          <figcaption>4. Traslado recibido</figcaption>
+          <img src="screenshots/04-transfer-received.png" alt="Traslado marcado como recibido">
+        </figure>
+        <figure>
+          <figcaption>5. Snapshot visible despues de recibir</figcaption>
+          <img src="screenshots/05-transfer-received-detail.png" alt="Detalle recibido conserva valores comerciales">
+        </figure>
+        <figure>
+          <figcaption>6. Cartera con deuda del local</figcaption>
+          <img src="screenshots/06-cartera-summary.png" alt="Resumen de cartera con Local 2 como deudor LOCAL">
+        </figure>
+        <figure>
+          <figcaption>7. Detalle de cuenta por cobrar</figcaption>
+          <img src="screenshots/07-cartera-detail.png" alt="Detalle de deuda con concepto de traslado y saldo pendiente">
+        </figure>
+        <figure>
+          <figcaption>8. Pago completo digitado</figcaption>
+          <img src="screenshots/10-payment-filled.png" alt="Formulario de pago con el valor total de la cuenta por cobrar">
+        </figure>
+        <figure>
+          <figcaption>9. Cuenta pagada</figcaption>
+          <img src="screenshots/11-payment-after.png" alt="Detalle de cartera con saldo cero y credito pagado">
+        </figure>
+        <figure>
+          <figcaption>10. Cartera sin deudas</figcaption>
+          <img src="screenshots/12-cartera-after-payment.png" alt="Resumen de cartera sin deudas despues del pago">
+        </figure>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

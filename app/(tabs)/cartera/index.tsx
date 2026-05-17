@@ -1,20 +1,23 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { FlatList, View, StyleSheet } from 'react-native';
-import { Card, Text, FAB, Chip, Divider, useTheme } from 'react-native-paper';
-import { router } from 'expo-router';
+import { Card, Text, FAB, Chip, Divider, Button, useTheme } from 'react-native-paper';
+import { Link, router } from 'expo-router';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { useDI } from '../../../src/di/providers';
 import { CreditEntry } from '../../../src/domain/entities';
 import { formatCOP } from '../../../src/utils/currency';
 
-type FilterOption = 'todos' | 'vencidos' | 'semana';
+type FilterOption = 'todos' | 'vencidos' | 'semana' | 'historico';
 
 interface DebtorSummary {
   name: string;
   type: string;
   totalBalance: number;
+  totalAmount: number;
   creditCount: number;
+  activeCreditCount: number;
+  paidCreditCount: number;
   credits: CreditEntry[];
   hasOverdue: boolean;
   overdueCount: number;
@@ -42,12 +45,52 @@ function needsFollowUpThisWeek(credit: CreditEntry): boolean {
   return daysUntilFollowUp >= 0 && daysUntilFollowUp <= 7;
 }
 
+function buildDebtorSummaries(credits: CreditEntry[]): DebtorSummary[] {
+  const grouped = new Map<string, DebtorSummary>();
+
+  for (const credit of credits) {
+    const existing = grouped.get(credit.debtorName);
+    const creditOverdue = isOverdue(credit);
+    const balance = credit.isPaid ? 0 : credit.balance;
+
+    if (existing) {
+      existing.totalBalance += balance;
+      existing.totalAmount += credit.amount;
+      existing.creditCount += 1;
+      existing.activeCreditCount += credit.isPaid ? 0 : 1;
+      existing.paidCreditCount += credit.isPaid ? 1 : 0;
+      existing.credits.push(credit);
+      if (creditOverdue) {
+        existing.hasOverdue = true;
+        existing.overdueCount += 1;
+      }
+    } else {
+      grouped.set(credit.debtorName, {
+        name: credit.debtorName,
+        type: credit.debtorType,
+        totalBalance: balance,
+        totalAmount: credit.amount,
+        creditCount: 1,
+        activeCreditCount: credit.isPaid ? 0 : 1,
+        paidCreditCount: credit.isPaid ? 1 : 0,
+        credits: [credit],
+        hasOverdue: creditOverdue,
+        overdueCount: creditOverdue ? 1 : 0,
+      });
+    }
+  }
+
+  return Array.from(grouped.values()).sort((a, b) => {
+    if (b.totalBalance !== a.totalBalance) return b.totalBalance - a.totalBalance;
+    return b.totalAmount - a.totalAmount;
+  });
+}
+
 export default function CarteraScreen() {
   const theme = useTheme();
   const { creditService } = useDI();
 
   const [allCredits, setAllCredits] = useState<CreditEntry[]>([]);
-  const [debtors, setDebtors] = useState<DebtorSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<FilterOption>('todos');
 
@@ -56,40 +99,8 @@ export default function CarteraScreen() {
     try {
       const all = await creditService.getAllCredits();
       setAllCredits(all);
-      const active = all.filter((c) => !c.isPaid);
-
-      // Group by debtor name
-      const grouped = new Map<string, DebtorSummary>();
-      for (const credit of active) {
-        const existing = grouped.get(credit.debtorName);
-        const creditOverdue = isOverdue(credit);
-
-        if (existing) {
-          existing.totalBalance += credit.balance;
-          existing.creditCount += 1;
-          existing.credits.push(credit);
-          if (creditOverdue) {
-            existing.hasOverdue = true;
-            existing.overdueCount += 1;
-          }
-        } else {
-          grouped.set(credit.debtorName, {
-            name: credit.debtorName,
-            type: credit.debtorType,
-            totalBalance: credit.balance,
-            creditCount: 1,
-            credits: [credit],
-            hasOverdue: creditOverdue,
-            overdueCount: creditOverdue ? 1 : 0,
-          });
-        }
-      }
-
-      setDebtors(
-        Array.from(grouped.values()).sort((a, b) => b.totalBalance - a.totalBalance),
-      );
     } catch {
-      setDebtors([]);
+      setAllCredits([]);
     } finally {
       setLoading(false);
     }
@@ -99,7 +110,17 @@ export default function CarteraScreen() {
     loadData();
   }, [loadData]);
 
-  const totalCartera = debtors.reduce((sum, d) => sum + d.totalBalance, 0);
+  const activeDebtors = useMemo(
+    () => buildDebtorSummaries(allCredits.filter((c) => !c.isPaid)),
+    [allCredits],
+  );
+
+  const historicalDebtors = useMemo(
+    () => buildDebtorSummaries(allCredits),
+    [allCredits],
+  );
+
+  const totalCartera = activeDebtors.reduce((sum, d) => sum + d.totalBalance, 0);
 
   /** Summary stats */
   const stats = useMemo(() => {
@@ -117,17 +138,45 @@ export default function CarteraScreen() {
   const filteredDebtors = useMemo(() => {
     switch (activeFilter) {
       case 'vencidos':
-        return debtors.filter((d) => d.hasOverdue);
+        return activeDebtors.filter((d) => d.hasOverdue);
       case 'semana':
-        return debtors.filter((d) =>
+        return activeDebtors.filter((d) =>
           d.credits.some((c) => needsFollowUpThisWeek(c)),
         );
+      case 'historico':
+        return historicalDebtors;
       default:
-        return debtors;
+        return activeDebtors;
     }
-  }, [debtors, activeFilter]);
+  }, [activeDebtors, historicalDebtors, activeFilter]);
 
-  const renderDebtor = ({ item }: { item: DebtorSummary }) => (
+  const emptyTitle = activeFilter === 'historico'
+    ? 'Sin historico'
+    : activeFilter === 'todos'
+      ? 'Sin deudas pendientes'
+      : 'Sin resultados';
+
+  const emptySubtitle = activeFilter === 'historico'
+    ? 'Aun no hay creditos registrados'
+    : activeFilter === 'todos' && allCredits.length > 0
+      ? 'Hay creditos historicos disponibles'
+      : activeFilter === 'todos'
+        ? 'No hay creditos registrados'
+        : `No hay creditos ${activeFilter === 'vencidos' ? 'vencidos' : 'para esta semana'}`;
+
+  const showHistoricalFallback =
+    activeFilter === 'todos' && activeDebtors.length === 0 && historicalDebtors.length > 0;
+  const isHistoricalView = activeFilter === 'historico' || showHistoricalFallback;
+  const visibleDebtors = showHistoricalFallback ? historicalDebtors : filteredDebtors;
+
+  const renderDebtor = ({ item }: { item: DebtorSummary }) => {
+    const isHistorical = isHistoricalView;
+    const displayedAmount = isHistorical ? item.totalAmount : item.totalBalance;
+    const firstCredit = isHistorical
+      ? item.credits[0]
+      : item.credits.find((credit) => !credit.isPaid) ?? item.credits[0];
+
+    return (
     <Card
       style={[
         styles.card,
@@ -135,7 +184,6 @@ export default function CarteraScreen() {
       ]}
       mode="elevated"
       onPress={() => {
-        const firstCredit = item.credits[0];
         if (firstCredit) {
           router.push(`/(tabs)/cartera/${firstCredit.id}`);
         }
@@ -154,6 +202,20 @@ export default function CarteraScreen() {
               <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                 {item.creditCount} credito{item.creditCount !== 1 ? 's' : ''}
               </Text>
+              {isHistorical && item.activeCreditCount > 0 && (
+                <Chip compact textStyle={{ fontSize: 10, color: '#D32F2F' }}>
+                  {item.activeCreditCount} pendiente{item.activeCreditCount !== 1 ? 's' : ''}
+                </Chip>
+              )}
+              {isHistorical && item.paidCreditCount > 0 && (
+                <Chip
+                  compact
+                  textStyle={{ fontSize: 10, color: '#388E3C' }}
+                  style={{ backgroundColor: '#E8F5E9' }}
+                >
+                  {item.paidCreditCount} pagado{item.paidCreditCount !== 1 ? 's' : ''}
+                </Chip>
+              )}
               {item.hasOverdue && (
                 <Chip
                   compact
@@ -165,13 +227,30 @@ export default function CarteraScreen() {
               )}
             </View>
           </View>
-          <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.error }}>
-            {formatCOP(item.totalBalance)}
-          </Text>
+          <View style={styles.amountColumn}>
+            <Text
+              variant="titleMedium"
+              style={{
+                fontWeight: 'bold',
+                color: isHistorical ? theme.colors.onSurface : theme.colors.error,
+              }}
+            >
+              {formatCOP(displayedAmount)}
+            </Text>
+            {firstCredit && (
+              <Link
+                href={`/(tabs)/cartera/${firstCredit.id}`}
+                style={styles.detailLink}
+              >
+                Ver detalle
+              </Link>
+            )}
+          </View>
         </View>
       </Card.Content>
     </Card>
-  );
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -183,7 +262,7 @@ export default function CarteraScreen() {
             {formatCOP(totalCartera)}
           </Text>
           <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-            {debtors.length} deudor{debtors.length !== 1 ? 'es' : ''}
+            {activeDebtors.length} deudor{activeDebtors.length !== 1 ? 'es' : ''}
           </Text>
           <Divider style={{ marginVertical: 8, width: '100%' }} />
           <View style={styles.statsRow}>
@@ -215,6 +294,7 @@ export default function CarteraScreen() {
             { key: 'todos', label: 'Todos' },
             { key: 'vencidos', label: 'Vencidos' },
             { key: 'semana', label: 'Esta semana' },
+            { key: 'historico', label: 'Historico' },
           ] as const
         ).map((filter) => (
           <Chip
@@ -239,24 +319,44 @@ export default function CarteraScreen() {
 
       {loading ? (
         <LoadingIndicator message="Cargando cartera..." />
-      ) : filteredDebtors.length === 0 ? (
-        <EmptyState
-          icon="account-check"
-          title={activeFilter === 'todos' ? 'Sin deudas' : 'Sin resultados'}
-          subtitle={
-            activeFilter === 'todos'
-              ? 'No hay creditos pendientes'
-              : `No hay creditos ${activeFilter === 'vencidos' ? 'vencidos' : 'para esta semana'}`
-          }
-        />
+      ) : visibleDebtors.length === 0 ? (
+        <View style={styles.emptyWrapper}>
+          <EmptyState
+            icon="account-check"
+            title={emptyTitle}
+            subtitle={emptySubtitle}
+          />
+          {activeFilter === 'todos' && allCredits.length > 0 && (
+            <Button
+              mode="outlined"
+              icon="history"
+              onPress={() => setActiveFilter('historico')}
+              style={styles.historyButton}
+            >
+              Ver historico
+            </Button>
+          )}
+        </View>
       ) : (
-        <FlatList
-          data={filteredDebtors}
-          renderItem={renderDebtor}
-          keyExtractor={(item) => item.name}
-          contentContainerStyle={styles.list}
-          showsVerticalScrollIndicator={false}
-        />
+        <>
+          {showHistoricalFallback && (
+            <View style={styles.historyHeader}>
+              <Text variant="titleSmall" style={{ fontWeight: '700' }}>
+                Historico de cartera
+              </Text>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                No hay saldos pendientes, pero puedes consultar creditos pagados.
+              </Text>
+            </View>
+          )}
+          <FlatList
+            data={visibleDebtors}
+            renderItem={renderDebtor}
+            keyExtractor={(item) => item.name}
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
+          />
+        </>
       )}
 
       <FAB
@@ -308,6 +408,21 @@ const styles = StyleSheet.create({
     paddingTop: 0,
     paddingBottom: 100,
   },
+  emptyWrapper: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  historyButton: {
+    marginTop: 12,
+    borderRadius: 8,
+  },
+  historyHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 10,
+  },
   card: {
     borderRadius: 12,
     marginBottom: 8,
@@ -323,6 +438,15 @@ const styles = StyleSheet.create({
   },
   debtorInfo: {
     flex: 1,
+  },
+  amountColumn: {
+    alignItems: 'flex-end',
+    marginLeft: 8,
+  },
+  detailLink: {
+    color: '#E63946',
+    fontWeight: '700',
+    marginTop: 4,
   },
   chipRow: {
     flexDirection: 'row',

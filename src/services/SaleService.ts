@@ -15,12 +15,16 @@ export interface CreateSaleItemAdditionInput {
 
 export interface CreateSaleItemInput {
   productId: string;
-  formatId: string;
+  formatId?: string;
   formatName: string;
   portionsPerUnit: number;
   quantity: number;
   unitPrice: number;
   additions?: CreateSaleItemAdditionInput[];
+  packagingSupplyId?: string;
+  packagingLabel?: string;
+  packagingUnitPrice?: number;
+  packagingQuantity?: number;
 }
 
 export class SaleService {
@@ -29,6 +33,49 @@ export class SaleService {
     private inventoryRepo: IInventoryRepository,
     private recipeRepo: IRecipeRepository,
   ) {}
+
+  private buildSaleItems(items: CreateSaleItemInput[]): {
+    saleItems: SaleItem[];
+    totalPortions: number;
+    totalAmount: number;
+  } {
+    const saleItems: SaleItem[] = [];
+    let totalPortions = 0;
+
+    for (const item of items) {
+      const portions = item.portionsPerUnit * item.quantity;
+      const additionsTotal = (item.additions ?? []).reduce((s, a) => s + a.price * a.quantity, 0);
+      const packagingQuantity = item.packagingSupplyId ? (item.packagingQuantity ?? item.quantity) : 0;
+      const packagingUnitPrice = item.packagingUnitPrice ?? 0;
+      const packagingTotal = packagingUnitPrice * packagingQuantity;
+      const subtotal = item.unitPrice * item.quantity + additionsTotal + packagingTotal;
+      totalPortions += portions;
+
+      saleItems.push({
+        id: `si-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        productId: item.productId,
+        formatId: item.formatId || undefined,
+        formatName: item.formatName,
+        quantity: item.quantity,
+        portions,
+        unitPrice: item.unitPrice,
+        subtotal,
+        additions: item.additions,
+        additionsTotal: additionsTotal || undefined,
+        packagingSupplyId: item.packagingSupplyId,
+        packagingLabel: item.packagingLabel,
+        packagingUnitPrice,
+        packagingQuantity,
+        packagingTotal,
+      });
+    }
+
+    return {
+      saleItems,
+      totalPortions,
+      totalAmount: saleItems.reduce((sum, si) => sum + si.subtotal, 0),
+    };
+  }
 
   /**
    * Creates a sale. Inventory deduction is handled automatically by the DB trigger.
@@ -44,30 +91,7 @@ export class SaleService {
     customerNote?: string,
     packagingSupplyId?: string,
   ): Promise<Sale> {
-    const saleItems: SaleItem[] = [];
-    let totalPortions = 0;
-
-    for (const item of items) {
-      const portions = item.portionsPerUnit * item.quantity;
-      const additionsTotal = (item.additions ?? []).reduce((s, a) => s + a.price * a.quantity, 0);
-      const subtotal = item.unitPrice * item.quantity + additionsTotal;
-      totalPortions += portions;
-
-      saleItems.push({
-        id: `si-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        productId: item.productId,
-        formatId: item.formatId,
-        formatName: item.formatName,
-        quantity: item.quantity,
-        portions,
-        unitPrice: item.unitPrice,
-        subtotal,
-        additions: item.additions,
-        additionsTotal: additionsTotal || undefined,
-      });
-    }
-
-    const totalAmount = saleItems.reduce((sum, si) => sum + si.subtotal, 0);
+    const { saleItems, totalPortions, totalAmount } = this.buildSaleItems(items);
 
     const sale = await this.saleRepo.create({
       storeId,
@@ -75,6 +99,7 @@ export class SaleService {
       items: saleItems,
       totalPortions,
       totalAmount,
+      packagingTotal: saleItems.reduce((sum, si) => sum + (si.packagingTotal ?? 0), 0),
       paymentMethod,
       cashAmount,
       bankAmount,
@@ -86,6 +111,42 @@ export class SaleService {
     } as Omit<Sale, 'id'>);
 
     return sale;
+  }
+
+  /**
+   * Replaces items/payment data for a sale that has not been dispatched.
+   */
+  async updateSale(
+    saleId: string,
+    storeId: string,
+    items: CreateSaleItemInput[],
+    paymentMethod: PaymentMethod,
+    cashAmount: number,
+    bankAmount: number,
+    observations?: string,
+    isPaid: boolean = false,
+    customerNote?: string,
+    packagingSupplyId?: string,
+  ): Promise<Sale> {
+    const { saleItems, totalPortions, totalAmount } = this.buildSaleItems(items);
+
+    return this.saleRepo.update({
+      id: saleId,
+      storeId,
+      timestamp: new Date().toISOString(),
+      items: saleItems,
+      totalPortions,
+      totalAmount,
+      packagingTotal: saleItems.reduce((sum, si) => sum + (si.packagingTotal ?? 0), 0),
+      paymentMethod,
+      cashAmount,
+      bankAmount,
+      observations: observations ?? '',
+      isPaid,
+      isDispatched: false,
+      customerNote: customerNote ?? undefined,
+      packagingSupplyId,
+    });
   }
 
   /**

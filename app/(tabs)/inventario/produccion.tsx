@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Card, Text, TextInput, Button, Divider, Portal, Snackbar, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
@@ -27,6 +27,7 @@ export default function ProduccionScreen() {
   const workers = cachedWorkers.filter((w) => w.isActive);
   const [selectedWorkerId, setSelectedWorkerId] = useState<string>('');
   const [entries, setEntries] = useState<RecipeEntry[]>([]);
+  const [recipeQuery, setRecipeQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -49,6 +50,24 @@ export default function ProduccionScreen() {
       prev.map((e) => (e.recipe.id === recipeId ? { ...e, batches: value } : e)),
     );
   }, []);
+
+  const filteredEntries = useMemo(() => {
+    const normalizedQuery = recipeQuery
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+
+    if (!normalizedQuery) return entries;
+
+    return entries.filter((entry) =>
+      entry.recipe.name
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [entries, recipeQuery]);
 
   const handleSubmit = useCallback(async () => {
     if (!selectedWorkerId) {
@@ -116,14 +135,38 @@ export default function ProduccionScreen() {
         onSelect={setSelectedWorkerId}
       />
 
+      <TextInput
+        label="Buscar receta"
+        value={recipeQuery}
+        onChangeText={setRecipeQuery}
+        mode="outlined"
+        dense
+        left={<TextInput.Icon icon="magnify" />}
+        right={recipeQuery ? <TextInput.Icon icon="close" onPress={() => setRecipeQuery('')} /> : undefined}
+        style={styles.searchInput}
+        outlineColor="#2E3F55"
+        activeOutlineColor="#E63946"
+        textColor="#F5F0EB"
+      />
+
+      <Text variant="bodySmall" style={[styles.resultCount, { color: theme.colors.onSurfaceVariant }]}>
+        Mostrando {filteredEntries.length} de {entries.length} receta{entries.length !== 1 ? 's' : ''}
+      </Text>
+
       {entries.length === 0 ? (
         <EmptyState
           icon="book-open-variant"
           title="Sin recetas"
           subtitle="Crea recetas de produccion primero"
         />
+      ) : filteredEntries.length === 0 ? (
+        <EmptyState
+          icon="magnify"
+          title="Sin resultados"
+          subtitle="Prueba con otro nombre de receta"
+        />
       ) : (
-        entries.map((entry, index) => (
+        filteredEntries.map((entry) => (
           <Card key={entry.recipe.id} style={[styles.card, { backgroundColor: '#1E1E1E' }]}>
             <Card.Content>
               <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: '600' }}>
@@ -197,6 +240,13 @@ const styles = StyleSheet.create({
   },
   workerBtn: {
     marginBottom: 16,
+  },
+  searchInput: {
+    marginBottom: 6,
+    backgroundColor: '#111111',
+  },
+  resultCount: {
+    marginBottom: 12,
   },
   menu: {
     width: 300,

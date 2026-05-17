@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { TextInput, Button, Text, Portal, Snackbar, Chip, Divider, useTheme } from 'react-native-paper';
+import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
@@ -76,6 +77,10 @@ export default function ComprasScreen() {
         name: newSupplyName.trim(),
         unit: newSupplyUnit as any,
         gramsPerBag: parseInt(newSupplyGramsPerBag, 10) || 0,
+        productionCostCop: 0,
+        commercialPriceCop: 0,
+        salePriceCop: 0,
+        isBillableToStore: true,
       });
       await refreshMasterData();
       setSelectedSupplyId(supply.id);
@@ -156,9 +161,19 @@ export default function ComprasScreen() {
 
   return (
     <ScreenContainer>
-      <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600' }]}>
-        Nueva Compra de Insumo
-      </Text>
+      <View style={styles.headerRow}>
+        <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600' }]}>
+          Nueva Compra de Insumo
+        </Text>
+        <Button
+          mode="outlined"
+          icon="history"
+          compact
+          onPress={() => router.push('/(tabs)/inventario/historial-compras')}
+        >
+          Historial
+        </Button>
+      </View>
 
       {/* I4: Frequent supplies */}
       {recentSupplyIds.length > 0 && (
@@ -303,6 +318,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   sectionTitle: {
+    flex: 1,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
     marginBottom: 16,
   },
   input: {

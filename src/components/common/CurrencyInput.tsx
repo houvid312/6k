@@ -7,9 +7,10 @@ interface Props {
   onChangeValue: (n: number) => void;
   label?: string;
   style?: object;
+  disabled?: boolean;
 }
 
-export function CurrencyInput({ value, onChangeValue, label = 'Monto', style }: Props) {
+export function CurrencyInput({ value, onChangeValue, label = 'Monto', style, disabled = false }: Props) {
   const [isFocused, setIsFocused] = useState(false);
   const [rawText, setRawText] = useState(value > 0 ? String(value) : '');
 
@@ -48,6 +49,7 @@ export function CurrencyInput({ value, onChangeValue, label = 'Monto', style }: 
       mode="outlined"
       left={<TextInput.Affix text="$" />}
       style={style}
+      disabled={disabled}
     />
   );
 }

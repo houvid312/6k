@@ -9,9 +9,10 @@ interface Props {
   denominations: DenominationCount;
   onChange: (key: keyof DenominationCount, count: number) => void;
   total: number;
+  disabled?: boolean;
 }
 
-export function DenominationCounter({ denominations, onChange, total }: Props) {
+export function DenominationCounter({ denominations, onChange, total, disabled = false }: Props) {
   const theme = useTheme();
 
   return (
@@ -34,6 +35,7 @@ export function DenominationCounter({ denominations, onChange, total }: Props) {
                   mode="contained-tonal"
                   onPress={() => onChange(key, Math.max(0, count - 1))}
                   style={styles.iconBtn}
+                  disabled={disabled}
                 />
                 <TextInput
                   value={String(count)}
@@ -45,6 +47,7 @@ export function DenominationCounter({ denominations, onChange, total }: Props) {
                   mode="outlined"
                   style={styles.input}
                   dense
+                  disabled={disabled}
                 />
                 <IconButton
                   icon="plus"
@@ -52,6 +55,7 @@ export function DenominationCounter({ denominations, onChange, total }: Props) {
                   mode="contained-tonal"
                   onPress={() => onChange(key, count + 1)}
                   style={styles.iconBtn}
+                  disabled={disabled}
                 />
               </View>
               <Text variant="bodySmall" style={[styles.subtotal, { color: theme.colors.onSurfaceVariant }]}>

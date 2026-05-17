@@ -2,18 +2,22 @@ import { supabase } from '../../lib/supabase';
 import { Transfer, TransferItem } from '../../domain/entities';
 import { ITransferRepository } from '../../domain/interfaces/repositories';
 import { TransferStatus } from '../../domain/enums';
-import { todayColombia } from '../../utils/dates';
 
 // --- Row types ---
 
 interface TransferRow {
   id: string;
   order_date: string;
+  created_at: string;
   shipping_date: string | null;
   received_at: string | null;
+  billed_at: string | null;
+  credit_entry_id: string | null;
   from_store_id: string;
   to_store_id: string;
   status: string;
+  total_cost_cop: number | null;
+  total_price_cop: number | null;
 }
 
 interface TransferItemRow {
@@ -23,6 +27,11 @@ interface TransferItemRow {
   target_grams: number;
   current_inventory_grams: number;
   bags_to_send: number;
+  grams_per_bag_snapshot: number | null;
+  unit_cost_cop_snapshot: number | null;
+  unit_price_cop_snapshot: number | null;
+  total_cost_cop_snapshot: number | null;
+  total_price_cop_snapshot: number | null;
 }
 
 // --- Mappers ---
@@ -33,6 +42,11 @@ function transferItemRowToEntity(row: TransferItemRow): TransferItem {
     targetGrams: row.target_grams,
     currentInventoryGrams: row.current_inventory_grams,
     bagsToSend: row.bags_to_send,
+    gramsPerBagSnapshot: row.grams_per_bag_snapshot ?? undefined,
+    unitCostCopSnapshot: row.unit_cost_cop_snapshot ?? undefined,
+    unitPriceCopSnapshot: row.unit_price_cop_snapshot ?? undefined,
+    totalCostCopSnapshot: row.total_cost_cop_snapshot ?? undefined,
+    totalPriceCopSnapshot: row.total_price_cop_snapshot ?? undefined,
   };
 }
 
@@ -40,11 +54,16 @@ function transferRowToEntity(row: TransferRow, items: TransferItem[]): Transfer 
   return {
     id: row.id,
     orderDate: row.order_date,
+    createdAt: row.created_at,
     shippingDate: row.shipping_date ?? '',
     receivedAt: row.received_at ?? undefined,
+    billedAt: row.billed_at ?? undefined,
+    creditEntryId: row.credit_entry_id ?? undefined,
     fromStoreId: row.from_store_id,
     toStoreId: row.to_store_id,
     status: row.status as TransferStatus,
+    totalCostCop: row.total_cost_cop ?? 0,
+    totalPriceCop: row.total_price_cop ?? 0,
     items,
   };
 }
@@ -120,11 +139,11 @@ export class SupabaseTransferRepository implements ITransferRepository {
   }
 
   async updateStatus(id: string, status: TransferStatus): Promise<Transfer> {
-    const updates: Record<string, unknown> = { status };
     if (status === TransferStatus.RECEIVED) {
-      updates.received_at = new Date().toISOString();
-      updates.shipping_date = todayColombia();
+      return this.receiveWithBilling(id);
     }
+
+    const updates: Record<string, unknown> = { status };
 
     const { data, error } = await supabase
       .from('transfers')
@@ -137,6 +156,19 @@ export class SupabaseTransferRepository implements ITransferRepository {
     const row = data as TransferRow;
     const items = await this.fetchTransferItems(row.id);
     return transferRowToEntity(row, items);
+  }
+
+  async receiveWithBilling(id: string): Promise<Transfer> {
+    const { error } = await supabase.rpc('receive_transfer_with_billing', {
+      p_transfer_id: id,
+    });
+    if (error) throw error;
+
+    const updated = await this.getById(id);
+    if (!updated) {
+      throw new Error(`Transfer '${id}' not found after receiving`);
+    }
+    return updated;
   }
 
   // --- Private helpers ---

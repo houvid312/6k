@@ -10,6 +10,8 @@ interface CreditEntryRow {
   debtor_name: string;
   debtor_type: string;
   worker_id: string | null;
+  store_id: string | null;
+  transfer_id: string | null;
   concept: string;
   amount: number;
   balance: number;
@@ -26,6 +28,8 @@ function toEntity(row: CreditEntryRow): CreditEntry {
     debtorName: row.debtor_name,
     debtorType: row.debtor_type as DebtorType,
     workerId: row.worker_id ?? undefined,
+    storeId: row.store_id ?? undefined,
+    transferId: row.transfer_id ?? undefined,
     concept: row.concept,
     amount: row.amount,
     balance: row.balance,
@@ -40,6 +44,8 @@ function toRow(entry: Omit<CreditEntry, 'id'>): Record<string, unknown> {
     debtor_name: entry.debtorName,
     debtor_type: entry.debtorType,
     worker_id: entry.workerId ?? null,
+    store_id: entry.storeId ?? null,
+    transfer_id: entry.transferId ?? null,
     concept: entry.concept,
     amount: entry.amount,
     balance: entry.balance,
@@ -88,6 +94,21 @@ export class SupabaseCreditRepository implements ICreditRepository {
         is_paid: true,
         balance: 0,
         paid_date: today,
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    return toEntity(data as CreditEntryRow);
+  }
+
+  async updateBalance(id: string, balance: number): Promise<CreditEntry> {
+    const { data, error } = await supabase
+      .from('credit_entries')
+      .update({
+        balance,
+        is_paid: balance <= 0,
+        paid_date: balance <= 0 ? new Date().toISOString().split('T')[0] : null,
       })
       .eq('id', id)
       .select()

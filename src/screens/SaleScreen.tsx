@@ -192,6 +192,10 @@ export function SaleScreen() {
         quantity: c.quantity,
         unitPrice: c.unitPrice,
         additions: c.additions.length > 0 ? c.additions : undefined,
+        packagingSupplyId: c.packagingSupplyId,
+        packagingLabel: c.packagingLabel,
+        packagingUnitPrice: c.packagingUnitPrice,
+        packagingQuantity: c.packagingQuantity,
       }));
 
       const customerNotes = cart

@@ -3,7 +3,7 @@ import { View, StyleSheet, Pressable } from 'react-native';
 import { Text, IconButton, Divider, TextInput, Chip, useTheme } from 'react-native-paper';
 import { CartItem } from '../../stores/useSaleStore';
 import { formatCOP } from '../../utils/currency';
-import { PACKAGING_OPTIONS } from '../../domain/enums';
+import { PACKAGING_LABEL_BY_ID } from '../../domain/enums';
 
 interface Props {
   items: CartItem[];
@@ -102,6 +102,18 @@ export function CartSummary({ items, onRemove, onUpdateQuantity, onUpdateNote, p
               </View>
             )}
 
+            {item.packagingSupplyId && (
+              <View style={styles.additionsList}>
+                <Text
+                  variant="labelSmall"
+                  style={{ color: theme.colors.onSurfaceVariant, marginLeft: 32 }}
+                >
+                  + {item.packagingLabel ?? PACKAGING_LABEL_BY_ID[item.packagingSupplyId] ?? 'Empaque'}
+                  {item.packagingQuantity > 1 ? ` x${item.packagingQuantity}` : ''} ({formatCOP(item.packagingTotal)})
+                </Text>
+              </View>
+            )}
+
             {/* Collapsible note */}
             {showNote && (
               <TextInput
@@ -118,43 +130,6 @@ export function CartSummary({ items, onRemove, onUpdateQuantity, onUpdateNote, p
           </View>
         );
       })}
-
-      {/* Packaging selector */}
-      <Divider style={styles.packagingDivider} />
-      <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 6 }}>
-        Empaque
-      </Text>
-      <View style={styles.packagingRow}>
-        <Chip
-          selected={!packagingSupplyId}
-          onPress={() => onPackagingChange(undefined)}
-          mode="flat"
-          icon="close"
-          selectedColor={!packagingSupplyId ? theme.colors.primary : theme.colors.onSurfaceVariant}
-          style={{
-            backgroundColor: !packagingSupplyId ? theme.colors.primaryContainer : theme.colors.surfaceVariant,
-          }}
-          compact
-        >
-          Sin caja
-        </Chip>
-        {PACKAGING_OPTIONS.map((opt) => (
-          <Chip
-            key={opt.id}
-            selected={packagingSupplyId === opt.id}
-            onPress={() => onPackagingChange(packagingSupplyId === opt.id ? undefined : opt.id)}
-            mode="flat"
-            icon={opt.icon}
-            selectedColor={packagingSupplyId === opt.id ? theme.colors.primary : theme.colors.onSurfaceVariant}
-            style={{
-              backgroundColor: packagingSupplyId === opt.id ? theme.colors.primaryContainer : theme.colors.surfaceVariant,
-            }}
-            compact
-          >
-            {opt.shortLabel}
-          </Chip>
-        ))}
-      </View>
 
       <Divider style={styles.totalDivider} />
       <View style={styles.totalRow}>

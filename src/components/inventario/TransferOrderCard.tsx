@@ -3,7 +3,8 @@ import { View, StyleSheet } from 'react-native';
 import { Card, Chip, Text, Button, Divider, useTheme } from 'react-native-paper';
 import { Transfer } from '../../domain/entities';
 import { TransferStatus } from '../../domain/enums';
-import { formatDate } from '../../utils/dates';
+import { formatDate, formatDateTime } from '../../utils/dates';
+import { formatCOP } from '../../utils/currency';
 
 const STATUS_CONFIG: Record<TransferStatus, { label: string; color: string; icon: string }> = {
   [TransferStatus.PENDING]: { label: 'Pendiente', color: '#F57C00', icon: 'clock-outline' },
@@ -12,9 +13,26 @@ const STATUS_CONFIG: Record<TransferStatus, { label: string; color: string; icon
   [TransferStatus.CANCELLED]: { label: 'Cancelado', color: '#D32F2F', icon: 'close-circle' },
 };
 
+function formatTransferCreatedAt(transfer: Transfer): string {
+  const timestamp = transfer.orderDate.includes('T')
+    ? transfer.orderDate
+    : transfer.createdAt;
+
+  if (timestamp) {
+    return formatDateTime(timestamp);
+  }
+
+  return formatDate(transfer.orderDate);
+}
+
 interface Props {
   transfer: Transfer;
-  supplyMap?: Map<string, { name: string; gramsPerBag: number }>;
+  supplyMap?: Map<string, {
+    name: string;
+    gramsPerBag: number;
+    commercialPriceCop: number;
+    isBillableToStore: boolean;
+  }>;
   onMarkInTransit?: (transfer: Transfer) => void;
   onReceive?: (transfer: Transfer) => void;
   onCancel?: (transfer: Transfer) => void;
@@ -36,7 +54,15 @@ export function TransferOrderCard({
   const totalBags = transfer.items.reduce((sum, i) => sum + i.bagsToSend, 0);
   const isPending = transfer.status === TransferStatus.PENDING;
   const isInTransit = transfer.status === TransferStatus.IN_TRANSIT;
+  const isReceived = transfer.status === TransferStatus.RECEIVED;
   const isActive = isPending || isInTransit;
+  const totalPrice = isReceived
+    ? transfer.totalPriceCop ?? transfer.items.reduce((sum, i) => sum + (i.totalPriceCopSnapshot ?? 0), 0)
+    : transfer.items.reduce((sum, item) => {
+      const supply = supplyMap?.get(item.supplyId);
+      const unitPrice = supply?.isBillableToStore ? supply.commercialPriceCop : 0;
+      return sum + item.bagsToSend * (unitPrice ?? 0);
+    }, 0);
 
   return (
     <Card style={[styles.card, isActive && { borderLeftWidth: 3, borderLeftColor: config.color }]} mode="elevated">
@@ -47,7 +73,10 @@ export function TransferOrderCard({
               Traslado {transfer.id.slice(-6)}
             </Text>
             <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
-              {formatDate(transfer.orderDate)} - {transfer.items.length} insumos - {totalBags} bolsas
+              {formatTransferCreatedAt(transfer)} - {transfer.items.length} insumos - {totalBags} bolsas
+            </Text>
+            <Text variant="bodySmall" style={{ color: '#E63946', marginTop: 2, fontWeight: '700' }}>
+              Total local: {formatCOP(totalPrice)}
             </Text>
           </View>
           <Chip
@@ -80,25 +109,53 @@ export function TransferOrderCard({
               Items del traslado:
             </Text>
             {transfer.items.map((item) => {
-              const name = supplyMap?.get(item.supplyId)?.name ?? item.supplyId.slice(-8);
-              const gramsPerBag = supplyMap?.get(item.supplyId)?.gramsPerBag;
+              const supply = supplyMap?.get(item.supplyId);
+              const name = supply?.name ?? item.supplyId.slice(-8);
+              const gramsPerBag = isReceived
+                ? item.gramsPerBagSnapshot ?? supply?.gramsPerBag
+                : supply?.gramsPerBag;
               const totalGrams = gramsPerBag ? item.bagsToSend * gramsPerBag : null;
+              const unitPrice = isReceived
+                ? item.unitPriceCopSnapshot ?? 0
+                : supply?.isBillableToStore ? supply.commercialPriceCop : 0;
+              const lineTotal = isReceived
+                ? item.totalPriceCopSnapshot ?? item.bagsToSend * unitPrice
+                : item.bagsToSend * unitPrice;
               return (
-                <View key={item.supplyId} style={styles.itemRow}>
-                  <Text variant="bodySmall" style={{ color: '#F5F0EB', flex: 1 }}>
-                    {name}
-                  </Text>
-                  <Text variant="bodySmall" style={{ color: '#999', marginRight: 12 }}>
-                    {item.bagsToSend} bolsa{item.bagsToSend !== 1 ? 's' : ''}
-                  </Text>
-                  {totalGrams != null && (
-                    <Text variant="bodySmall" style={{ color: '#E63946', fontWeight: '600', width: 70, textAlign: 'right' }}>
-                      {Math.round(totalGrams)}g
+                <View key={item.supplyId} style={styles.itemBlock}>
+                  <View style={styles.itemRow}>
+                    <Text variant="bodySmall" style={{ color: '#F5F0EB', flex: 1 }}>
+                      {name}
                     </Text>
-                  )}
+                    <Text variant="bodySmall" style={{ color: '#999', marginRight: 12 }}>
+                      {item.bagsToSend} bolsa{item.bagsToSend !== 1 ? 's' : ''}
+                    </Text>
+                    {totalGrams != null && (
+                      <Text variant="bodySmall" style={{ color: '#E63946', fontWeight: '600', width: 70, textAlign: 'right' }}>
+                        {Math.round(totalGrams)}g
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.priceRow}>
+                    <Text variant="labelSmall" style={{ color: '#999' }}>
+                      {formatCOP(unitPrice)} c/u
+                    </Text>
+                    <Text variant="labelSmall" style={{ color: '#F5F0EB', fontWeight: '700' }}>
+                      {formatCOP(lineTotal)}
+                    </Text>
+                  </View>
                 </View>
               );
             })}
+            <Divider style={{ backgroundColor: '#333', marginVertical: 8 }} />
+            <View style={styles.totalRow}>
+              <Text variant="bodySmall" style={{ color: '#F5F0EB', fontWeight: '700' }}>
+                Total cobro local
+              </Text>
+              <Text variant="bodyMedium" style={{ color: '#E63946', fontWeight: '800' }}>
+                {formatCOP(totalPrice)}
+              </Text>
+            </View>
           </>
         )}
 
@@ -172,6 +229,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 4,
+  },
+  itemBlock: {
+    paddingVertical: 4,
+  },
+  priceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 2,
+  },
+  totalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   actions: {
     flexDirection: 'row',

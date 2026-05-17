@@ -1,4 +1,10 @@
-export { PizzaSize, PACKAGING_SUPPLY_IDS, PACKAGING_OPTIONS, PACKAGING_LABEL_BY_ID } from './PizzaSize';
+export {
+  PizzaSize,
+  PACKAGING_SUPPLY_IDS,
+  PACKAGING_OPTIONS,
+  PACKAGING_LABEL_BY_ID,
+  PACKAGING_SALE_PRICE_COP_BY_ID,
+} from './PizzaSize';
 export { PaymentMethod } from './PaymentMethod';
 export { InventoryLevel } from './InventoryLevel';
 export { WorkerRole } from './WorkerRole';

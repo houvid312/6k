@@ -23,3 +23,10 @@ export const PACKAGING_LABEL_BY_ID: Record<string, string> = {
   [PACKAGING_SUPPLY_IDS.CAJA_MEDIANA]: 'Caja Mediana',
   [PACKAGING_SUPPLY_IDS.EMPAQUE_DIAMANTE_INDIVIDUAL]: 'Empaque',
 };
+
+// Fallback local. El precio editable vive en supplies.sale_price_cop.
+export const PACKAGING_SALE_PRICE_COP_BY_ID: Record<string, number> = {
+  [PACKAGING_SUPPLY_IDS.CAJA_FAMILIAR]: 0,
+  [PACKAGING_SUPPLY_IDS.CAJA_MEDIANA]: 0,
+  [PACKAGING_SUPPLY_IDS.EMPAQUE_DIAMANTE_INDIVIDUAL]: 0,
+};

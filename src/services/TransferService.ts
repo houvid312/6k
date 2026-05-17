@@ -1,7 +1,6 @@
 import { Transfer, TransferItem } from '../domain/entities';
 import { TransferStatus, InventoryLevel } from '../domain/enums';
 import { ITransferRepository, IInventoryRepository, ISupplyRepository } from '../domain/interfaces/repositories';
-import { todayColombia } from '../utils/dates';
 
 export interface TransferOrderInputItem {
   supplyId: string;
@@ -100,7 +99,7 @@ export class TransferService {
     return this.transferRepo.create({
       fromStoreId,
       toStoreId,
-      orderDate: todayColombia(),
+      orderDate: new Date().toISOString(),
       shippingDate: '',
       items,
       status: TransferStatus.PENDING,
@@ -108,7 +107,8 @@ export class TransferService {
   }
 
   /**
-   * Executes a transfer: deducts from source store and adds to destination store.
+   * Receives a transfer atomically: moves inventory, freezes billing values,
+   * and creates the store receivable in Supabase.
    */
   async executeTransfer(transferId: string): Promise<Transfer> {
     const all = await this.transferRepo.getAll();
@@ -121,32 +121,7 @@ export class TransferService {
       throw new Error(`Transfer '${transferId}' cannot be executed in status '${transfer.status}'`);
     }
 
-    const supplies = await this.supplyRepo.getAll();
-    const supplyMap = new Map(supplies.map((s) => [s.id, s]));
-
-    for (const item of transfer.items) {
-      const supply = supplyMap.get(item.supplyId);
-      const gramsToTransfer = supply
-        ? item.bagsToSend * supply.gramsPerBag
-        : item.targetGrams - item.currentInventoryGrams;
-
-      // Deduct from source
-      await this.inventoryRepo.deductGrams(
-        transfer.fromStoreId,
-        item.supplyId,
-        gramsToTransfer,
-        InventoryLevel.PROCESSED,
-      );
-      // Add to destination
-      await this.inventoryRepo.addGrams(
-        transfer.toStoreId,
-        item.supplyId,
-        gramsToTransfer,
-        InventoryLevel.STORE,
-      );
-    }
-
-    return this.transferRepo.updateStatus(transferId, TransferStatus.RECEIVED);
+    return this.transferRepo.receiveWithBilling(transferId);
   }
 
   /**

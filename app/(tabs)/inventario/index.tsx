@@ -27,6 +27,7 @@ interface NavGroup {
 const ADMIN_PRODUCTION_GROUPS: NavGroup[] = [
   { label: 'Entrada', items: [
     { icon: 'cart', label: 'Compras', route: '/(tabs)/inventario/compras' },
+    { icon: 'history', label: 'Hist. Compras', route: '/(tabs)/inventario/historial-compras' },
     { icon: 'package-variant', label: 'Insumos', route: '/(tabs)/inventario/insumos' },
   ]},
   { label: 'Proceso', items: [
@@ -75,6 +76,7 @@ const ADMIN_PRODUCTION_NAV: NavItem[] = ADMIN_PRODUCTION_GROUPS.flatMap(g => g.i
 const LEVEL_NAV: Record<string, NavItem[]> = {
   [InventoryLevel.RAW]: [
     { icon: 'cart', label: 'Compras', route: '/(tabs)/inventario/compras' },
+    { icon: 'history', label: 'Hist. Compras', route: '/(tabs)/inventario/historial-compras' },
   ],
   [InventoryLevel.PROCESSED]: [
     { icon: 'factory', label: 'Produccion', route: '/(tabs)/inventario/produccion' },

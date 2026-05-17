@@ -28,7 +28,16 @@ import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useSaleStore, CartItem, CartItemAddition } from '../../../src/stores/useSaleStore';
 import { Product, Sale, ProductFormat, AdditionCatalogItem } from '../../../src/domain/entities';
-import { PaymentMethod, InventoryLevel, WriteoffReason, UserRole } from '../../../src/domain/enums';
+import {
+  PaymentMethod,
+  InventoryLevel,
+  WriteoffReason,
+  UserRole,
+  PACKAGING_LABEL_BY_ID,
+  PACKAGING_OPTIONS,
+  PACKAGING_SALE_PRICE_COP_BY_ID,
+  PACKAGING_SUPPLY_IDS,
+} from '../../../src/domain/enums';
 import { supabase } from '../../../src/lib/supabase';
 import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
@@ -48,6 +57,7 @@ export default function VentasScreen() {
     removeFromCart,
     updateQuantity,
     updateCustomerNote,
+    setCart,
     setCartPackaging,
     clearCart,
     setPendingSales,
@@ -84,12 +94,14 @@ export default function VentasScreen() {
   const [bankAmount, setBankAmount] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [readyToConfirm, setReadyToConfirm] = useState(false);
-  const [isPaid, setIsPaid] = useState(true);
+  const [editingSale, setEditingSale] = useState<Sale | null>(null);
+  const [isPaid, setIsPaid] = useState(false);
   const [observations, setObservations] = useState('');
   const [modalQuantity, setModalQuantity] = useState(1);
   const [formatsByProductId, setFormatsByProductId] = useState<Record<string, ProductFormat[]>>({});
   const [availableAdditions, setAvailableAdditions] = useState<AdditionCatalogItem[]>([]);
   const [selectedAdditions, setSelectedAdditions] = useState<CartItemAddition[]>([]);
+  const [selectedPackagingSupplyId, setSelectedPackagingSupplyId] = useState<string | undefined>();
   const [snackbar, setSnackbar] = useState<{ visible: boolean; success: boolean; message: string }>({
     visible: false,
     success: true,
@@ -291,6 +303,82 @@ export default function VentasScreen() {
   }, [compraTurnoDesc, compraTurnoAmount, selectedStoreId, expenseRepo]);
 
   const selectedProduct = products.find((p) => p.id === selectedProductId);
+  const getPackagingSalePrice = useCallback((packagingSupplyId?: string) => {
+    if (!packagingSupplyId) return 0;
+    return supplies.find((s) => s.id === packagingSupplyId)?.salePriceCop
+      ?? PACKAGING_SALE_PRICE_COP_BY_ID[packagingSupplyId]
+      ?? 0;
+  }, [supplies]);
+
+  const suggestPackagingSupplyId = useCallback((format?: ProductFormat) => {
+    if (!format) return undefined;
+    const name = format.name.toLowerCase();
+    if (format.portions >= 8 || name.includes('familiar')) return PACKAGING_SUPPLY_IDS.CAJA_FAMILIAR;
+    if (format.portions >= 4 || name.includes('mediana')) return PACKAGING_SUPPLY_IDS.CAJA_MEDIANA;
+    if (format.portions <= 1 || name.includes('individual') || name.includes('diamante')) {
+      return PACKAGING_SUPPLY_IDS.EMPAQUE_DIAMANTE_INDIVIDUAL;
+    }
+    return undefined;
+  }, []);
+
+  const handleFormatSelect = useCallback((formatId: string) => {
+    const format = formatsByProductId[selectedProductId ?? '']?.find((f) => f.id === formatId);
+    setSelectedFormatId(formatId);
+    setModalQuantity(1);
+    setSelectedPackagingSupplyId(selectedProduct?.category === 'PIZZA' ? suggestPackagingSupplyId(format) : undefined);
+  }, [formatsByProductId, selectedProduct?.category, selectedProductId, suggestPackagingSupplyId]);
+
+  const renderPackagingSelector = useCallback((quantity: number) => {
+    if (selectedProduct?.category !== 'PIZZA') return null;
+    const selectedPrice = getPackagingSalePrice(selectedPackagingSupplyId);
+
+    return (
+      <View style={styles.modalPackagingSection}>
+        <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 6 }}>
+          Empaque
+        </Text>
+        <View style={styles.modalPackagingRow}>
+          <Chip
+            selected={!selectedPackagingSupplyId}
+            onPress={() => setSelectedPackagingSupplyId(undefined)}
+            mode="flat"
+            icon="close"
+            selectedColor={!selectedPackagingSupplyId ? theme.colors.primary : theme.colors.onSurfaceVariant}
+            style={{
+              backgroundColor: !selectedPackagingSupplyId ? theme.colors.primaryContainer : theme.colors.surfaceVariant,
+            }}
+            compact
+          >
+            Sin caja
+          </Chip>
+          {PACKAGING_OPTIONS.map((opt) => {
+            const price = getPackagingSalePrice(opt.id);
+            return (
+              <Chip
+                key={opt.id}
+                selected={selectedPackagingSupplyId === opt.id}
+                onPress={() => setSelectedPackagingSupplyId(selectedPackagingSupplyId === opt.id ? undefined : opt.id)}
+                mode="flat"
+                icon={opt.icon}
+                selectedColor={selectedPackagingSupplyId === opt.id ? theme.colors.primary : theme.colors.onSurfaceVariant}
+                style={{
+                  backgroundColor: selectedPackagingSupplyId === opt.id ? theme.colors.primaryContainer : theme.colors.surfaceVariant,
+                }}
+                compact
+              >
+                {price > 0 ? `${opt.shortLabel} +${formatCOP(price)}` : opt.shortLabel}
+              </Chip>
+            );
+          })}
+        </View>
+        {selectedPackagingSupplyId && (
+          <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 4 }}>
+            {PACKAGING_LABEL_BY_ID[selectedPackagingSupplyId] ?? 'Empaque'} · {quantity} und. · {formatCOP(selectedPrice * quantity)}
+          </Text>
+        )}
+      </View>
+    );
+  }, [getPackagingSalePrice, selectedPackagingSupplyId, selectedProduct?.category, theme.colors.onSurfaceVariant, theme.colors.primary, theme.colors.primaryContainer, theme.colors.surfaceVariant]);
 
   const handleProductSelect = useCallback((productId: string) => {
     const product = products.find((p) => p.id === productId);
@@ -307,16 +395,18 @@ export default function VentasScreen() {
       // Single format: simple quantity modal
       setSelectedProductId(productId);
       setSelectedFormatId(activeFormats[0]?.id ?? null);
+      setSelectedPackagingSupplyId(product.category === 'PIZZA' ? suggestPackagingSupplyId(activeFormats[0]) : undefined);
       setBeverageQuantity(1);
       setBeverageModalVisible(true);
     } else {
       // Multiple formats: show format selector
       setSelectedProductId(productId);
       setSelectedFormatId(activeFormats[0]?.id ?? null);
+      setSelectedPackagingSupplyId(product.category === 'PIZZA' ? suggestPackagingSupplyId(activeFormats[0]) : undefined);
       setModalQuantity(1);
       setSizeModalVisible(true);
     }
-  }, [products, formatsByProductId]);
+  }, [products, formatsByProductId, suggestPackagingSupplyId]);
 
   // Cargar adiciones cuando cambia el formato seleccionado
   useEffect(() => {
@@ -368,13 +458,17 @@ export default function VentasScreen() {
       quantity: modalQuantity,
       unitPrice: format.price,
       additions: selectedAdditions.length > 0 ? selectedAdditions : undefined,
+      packagingSupplyId: selectedPackagingSupplyId,
+      packagingLabel: selectedPackagingSupplyId ? PACKAGING_LABEL_BY_ID[selectedPackagingSupplyId] : undefined,
+      packagingUnitPrice: getPackagingSalePrice(selectedPackagingSupplyId),
     });
     setSizeModalVisible(false);
     setSelectedProductId(null);
     setSelectedFormatId(null);
     setModalQuantity(1);
     setSelectedAdditions([]);
-  }, [selectedProduct, selectedFormatId, modalQuantity, addToCart, formatsByProductId, selectedAdditions]);
+    setSelectedPackagingSupplyId(undefined);
+  }, [addToCart, formatsByProductId, getPackagingSalePrice, modalQuantity, selectedAdditions, selectedPackagingSupplyId, selectedFormatId, selectedProduct]);
 
   const handleBeverageConfirm = useCallback(() => {
     if (!selectedProduct) return;
@@ -391,12 +485,16 @@ export default function VentasScreen() {
       quantity: beverageQuantity,
       unitPrice: format.price,
       additions: selectedAdditions.length > 0 ? selectedAdditions : undefined,
+      packagingSupplyId: selectedProduct.category === 'PIZZA' ? selectedPackagingSupplyId : undefined,
+      packagingLabel: selectedProduct.category === 'PIZZA' && selectedPackagingSupplyId ? PACKAGING_LABEL_BY_ID[selectedPackagingSupplyId] : undefined,
+      packagingUnitPrice: selectedProduct.category === 'PIZZA' ? getPackagingSalePrice(selectedPackagingSupplyId) : 0,
     });
     setBeverageModalVisible(false);
     setSelectedAdditions([]);
     setSelectedProductId(null);
     setBeverageQuantity(1);
-  }, [selectedProduct, beverageQuantity, addToCart, formatsByProductId]);
+    setSelectedPackagingSupplyId(undefined);
+  }, [addToCart, beverageQuantity, formatsByProductId, getPackagingSalePrice, selectedAdditions, selectedPackagingSupplyId, selectedProduct]);
 
   const totalAmount = cart.reduce((sum, i) => sum + i.subtotal, 0);
 
@@ -415,6 +513,109 @@ export default function VentasScreen() {
     }, 300);
   }, []);
 
+  const saleToCartItems = useCallback((sale: Sale): CartItem[] => sale.items.map((item, index) => {
+    const product = products.find((p) => p.id === item.productId);
+    const portionsPerUnit = item.quantity > 0 ? item.portions / item.quantity : item.portions;
+
+    return {
+      cartItemId: `sale-${sale.id}-${item.id || index}`,
+      productId: item.productId,
+      productName: product?.name ?? item.formatName ?? 'Producto',
+      formatId: item.formatId ?? '',
+      formatName: item.formatName,
+      portionsPerUnit: Math.max(1, portionsPerUnit || 1),
+      quantity: item.quantity,
+      portions: item.portions,
+      unitPrice: item.unitPrice,
+      subtotal: item.subtotal,
+      customerNote: '',
+      additions: item.additions ?? [],
+      additionsTotal: item.additionsTotal ?? 0,
+      packagingSupplyId: item.packagingSupplyId ?? (index === 0 ? sale.packagingSupplyId : undefined),
+      packagingLabel: item.packagingLabel ?? (item.packagingSupplyId ? PACKAGING_LABEL_BY_ID[item.packagingSupplyId] : undefined),
+      packagingUnitPrice: item.packagingUnitPrice ?? 0,
+      packagingQuantity: item.packagingQuantity ?? (item.packagingSupplyId ? item.quantity : 0),
+      packagingTotal: item.packagingTotal ?? 0,
+    };
+  }), [products]);
+
+  const getCartPortionsByProduct = useCallback((items: CartItem[]) => {
+    const totals: Record<string, number> = {};
+    for (const item of items) {
+      const product = products.find((p) => p.id === item.productId);
+      if (product?.hasRecipe) {
+        totals[item.productId] = (totals[item.productId] ?? 0) + item.portions;
+      }
+    }
+    return totals;
+  }, [products]);
+
+  const getSalePortionsByProduct = useCallback((sale: Sale | null) => {
+    if (!sale) return {};
+    const totals: Record<string, number> = {};
+    for (const item of sale.items) {
+      const product = products.find((p) => p.id === item.productId);
+      if (product?.hasRecipe) {
+        totals[item.productId] = (totals[item.productId] ?? 0) + item.portions;
+      }
+    }
+    return totals;
+  }, [products]);
+
+  const applyPortionDelta = useCallback((previousSale: Sale | null, nextCart: CartItem[]) => {
+    const previous = getSalePortionsByProduct(previousSale);
+    const next = getCartPortionsByProduct(nextCart);
+    const productIds = new Set([...Object.keys(previous), ...Object.keys(next)]);
+    const updatedSold = { ...soldPortions };
+    const updatedAvailable = { ...availablePortions };
+
+    productIds.forEach((productId) => {
+      const delta = (next[productId] ?? 0) - (previous[productId] ?? 0);
+      if (delta === 0) return;
+
+      updatedSold[productId] = Math.max(0, (updatedSold[productId] ?? 0) + delta);
+      if (portionsSet && updatedAvailable[productId] !== undefined) {
+        updatedAvailable[productId] = Math.max(0, updatedAvailable[productId] - delta);
+      }
+    });
+
+    setSoldPortions(updatedSold);
+    if (portionsSet) {
+      setAvailablePortions(updatedAvailable);
+      savePortionsToDB(updatedAvailable);
+    }
+  }, [availablePortions, getCartPortionsByProduct, getSalePortionsByProduct, portionsSet, savePortionsToDB, soldPortions]);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingSale(null);
+    clearCart();
+    setCashAmount(0);
+    setBankAmount(0);
+    setAmountReceived(0);
+    setPaymentMethod(PaymentMethod.EFECTIVO);
+    setObservations('');
+    setIsPaid(false);
+    setReadyToConfirm(false);
+  }, [clearCart]);
+
+  const handleEditPendingSale = useCallback((sale: Sale) => {
+    if (sale.isDispatched) {
+      setSnackbar({ visible: true, success: false, message: 'No se puede editar una orden despachada' });
+      return;
+    }
+
+    setCart(saleToCartItems(sale), sale.packagingSupplyId);
+    setEditingSale(sale);
+    setPaymentMethod(sale.paymentMethod);
+    setCashAmount(sale.cashAmount);
+    setBankAmount(sale.bankAmount);
+    setAmountReceived(0);
+    setIsPaid(sale.isPaid);
+    setObservations(sale.observations ?? '');
+    setReadyToConfirm(false);
+    scrollToTop();
+  }, [saleToCartItems, scrollToTop, setCart]);
+
   const handleSubmitSale = useCallback(async () => {
     const effectiveCash = paymentMethod === PaymentMethod.TRANSFERENCIA ? 0
       : paymentMethod === PaymentMethod.EFECTIVO ? totalAmount
@@ -430,7 +631,9 @@ export default function VentasScreen() {
 
     setSubmitting(true);
     try {
-      const items = cart.map((c) => ({
+      const submittedCart = [...cart];
+      const previousSale = editingSale;
+      const items = submittedCart.map((c) => ({
         productId: c.productId,
         formatId: c.formatId,
         formatName: c.formatName,
@@ -438,64 +641,65 @@ export default function VentasScreen() {
         quantity: c.quantity,
         unitPrice: c.unitPrice,
         additions: c.additions.length > 0 ? c.additions : undefined,
+        packagingSupplyId: c.packagingSupplyId,
+        packagingLabel: c.packagingLabel,
+        packagingUnitPrice: c.packagingUnitPrice,
+        packagingQuantity: c.packagingQuantity,
       }));
 
-      const customerNotes = cart
+      const customerNotes = submittedCart
         .filter((c) => c.customerNote.trim())
         .map((c) => `${c.productName}: ${c.customerNote.trim()}`)
         .join(' | ');
+      const customerNoteForSubmit = customerNotes || previousSale?.customerNote || undefined;
 
-      const sale = await saleService.createSale(
-        selectedStoreId,
-        items,
-        paymentMethod,
-        effectiveCash,
-        effectiveBank,
-        observations || undefined,
-        isPaid,
-        customerNotes || undefined,
-        cartPackagingSupplyId,
-      );
+      const sale = previousSale
+        ? await saleService.updateSale(
+            previousSale.id,
+            selectedStoreId,
+            items,
+            paymentMethod,
+            effectiveCash,
+            effectiveBank,
+            observations || undefined,
+            isPaid,
+            customerNoteForSubmit,
+            cartPackagingSupplyId,
+          )
+        : await saleService.createSale(
+            selectedStoreId,
+            items,
+            paymentMethod,
+            effectiveCash,
+            effectiveBank,
+            observations || undefined,
+            isPaid,
+            customerNoteForSubmit,
+            cartPackagingSupplyId,
+          );
 
-      const totalPortions = cart.reduce((sum, i) => sum + i.portions, 0);
+      const totalPortions = submittedCart.reduce((sum, i) => sum + i.portions, 0);
       const paidLabel = isPaid ? '' : ' (PENDIENTE DE PAGO)';
 
       clearCart();
+      setEditingSale(null);
       setCashAmount(0);
       setBankAmount(0);
       setAmountReceived(0);
       setPaymentMethod(PaymentMethod.EFECTIVO);
       setObservations('');
-      setIsPaid(true);
+      setIsPaid(false);
       setReadyToConfirm(false);
 
       setSnackbar({
         visible: true,
         success: true,
-        message: `Venta registrada: ${totalPortions} porc. por ${formatCOP(sale.totalAmount)}${paidLabel}`,
+        message: previousSale
+          ? `Orden actualizada: ${totalPortions} porc. por ${formatCOP(sale.totalAmount)}${paidLabel}`
+          : `Venta registrada: ${totalPortions} porc. por ${formatCOP(sale.totalAmount)}${paidLabel}`,
       });
 
-      // Actualizar porciones vendidas localmente
-      const updatedSold = { ...soldPortions };
-      for (const c of cart) {
-        const prod = products.find((p) => p.id === c.productId);
-        if (prod?.hasRecipe) {
-          updatedSold[c.productId] = (updatedSold[c.productId] ?? 0) + c.portions;
-        }
-      }
-      setSoldPortions(updatedSold);
-
-      // Descontar porciones vendidas
-      if (portionsSet) {
-        const updated = { ...availablePortions };
-        for (const c of cart) {
-          if (updated[c.productId] !== undefined) {
-            updated[c.productId] = Math.max(0, updated[c.productId] - c.portions);
-          }
-        }
-        setAvailablePortions(updated);
-        savePortionsToDB(updated);
-      }
+      applyPortionDelta(previousSale, submittedCart);
 
       loadPendingSales();
     } catch (error) {
@@ -503,12 +707,12 @@ export default function VentasScreen() {
       setSnackbar({
         visible: true,
         success: false,
-        message: `No se pudo registrar la venta: ${error instanceof Error ? error.message : String(error)}`,
+        message: `No se pudo ${editingSale ? 'actualizar' : 'registrar'} la venta: ${error instanceof Error ? error.message : String(error)}`,
       });
     } finally {
       setSubmitting(false);
     }
-  }, [cart, paymentMethod, cashAmount, bankAmount, totalAmount, selectedStoreId, saleService, clearCart, isPaid, observations, cartPackagingSupplyId, loadPendingSales, portionsSet, availablePortions, savePortionsToDB, soldPortions, products]);
+  }, [applyPortionDelta, bankAmount, cart, cartPackagingSupplyId, cashAmount, clearCart, editingSale, isPaid, loadPendingSales, observations, paymentMethod, saleService, selectedStoreId, totalAmount]);
 
   const handleFabPress = useCallback(() => {
     if (cart.length === 0) {
@@ -531,9 +735,14 @@ export default function VentasScreen() {
     const merged = pendingSales.map((s) => s.id === saleId ? { ...s, ...updates } : s);
     const completed = merged.find((s) => s.id === saleId);
     const isFullyDone = !!(completed && completed.isPaid && completed.isDispatched);
+    if (editingSale?.id === saleId && completed) {
+      setEditingSale(completed);
+      if (updates.isPaid !== undefined) setIsPaid(updates.isPaid);
+      if (updates.paymentMethod !== undefined) setPaymentMethod(updates.paymentMethod);
+    }
     setPendingSales(merged.filter((s) => !(s.isPaid && s.isDispatched)));
     return isFullyDone;
-  }, [pendingSales, setPendingSales]);
+  }, [editingSale, pendingSales, setPendingSales]);
 
   const handleMarkAsPaid = useCallback(async (sale: Sale) => {
     try {
@@ -563,6 +772,9 @@ export default function VentasScreen() {
     try {
       await saleService.markAsDispatched(sale.id);
       const done = updatePendingSale(sale.id, { isDispatched: true });
+      if (editingSale?.id === sale.id) {
+        handleCancelEdit();
+      }
       setSnackbar({
         visible: true,
         success: true,
@@ -571,7 +783,7 @@ export default function VentasScreen() {
     } catch {
       setSnackbar({ visible: true, success: false, message: 'Error al marcar como despachada' });
     }
-  }, [saleService, updatePendingSale]);
+  }, [editingSale, handleCancelEdit, saleService, updatePendingSale]);
 
   // Change calculator for pending sales
   const [pendingAmountReceived, setPendingAmountReceived] = useState<Record<string, number>>({});
@@ -673,7 +885,7 @@ export default function VentasScreen() {
                   ) : null}
 
                   {/* Payment row */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 6 }}>
+                  <View style={styles.pendingActionsRow}>
                     {sale.isPaid ? (
                       <Chip
                         compact
@@ -717,6 +929,19 @@ export default function VentasScreen() {
                           </Chip>
                         ))}
                       </>
+                    )}
+                    {!sale.isDispatched && (
+                      <Button
+                        mode={editingSale?.id === sale.id ? 'contained' : 'outlined'}
+                        compact
+                        onPress={() => handleEditPendingSale(sale)}
+                        buttonColor={editingSale?.id === sale.id ? '#5E6AD2' : undefined}
+                        textColor={editingSale?.id === sale.id ? '#FFFFFF' : '#F5F0EB'}
+                        labelStyle={{ fontSize: 12 }}
+                        icon="pencil"
+                      >
+                        {editingSale?.id === sale.id ? 'Editando' : 'Editar'}
+                      </Button>
                     )}
                     {sale.isDispatched ? (
                       <Chip compact icon="check-circle" textStyle={{ fontSize: 11, color: '#64B5F6' }} style={{ backgroundColor: '#1A3A5C' }}>
@@ -775,17 +1000,38 @@ export default function VentasScreen() {
           <Card.Content>
             <View style={styles.cartHeader}>
               <Text variant="titleMedium" style={{ fontWeight: '600' }}>
-                Carrito
+                {editingSale ? 'Editar orden pendiente' : 'Carrito'}
               </Text>
               {cart.length > 0 && (
                 <IconButton
                   icon="delete-sweep"
                   size={20}
-                  onPress={clearCart}
+                  onPress={editingSale ? handleCancelEdit : clearCart}
                   iconColor={theme.colors.error}
                 />
               )}
             </View>
+            {editingSale && (
+              <View style={styles.editingBanner}>
+                <View style={{ flex: 1 }}>
+                  <Text variant="labelLarge" style={styles.editingBannerTitle}>
+                    Orden {editingSale.id.slice(0, 6)} en edicion
+                  </Text>
+                  <Text variant="bodySmall" style={styles.editingBannerMeta}>
+                    {formatTime(editingSale.timestamp)} · Antes {formatCOP(editingSale.totalAmount)}
+                  </Text>
+                </View>
+                <Button
+                  mode="text"
+                  compact
+                  icon="close"
+                  onPress={handleCancelEdit}
+                  textColor="#F5F0EB"
+                >
+                  Cancelar
+                </Button>
+              </View>
+            )}
             <CartSummary
               items={cart}
               onRemove={removeFromCart}
@@ -886,13 +1132,15 @@ export default function VentasScreen() {
         </Card>
 
         {/* Product Grid */}
-        <ProductGrid
-          products={products}
-          onSelect={handleProductSelect}
-          selectedId={selectedProductId ?? undefined}
-          availablePortions={portionsSet ? availablePortions : undefined}
-          soldPortions={Object.keys(soldPortions).length > 0 ? soldPortions : undefined}
-        />
+        <View style={styles.productGridSection}>
+          <ProductGrid
+            products={products}
+            onSelect={handleProductSelect}
+            selectedId={selectedProductId ?? undefined}
+            availablePortions={portionsSet ? availablePortions : undefined}
+            soldPortions={Object.keys(soldPortions).length > 0 ? soldPortions : undefined}
+          />
+        </View>
 
         {/* V2: Porciones and Quick nav moved to bottom */}
         <Button
@@ -978,7 +1226,11 @@ export default function VentasScreen() {
         {cart.length > 0 && (
           <FAB
             icon={readyToConfirm ? 'check-bold' : 'eye'}
-            label={readyToConfirm ? `Confirmar ${formatCOP(totalAmount)}` : `Revisar ${formatCOP(totalAmount)}`}
+            label={
+              readyToConfirm
+                ? `${editingSale ? 'Actualizar' : 'Confirmar'} ${formatCOP(totalAmount)}`
+                : `${editingSale ? 'Revisar edicion' : 'Revisar'} ${formatCOP(totalAmount)}`
+            }
             onPress={handleFabPress}
             loading={submitting}
             style={[styles.fab, { backgroundColor: readyToConfirm ? '#388E3C' : theme.colors.primary }]}
@@ -1003,8 +1255,9 @@ export default function VentasScreen() {
           <SizeSelector
             formats={formatsByProductId[selectedProduct?.id ?? '']?.filter((f) => f.isActive) ?? []}
             selected={selectedFormatId}
-            onSelect={(formatId) => { setSelectedFormatId(formatId); setModalQuantity(1); }}
+            onSelect={handleFormatSelect}
           />
+          {selectedFormatId && renderPackagingSelector(modalQuantity)}
           {selectedFormatId && availableAdditions.length > 0 && (
             <AdditionSelector
               additions={availableAdditions}
@@ -1017,10 +1270,11 @@ export default function VentasScreen() {
             const fmt = formatsByProductId[selectedProduct?.id ?? '']?.find((f) => f.id === selectedFormatId);
             if (!fmt) return null;
             const additionsTotal = selectedAdditions.reduce((s, a) => s + a.price * a.quantity, 0);
+            const packagingTotal = getPackagingSalePrice(selectedPackagingSupplyId) * (selectedPackagingSupplyId ? modalQuantity : 0);
             return (
             <View style={styles.sizeInfo}>
               <Text variant="bodyLarge" style={{ fontWeight: '600' }}>
-                {formatCOP(fmt.price * modalQuantity + additionsTotal)} - {fmt.portions * modalQuantity} porciones
+                {formatCOP(fmt.price * modalQuantity + additionsTotal + packagingTotal)} - {fmt.portions * modalQuantity} porciones
               </Text>
               <View style={styles.modalQuantityRow}>
                 <IconButton
@@ -1071,10 +1325,12 @@ export default function VentasScreen() {
               onUpdateQuantity={handleUpdateAdditionQuantity}
             />
           )}
+          {renderPackagingSelector(beverageQuantity)}
           <Text variant="bodyLarge" style={{ fontWeight: '600', textAlign: 'center', marginTop: 12 }}>
             {formatCOP(
               (formatsByProductId[selectedProduct?.id ?? '']?.filter((f) => f.isActive)?.[0]?.price ?? 0) * beverageQuantity
               + selectedAdditions.reduce((s, a) => s + a.price * a.quantity, 0)
+              + getPackagingSalePrice(selectedPackagingSupplyId) * (selectedProduct?.category === 'PIZZA' && selectedPackagingSupplyId ? beverageQuantity : 0)
             )}
           </Text>
           <View style={styles.modalQuantityRow}>
@@ -1408,7 +1664,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 12,
-    paddingBottom: 160,
+    paddingBottom: 180,
   },
   headerRow: {
     flexDirection: 'row',
@@ -1436,6 +1692,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  pendingActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    marginTop: 8,
+    gap: 6,
+  },
   pendingBottomRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1460,6 +1723,25 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  editingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+    backgroundColor: '#26315F',
+    borderWidth: 1,
+    borderColor: '#5E6AD2',
+  },
+  editingBannerTitle: {
+    color: '#F5F0EB',
+    fontWeight: '700',
+  },
+  editingBannerMeta: {
+    color: '#C7CBE8',
+    marginTop: 2,
+  },
   mixtoInputs: {
     flexDirection: 'row',
     gap: 10,
@@ -1478,6 +1760,10 @@ const styles = StyleSheet.create({
   },
   observationsInput: {
     marginTop: 6,
+  },
+  productGridSection: {
+    width: '100%',
+    alignSelf: 'stretch',
   },
   fab: {
     position: 'absolute',
@@ -1501,6 +1787,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 8,
+  },
+  modalPackagingSection: {
+    marginTop: 12,
+  },
+  modalPackagingRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
   },
   modalActions: {
     flexDirection: 'row',

@@ -54,9 +54,14 @@ export class ValidationService {
           const current = consumptionMap.get(addition.supplyId) ?? 0;
           consumptionMap.set(addition.supplyId, current + grams);
         }
+
+        if (item.packagingSupplyId && (item.packagingQuantity ?? 0) > 0) {
+          const current = consumptionMap.get(item.packagingSupplyId) ?? 0;
+          consumptionMap.set(item.packagingSupplyId, current + (item.packagingQuantity ?? 0));
+        }
       }
 
-      if (sale.packagingSupplyId) {
+      if (sale.packagingSupplyId && !sale.items.some((item) => item.packagingSupplyId)) {
         const current = consumptionMap.get(sale.packagingSupplyId) ?? 0;
         consumptionMap.set(sale.packagingSupplyId, current + 1);
       }

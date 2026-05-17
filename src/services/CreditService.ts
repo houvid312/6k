@@ -42,11 +42,7 @@ export class CreditService {
       return this.creditRepo.markAsPaid(creditId);
     }
 
-    // For partial payment, we need to mark as paid and create adjusted entry
-    // Since the interface only has markAsPaid (full) and create, we use markAsPaid for zero balance
-    // For partial, we rely on dummy data source update through markAsPaid workaround
-    // This is a limitation of the interface - in real impl would have an update method
-    return this.creditRepo.markAsPaid(creditId);
+    return this.creditRepo.updateBalance(creditId, newBalance);
   }
 
   /**

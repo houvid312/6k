@@ -8,6 +8,7 @@ export interface Sale {
   items: SaleItem[];
   totalPortions: number;
   totalAmount: number;
+  packagingTotal?: number;
   cashAmount: number;
   bankAmount: number;
   paymentMethod: PaymentMethod;

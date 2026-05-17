@@ -3,6 +3,17 @@ import { useTheme, IconButton } from 'react-native-paper';
 import { HeaderUserMenu } from '../../../src/components/common/HeaderUserMenu';
 import { HeaderLogo } from '../../../src/components/common/HeaderLogo';
 
+function InventoryBackButton() {
+  return (
+    <IconButton
+      icon="arrow-left"
+      iconColor="#F5F0EB"
+      size={24}
+      onPress={() => router.replace('/inventario' as any)}
+    />
+  );
+}
+
 export default function InventarioLayout() {
   const theme = useTheme();
 
@@ -24,6 +35,7 @@ export default function InventarioLayout() {
         }}
       />
       <Stack.Screen name="compras" options={{ title: 'Registrar Compra' }} />
+      <Stack.Screen name="historial-compras" options={{ title: 'Historial de Compras' }} />
       <Stack.Screen name="traslados" options={{ title: 'Traslados' }} />
       <Stack.Screen
         name="cierre-fisico"
@@ -53,7 +65,13 @@ export default function InventarioLayout() {
       <Stack.Screen name="sugerencia-envio" options={{ title: 'Sugerencia de Envio' }} />
       <Stack.Screen name="demanda" options={{ title: 'Demanda Estimada' }} />
       <Stack.Screen name="insumos" options={{ title: 'Insumos' }} />
-      <Stack.Screen name="bajas" options={{ title: 'Bajas de Inventario' }} />
+      <Stack.Screen
+        name="bajas"
+        options={{
+          title: 'Bajas de Inventario',
+          headerLeft: () => <InventoryBackButton />,
+        }}
+      />
       <Stack.Screen name="productos" options={{ title: 'Catálogo de Productos' }} />
     </Stack>
   );

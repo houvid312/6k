@@ -47,20 +47,21 @@ export default function CierreCajaScreen() {
   const actualTotal = getTotal();
   const discrepancy = actualTotal - cashBase - (expectedTotal - expenses);
   const isAdmin = userRole === UserRole.ADMIN;
-  const isEditable = !existingClosing || existingClosing.status !== ClosingStatus.APPROVED;
+  const isEditable = !existingClosing || existingClosing.status === ClosingStatus.DRAFT;
+  const isReadOnly = !isEditable;
 
   useEffect(() => {
     (async () => {
       try {
         const summary = await cashClosingService.getDailyExpected(selectedStoreId, today);
-        setExpectedTotal(summary.totalAmount);
-        setBankTotal(summary.totalBankAmount);
+        const existing = await cashClosingService.getClosingByDate(selectedStoreId, today);
+        setExistingClosing(existing);
 
         // Auto-load expenses from today (Compra Turno, etc.)
+        let totalExpenses = 0;
         try {
           const dayExpenses = await expenseRepo.getByDateRange(selectedStoreId, today, today + 'T23:59:59');
-          const totalExpenses = dayExpenses.reduce((sum, e) => sum + e.amount, 0);
-          if (totalExpenses > 0) setExpenses(totalExpenses);
+          totalExpenses = dayExpenses.reduce((sum, e) => sum + e.amount, 0);
         } catch { /* ignore */ }
 
         // Auto-load opening base
@@ -69,13 +70,23 @@ export default function CierreCajaScreen() {
           if (opening) setCashBase(opening.total);
         } catch { /* ignore */ }
 
-        const existing = await cashClosingService.getClosingByDate(selectedStoreId, today);
-        setExistingClosing(existing);
+        if (existing) {
+          for (const [key, count] of Object.entries(existing.denominations)) {
+            setDenomination(key as keyof CashClosing['denominations'], count);
+          }
+          setBankTotal(existing.bankTotal);
+          setExpenses(existing.expenses);
+          setExpectedTotal(existing.status === ClosingStatus.DRAFT ? summary.totalAmount : existing.expectedTotal);
+        } else {
+          setExpectedTotal(summary.totalAmount);
+          setBankTotal(summary.totalBankAmount);
+          setExpenses(totalExpenses);
+        }
       } catch {
         setExpectedTotal(0);
       }
     })();
-  }, [selectedStoreId, today, cashClosingService, expenseRepo]);
+  }, [selectedStoreId, today, cashClosingService, expenseRepo, setBankTotal, setCashBase, setDenomination, setExpenses]);
 
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
@@ -91,7 +102,7 @@ export default function CierreCajaScreen() {
           expenses,
         );
         setExistingClosing(updated);
-        showSuccess('Cierre actualizado y alertas regeneradas');
+        showSuccess(`Borrador actualizado. Discrepancia: ${formatCOP(updated.discrepancy)}`);
       } else {
         // Create new closing
         const closing = await cashClosingService.createClosing(
@@ -102,9 +113,8 @@ export default function CierreCajaScreen() {
           expenses,
         );
         setExistingClosing(closing);
-        showSuccess(`Cierre creado como borrador. Discrepancia: ${formatCOP(discrepancy)}`);
+        showSuccess(`Cierre creado como borrador. Discrepancia: ${formatCOP(closing.discrepancy)}`);
       }
-      reset();
     } catch (err) {
       showError(err instanceof Error ? err.message : 'No se pudo registrar el cierre');
     } finally {
@@ -156,6 +166,14 @@ export default function CierreCajaScreen() {
 
   const cashTotal = actualTotal - bankTotal;
   const statusConfig = existingClosing ? STATUS_CONFIG[existingClosing.status] : null;
+  const displayedClosingDiscrepancy = existingClosing?.status === ClosingStatus.DRAFT
+    ? discrepancy
+    : existingClosing?.discrepancy ?? discrepancy;
+  const closingTitle = existingClosing?.status === ClosingStatus.DRAFT
+    ? 'Cierre del dia en borrador'
+    : existingClosing?.status === ClosingStatus.CONFIRMED
+      ? 'Cierre del dia confirmado'
+      : 'Cierre del dia aprobado';
 
   return (
     <ScreenContainer>
@@ -181,10 +199,10 @@ export default function CierreCajaScreen() {
           <Card.Content style={styles.statusRow}>
             <View style={{ flex: 1 }}>
               <Text variant="titleMedium" style={{ color: statusConfig.color, fontWeight: 'bold' }}>
-                Cierre del dia {existingClosing.status === ClosingStatus.APPROVED ? 'aprobado' : 'registrado'}
+                {closingTitle}
               </Text>
               <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
-                Discrepancia: {formatCOP(existingClosing.discrepancy)}
+                Discrepancia: {formatCOP(displayedClosingDiscrepancy)}
               </Text>
             </View>
             <Chip
@@ -220,6 +238,7 @@ export default function CierreCajaScreen() {
             denominations={denominations}
             onChange={setDenomination}
             total={cashTotal}
+            disabled={isReadOnly}
           />
         </Card.Content>
       </Card>
@@ -231,18 +250,21 @@ export default function CierreCajaScreen() {
             value={cashBase}
             onChangeValue={setCashBase}
             label="Base de Apertura"
+            disabled
           />
           <View style={{ height: 12 }} />
           <CurrencyInput
             value={bankTotal}
             onChangeValue={setBankTotal}
             label="Total Transferencias"
+            disabled={isReadOnly}
           />
           <View style={{ height: 12 }} />
           <CurrencyInput
             value={expenses}
             onChangeValue={setExpenses}
             label="Gastos del Dia"
+            disabled={isReadOnly}
           />
         </Card.Content>
       </Card>
@@ -311,7 +333,7 @@ export default function CierreCajaScreen() {
           style={styles.submitBtn}
           icon={existingClosing ? 'content-save' : 'lock-check'}
         >
-          {existingClosing ? 'Actualizar Cierre' : 'Registrar Cierre'}
+          {existingClosing ? 'Actualizar Borrador' : 'Registrar Borrador'}
         </Button>
       )}
 
@@ -374,6 +396,7 @@ export default function CierreCajaScreen() {
         mode="text"
         onPress={reset}
         style={{ marginTop: 8 }}
+        disabled={!isEditable}
       >
         Limpiar formulario
       </Button>

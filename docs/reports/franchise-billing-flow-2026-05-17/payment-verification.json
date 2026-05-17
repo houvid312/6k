@@ -1,0 +1,31 @@
+{
+  "transfer": {
+    "id": "6a369206-479a-4e16-afd5-6fe7668d7341",
+    "status": "RECEIVED",
+    "total_price_cop": 13900,
+    "total_cost_cop": 4692.6,
+    "credit_entry_id": "90f935a0-ec0b-44aa-ba73-7f29cbd6bce4",
+    "billed_at": "2026-05-17T14:19:38.329696+00:00"
+  },
+  "credit": {
+    "id": "90f935a0-ec0b-44aa-ba73-7f29cbd6bce4",
+    "debtor_name": "Local 2",
+    "debtor_type": "LOCAL",
+    "store_id": "00000000-0000-0000-0000-000000000002",
+    "transfer_id": "6a369206-479a-4e16-afd5-6fe7668d7341",
+    "concept": "Cobro interno traslado 8d7341",
+    "amount": 13900,
+    "balance": 0,
+    "is_paid": true,
+    "date": "2026-05-17",
+    "paid_date": "2026-05-17"
+  },
+  "paymentChecks": {
+    "creditPaid": true,
+    "balanceZero": true,
+    "amountPreserved": true,
+    "paidDateSet": true,
+    "transferLinkPreserved": true
+  },
+  "allPaymentChecksPassed": true
+}

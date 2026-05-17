@@ -5,4 +5,8 @@ export interface Supply {
   name: string;
   unit: SupplyUnit;
   gramsPerBag: number;
+  productionCostCop: number;
+  commercialPriceCop: number;
+  salePriceCop: number;
+  isBillableToStore: boolean;
 }

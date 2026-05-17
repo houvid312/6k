@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, FlatList, Alert } from 'react-native';
+import { View, StyleSheet, FlatList } from 'react-native';
+import { router } from 'expo-router';
 import {
   Text,
   Card,
   Button,
   Chip,
   Divider,
+  Dialog,
+  Portal,
   SegmentedButtons,
   Snackbar,
   useTheme,
@@ -51,6 +54,9 @@ export default function BajasScreen() {
   const [tab, setTab] = useState<string>(isAdmin ? 'pending' : 'history');
   const [writeoffs, setWriteoffs] = useState<InventoryWriteoff[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reviewAction, setReviewAction] = useState<'approve' | 'reject' | null>(null);
+  const [selectedWriteoff, setSelectedWriteoff] = useState<InventoryWriteoff | null>(null);
+  const [reviewing, setReviewing] = useState(false);
   const [snackbar, setSnackbar] = useState<{ visible: boolean; success: boolean; message: string }>({
     visible: false,
     success: true,
@@ -69,6 +75,7 @@ export default function BajasScreen() {
         data = isAdmin
           ? await writeoffService.getAllHistory()
           : await writeoffService.getHistory(selectedStoreId);
+        data = data.filter((writeoff) => writeoff.status !== WriteoffStatus.PENDING);
       }
       setWriteoffs(data);
     } catch {
@@ -82,50 +89,45 @@ export default function BajasScreen() {
     loadData();
   }, [loadData]);
 
-  const handleApprove = useCallback(async (writeoff: InventoryWriteoff) => {
-    Alert.alert(
-      'Aprobar Baja',
-      `Aprobar baja de ${getSupplyName(writeoff.supplyId)} (${writeoff.quantityGrams}g)?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Aprobar',
-          onPress: async () => {
-            try {
-              await writeoffService.approve(writeoff.id, userId);
-              setSnackbar({ visible: true, success: true, message: 'Baja aprobada. Inventario descontado.' });
-              loadData();
-            } catch {
-              setSnackbar({ visible: true, success: false, message: 'Error al aprobar la baja' });
-            }
-          },
-        },
-      ],
-    );
-  }, [writeoffService, userId, getSupplyName, loadData]);
+  const openReviewDialog = useCallback((action: 'approve' | 'reject', writeoff: InventoryWriteoff) => {
+    setSelectedWriteoff(writeoff);
+    setReviewAction(action);
+  }, []);
 
-  const handleReject = useCallback(async (writeoff: InventoryWriteoff) => {
-    Alert.alert(
-      'Rechazar Baja',
-      `Rechazar baja de ${getSupplyName(writeoff.supplyId)}?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Rechazar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await writeoffService.reject(writeoff.id, userId);
-              setSnackbar({ visible: true, success: true, message: 'Baja rechazada.' });
-              loadData();
-            } catch {
-              setSnackbar({ visible: true, success: false, message: 'Error al rechazar la baja' });
-            }
-          },
-        },
-      ],
-    );
-  }, [writeoffService, userId, getSupplyName, loadData]);
+  const closeReviewDialog = useCallback(() => {
+    if (reviewing) return;
+    setSelectedWriteoff(null);
+    setReviewAction(null);
+  }, [reviewing]);
+
+  const handleConfirmReview = useCallback(async () => {
+    if (!selectedWriteoff || !reviewAction) return;
+
+    setReviewing(true);
+    try {
+      if (reviewAction === 'approve') {
+        await writeoffService.approve(selectedWriteoff.id, userId);
+        setSnackbar({ visible: true, success: true, message: 'Baja aprobada. Inventario descontado.' });
+      } else {
+        await writeoffService.reject(selectedWriteoff.id, userId);
+        setSnackbar({ visible: true, success: true, message: 'Baja rechazada.' });
+      }
+      setSelectedWriteoff(null);
+      setReviewAction(null);
+      await loadData();
+    } catch (error) {
+      console.error('Error reviewing inventory writeoff', error);
+      setSnackbar({
+        visible: true,
+        success: false,
+        message: reviewAction === 'approve'
+          ? 'No se pudo aprobar la baja'
+          : 'No se pudo rechazar la baja',
+      });
+    } finally {
+      setReviewing(false);
+    }
+  }, [loadData, reviewAction, selectedWriteoff, userId, writeoffService]);
 
   const formatTime = (timestamp: string) => {
     const d = new Date(timestamp);
@@ -196,7 +198,7 @@ export default function BajasScreen() {
                   mode="outlined"
                   textColor="#EF5350"
                   compact
-                  onPress={() => handleReject(wo)}
+                  onPress={() => openReviewDialog('reject', wo)}
                   style={{ flex: 1, marginRight: 8 }}
                 >
                   Rechazar
@@ -206,7 +208,7 @@ export default function BajasScreen() {
                   buttonColor="#388E3C"
                   textColor="#FFFFFF"
                   compact
-                  onPress={() => handleApprove(wo)}
+                  onPress={() => openReviewDialog('approve', wo)}
                   style={{ flex: 1 }}
                 >
                   Aprobar
@@ -222,6 +224,16 @@ export default function BajasScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <View style={styles.topSection}>
+        <Button
+          mode="text"
+          icon="arrow-left"
+          compact
+          onPress={() => router.replace('/inventario' as any)}
+          style={styles.backButton}
+          labelStyle={styles.backButtonLabel}
+        >
+          Inventario
+        </Button>
         <StoreSelector />
         <SegmentedButtons
           value={tab}
@@ -252,19 +264,63 @@ export default function BajasScreen() {
         />
       )}
 
-      <Snackbar
-        visible={snackbar.visible}
-        onDismiss={() => setSnackbar((s) => ({ ...s, visible: false }))}
-        duration={4000}
-        style={{ backgroundColor: snackbar.success ? '#4CAF50' : '#B71C1C' }}
-        action={{
-          label: 'OK',
-          textColor: '#FFFFFF',
-          onPress: () => setSnackbar((s) => ({ ...s, visible: false })),
-        }}
-      >
-        <Text style={{ color: '#FFFFFF' }}>{snackbar.message}</Text>
-      </Snackbar>
+      <Portal>
+        <Dialog
+          visible={!!selectedWriteoff && !!reviewAction}
+          onDismiss={closeReviewDialog}
+          style={styles.dialog}
+        >
+          <Dialog.Title>
+            {reviewAction === 'approve' ? 'Aprobar baja' : 'Rechazar baja'}
+          </Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+              {reviewAction === 'approve'
+                ? 'Esta accion descontara el inventario del local.'
+                : 'Esta accion dejara la solicitud sin descuento de inventario.'}
+            </Text>
+            {selectedWriteoff ? (
+              <View style={styles.dialogDetails}>
+                <Text variant="titleSmall" style={{ fontWeight: '700' }}>
+                  {getSupplyName(selectedWriteoff.supplyId)}
+                </Text>
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                  {selectedWriteoff.quantityGrams}g · {REASON_LABELS[selectedWriteoff.reason] ?? selectedWriteoff.reason}
+                </Text>
+              </View>
+            ) : null}
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={closeReviewDialog} disabled={reviewing}>
+              Cancelar
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor={reviewAction === 'approve' ? '#388E3C' : '#B71C1C'}
+              textColor="#FFFFFF"
+              loading={reviewing}
+              disabled={reviewing}
+              onPress={handleConfirmReview}
+            >
+              {reviewAction === 'approve' ? 'Aprobar' : 'Rechazar'}
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        <Snackbar
+          visible={snackbar.visible}
+          onDismiss={() => setSnackbar((s) => ({ ...s, visible: false }))}
+          duration={4000}
+          style={{ backgroundColor: snackbar.success ? '#4CAF50' : '#B71C1C' }}
+          action={{
+            label: 'OK',
+            textColor: '#FFFFFF',
+            onPress: () => setSnackbar((s) => ({ ...s, visible: false })),
+          }}
+        >
+          <Text style={{ color: '#FFFFFF' }}>{snackbar.message}</Text>
+        </Snackbar>
+      </Portal>
     </View>
   );
 }
@@ -276,6 +332,15 @@ const styles = StyleSheet.create({
   topSection: {
     padding: 16,
     paddingBottom: 0,
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+    marginLeft: -8,
+  },
+  backButtonLabel: {
+    color: '#F5F0EB',
+    fontWeight: '700',
   },
   segments: {
     marginTop: 12,
@@ -303,5 +368,15 @@ const styles = StyleSheet.create({
   actionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  dialog: {
+    backgroundColor: '#1E1E1E',
+  },
+  dialogDetails: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: '#161616',
+    gap: 4,
   },
 });

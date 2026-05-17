@@ -11,6 +11,7 @@ interface SaleRow {
   worker_id: string | null;
   total_portions: number;
   total_amount: number;
+  packaging_total: number | null;
   cash_amount: number;
   bank_amount: number;
   payment_method: string;
@@ -40,6 +41,11 @@ interface SaleItemRow {
   unit_price: number;
   subtotal: number;
   additions_total: number;
+  packaging_supply_id: string | null;
+  packaging_label: string | null;
+  packaging_unit_price: number | null;
+  packaging_quantity: number | null;
+  packaging_total: number | null;
 }
 
 interface SaleItemAdditionRow {
@@ -77,6 +83,11 @@ function saleItemRowToEntity(row: SaleItemRow, additions?: SaleItemAddition[]): 
     subtotal: row.subtotal,
     additions: additions && additions.length > 0 ? additions : undefined,
     additionsTotal: row.additions_total || undefined,
+    packagingSupplyId: row.packaging_supply_id ?? undefined,
+    packagingLabel: row.packaging_label ?? undefined,
+    packagingUnitPrice: row.packaging_unit_price ?? 0,
+    packagingQuantity: row.packaging_quantity ?? 0,
+    packagingTotal: row.packaging_total ?? 0,
   };
 }
 
@@ -88,6 +99,7 @@ function saleRowToEntity(row: SaleRow, items: SaleItem[]): Sale {
     items,
     totalPortions: row.total_portions,
     totalAmount: row.total_amount,
+    packagingTotal: row.packaging_total ?? 0,
     cashAmount: row.cash_amount,
     bankAmount: row.bank_amount,
     paymentMethod: row.payment_method as PaymentMethod,
@@ -235,6 +247,7 @@ export class SupabaseSaleRepository implements ISaleRepository {
         payment_method: sale.paymentMethod,
         total_portions: sale.totalPortions,
         total_amount: sale.totalAmount,
+        packaging_total: sale.packagingTotal ?? 0,
         cash_amount: sale.cashAmount,
         bank_amount: sale.bankAmount,
         observations: sale.observations ?? null,
@@ -260,6 +273,11 @@ export class SupabaseSaleRepository implements ISaleRepository {
       unit_price: item.unitPrice,
       subtotal: item.subtotal,
       additions_total: item.additionsTotal ?? 0,
+      packaging_supply_id: item.packagingSupplyId ?? null,
+      packaging_label: item.packagingLabel ?? null,
+      packaging_unit_price: item.packagingUnitPrice ?? 0,
+      packaging_quantity: item.packagingQuantity ?? 0,
+      packaging_total: item.packagingTotal ?? 0,
     }));
 
     const { data: insertedItems, error: itemsError } = await supabase
@@ -300,6 +318,56 @@ export class SupabaseSaleRepository implements ISaleRepository {
     }
 
     return this.getById(saleRow.id) as Promise<Sale>;
+  }
+
+  async update(sale: Sale): Promise<Sale> {
+    const itemPayload = sale.items.map((item) => ({
+      product_id: item.productId,
+      size: item.size ?? null,
+      format_id: item.formatId ?? null,
+      format_name: item.formatName ?? null,
+      quantity: item.quantity,
+      portions: item.portions,
+      unit_price: item.unitPrice,
+      subtotal: item.subtotal,
+      additions_total: item.additionsTotal ?? 0,
+      packaging_supply_id: item.packagingSupplyId ?? null,
+      packaging_label: item.packagingLabel ?? null,
+      packaging_unit_price: item.packagingUnitPrice ?? 0,
+      packaging_quantity: item.packagingQuantity ?? 0,
+      packaging_total: item.packagingTotal ?? 0,
+      additions: (item.additions ?? []).map((addition) => ({
+        addition_catalog_id: addition.additionCatalogId,
+        supply_id: addition.supplyId,
+        name: addition.name,
+        price: addition.price,
+        grams: addition.grams,
+        quantity: addition.quantity,
+      })),
+    }));
+
+    const { error } = await supabase.rpc('replace_pending_sale_order', {
+      p_sale_id: sale.id,
+      p_payment_method: sale.paymentMethod,
+      p_total_portions: sale.totalPortions,
+      p_total_amount: sale.totalAmount,
+      p_packaging_total: sale.packagingTotal ?? 0,
+      p_cash_amount: sale.cashAmount,
+      p_bank_amount: sale.bankAmount,
+      p_observations: sale.observations ?? '',
+      p_is_paid: sale.isPaid,
+      p_customer_note: sale.customerNote ?? '',
+      p_packaging_supply_id: sale.packagingSupplyId ?? null,
+      p_items: itemPayload,
+    });
+
+    if (error) throw error;
+
+    const updated = await this.getById(sale.id);
+    if (!updated) {
+      throw new Error(`No se pudo cargar la venta actualizada ${sale.id}.`);
+    }
+    return updated;
   }
 
   async getDailySummary(storeId: string, date: string): Promise<DailySummary> {

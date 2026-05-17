@@ -185,6 +185,11 @@ export default function DebtorDetailScreen() {
                   <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                     {formatDate(c.date)}
                   </Text>
+                  {c.transferId && (
+                    <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
+                      Traslado {c.transferId.slice(-6)}
+                    </Text>
+                  )}
 
                   {/* Days pending indicator */}
                   <View style={styles.indicatorRow}>
