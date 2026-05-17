@@ -1,0 +1,48 @@
+docs/runbooks/inventory-flow-reset-runbook.md
+  s_71b79136755183::t_01d8a12f993296 1-10,14-87,161-168
+  s_71b79136755183::t_045adb5baa8f04 88,127-133,136-160
+  s_71b79136755183::t_a38f87f410b9c2 11-13,89-126,134-135
+docs/reports/inventory-flow-next-iteration.md
+  s_71b79136755183::t_14ec6551e2b7d4 1-125
+src/services/ValidationService.ts
+  s_71b79136755183::t_1a3a3ce7d4976a 42-43,45-50,52-55,58-61
+supabase/sql/e2e_inventory_flow_after_reset.sql
+  s_71b79136755183::t_9822d834e4654e 62,179,191,205
+  s_71b79136755183::t_84eb619cdfead6 473
+  s_71b79136755183::t_5452131c1c5282 478,481-482
+  s_71b79136755183::t_1a3a3ce7d4976a 1-61,63-135,137-139,141,143,145,151-178,180-190,192-199,203-204,206-472,474-477,479-480,483-618
+  s_71b79136755183::t_23f2fd520f36fb 200-202
+  s_71b79136755183::t_a8cfa7ca4a45d3 136,140,142,144,146-150
+docs/reports/inventory-flow-technical-report.md
+  s_71b79136755183::t_c8727e876c4b90 1-197
+src/data/repositories/SupabaseSaleRepository.ts
+  s_71b79136755183::t_d25bceeda9c1c2 5,132,138-139,306,312-313
+app/(tabs)/ventas/index.tsx
+  s_71b79136755183::t_d17e54533dc071 36,148
+src/utils/dates.ts
+  s_71b79136755183::t_9622f5f68834e4 2-4,21-51
+src/services/DashboardService.ts
+  s_71b79136755183::t_d8a2ded5f6ae0d 4,95
+docs/reports/inventory-flow-summary.html
+  s_71b79136755183::t_5a0410c9efe16a 1-581
+supabase/sql/reset_inventory_flow.sql
+  s_71b79136755183::t_01d8a12f993296 1-143
+supabase/sql/inventory_recipe_deduction_audit.sql
+  s_71b79136755183::t_01d8a12f993296 1-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "41b6b213ab5e48ea8e7ccaa870ddb53517c577e3",
+  "prompts": {},
+  "sessions": {
+    "s_71b79136755183": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e3312-2a06-7740-91b6-cea204601985",
+        "model": "gpt-5.5"
+      },
+      "human_author": "David Gómez González <davidgg312@gmail.com>"
+    }
+  }
+}
