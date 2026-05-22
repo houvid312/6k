@@ -2,6 +2,7 @@ import { CashClosing, CashOpening, DenominationCount } from '../domain/entities'
 import { ClosingStatus } from '../domain/enums';
 import { ICashClosingRepository, ISaleRepository, IExpenseRepository, ICashOpeningRepository, IScheduleRepository, IAttendanceRepository, IWorkerRepository } from '../domain/interfaces/repositories';
 import { AlertService } from './AlertService';
+import { getRrhhDayOfWeek, toColombiaTimestamp } from '../utils/time';
 
 /** Denomination values matching the DenominationCount keys. */
 const DENOMINATION_VALUES: Record<keyof DenominationCount, number> = {
@@ -225,33 +226,44 @@ export class CashClosingService {
   // --- Private ---
 
   /**
-   * H3: Auto-create attendance records from schedules after closing approval.
+   * Preloads draft attendance suggestions from schedules after closing approval.
    */
   private async autoLoadAttendance(storeId: string, date: string): Promise<void> {
     if (!this.scheduleRepo || !this.attendanceRepo || !this.workerRepo) return;
 
-    const dayOfWeek = new Date(date + 'T12:00:00').getDay();
-    // Convert JS day (0=Sun) to our format (0=Mon)
-    const adjustedDay = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-
+    const adjustedDay = getRrhhDayOfWeek(new Date(`${date}T12:00:00-05:00`));
     const schedules = await this.scheduleRepo.getByStore(storeId);
     const daySchedules = schedules.filter((s) => s.dayOfWeek === adjustedDay);
+    const existingAttendance = await this.attendanceRepo.getByDate(storeId, date);
 
-    const workers = await this.workerRepo.getAll();
+    const workers = await this.workerRepo.getByStore(storeId);
     const workerMap = new Map(workers.map((w) => [w.id, w]));
+    const existingScheduleIds = new Set(
+      existingAttendance
+        .filter((attendance) => attendance.scheduleId)
+        .map((attendance) => attendance.scheduleId),
+    );
 
     for (const schedule of daySchedules) {
       const worker = workerMap.get(schedule.workerId);
       if (!worker || !worker.isActive) continue;
+      if (existingScheduleIds.has(schedule.id)) continue;
 
-      await this.attendanceRepo.upsert({
+      await this.attendanceRepo.create({
         date,
         workerId: schedule.workerId,
         storeId,
+        scheduleId: schedule.id,
         scheduledHours: schedule.hours,
-        actualHours: schedule.hours,
+        actualHours: 0,
         hourlyRate: worker.hourlyRate,
-        subtotal: schedule.hours * worker.hourlyRate,
+        subtotal: 0,
+        checkIn: toColombiaTimestamp(date, schedule.startTime),
+        checkOut: toColombiaTimestamp(date, schedule.endTime),
+        notes: 'Precargado desde cierre de caja',
+        isUnplanned: false,
+        source: 'CLOSING',
+        status: 'DRAFT',
       });
     }
   }

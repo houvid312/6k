@@ -6,4 +6,5 @@ export interface Schedule {
   startTime: string;
   endTime: string;
   hours: number;
+  notes?: string;
 }

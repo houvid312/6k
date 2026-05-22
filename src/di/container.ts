@@ -11,8 +11,10 @@ import {
   SupabaseCashAuditRepository,
   SupabaseCreditRepository,
   SupabaseWorkerRepository,
+  SupabaseWorkerStoreAssignmentRepository,
   SupabaseScheduleRepository,
   SupabaseAttendanceRepository,
+  SupabasePayrollRepository,
   SupabaseExpenseRepository,
   SupabasePhysicalCountRepository,
   SupabaseProductionRecipeRepository,
@@ -57,8 +59,10 @@ const cashClosingRepo = new SupabaseCashClosingRepository();
 const cashAuditRepo = new SupabaseCashAuditRepository();
 const creditRepo = new SupabaseCreditRepository();
 const workerRepo = new SupabaseWorkerRepository();
+const workerStoreAssignmentRepo = new SupabaseWorkerStoreAssignmentRepository();
 const scheduleRepo = new SupabaseScheduleRepository();
 const attendanceRepo = new SupabaseAttendanceRepository();
+const payrollRepo = new SupabasePayrollRepository();
 const expenseRepo = new SupabaseExpenseRepository();
 const physicalCountRepo = new SupabasePhysicalCountRepository();
 const productionRecipeRepo = new SupabaseProductionRecipeRepository();
@@ -79,7 +83,7 @@ const inventoryService = new InventoryService(inventoryRepo, supplyRepo);
 const transferService = new TransferService(transferRepo, inventoryRepo, supplyRepo);
 const validationService = new ValidationService(saleRepo, recipeRepo, inventoryRepo, writeoffRepo);
 const creditService = new CreditService(creditRepo);
-const payrollService = new PayrollService(workerRepo, attendanceRepo, creditRepo);
+const payrollService = new PayrollService(workerRepo, attendanceRepo, creditRepo, payrollRepo, expenseRepo);
 const dashboardService = new DashboardService(saleRepo, inventoryRepo, supplyRepo, expenseRepo, purchaseRepo, recipeRepo, productRepo);
 const authService = new SupabaseAuthService();
 const physicalCountService = new PhysicalCountService(physicalCountRepo, inventoryRepo);
@@ -103,8 +107,10 @@ export const container = {
   cashAuditRepo,
   creditRepo,
   workerRepo,
+  workerStoreAssignmentRepo,
   scheduleRepo,
   attendanceRepo,
+  payrollRepo,
   expenseRepo,
   physicalCountRepo,
   productionRecipeRepo,

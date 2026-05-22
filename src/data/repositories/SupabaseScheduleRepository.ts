@@ -12,6 +12,7 @@ interface ScheduleRow {
   start_time: string;
   end_time: string;
   hours: number;
+  notes: string | null;
 }
 
 // --- Mappers ---
@@ -25,6 +26,7 @@ function toEntity(row: ScheduleRow): Schedule {
     startTime: row.start_time,
     endTime: row.end_time,
     hours: row.hours,
+    notes: row.notes ?? undefined,
   };
 }
 
@@ -36,6 +38,7 @@ function toRow(schedule: Omit<Schedule, 'id'>): Record<string, unknown> {
     start_time: schedule.startTime,
     end_time: schedule.endTime,
     hours: schedule.hours,
+    notes: schedule.notes ?? null,
   };
 }
 
@@ -62,9 +65,19 @@ export class SupabaseScheduleRepository implements IScheduleRepository {
     return (data as ScheduleRow[]).map(toEntity);
   }
 
-  async getWeekSchedule(storeId: string, weekStart: string): Promise<Schedule[]> {
-    // Schedules are recurring by day_of_week; weekStart is used for context
-    // but the schedules table stores templates, not date-specific entries
+  async getByStoreAndDay(storeId: string, dayOfWeek: number): Promise<Schedule[]> {
+    const { data, error } = await supabase
+      .from('schedules')
+      .select('*')
+      .eq('store_id', storeId)
+      .eq('day_of_week', dayOfWeek)
+      .order('start_time', { ascending: true });
+    if (error) throw error;
+    return (data as ScheduleRow[]).map(toEntity);
+  }
+
+  async getWeekSchedule(storeId: string, _weekStart: string): Promise<Schedule[]> {
+    // Schedules are recurring templates by day_of_week.
     const { data, error } = await supabase
       .from('schedules')
       .select('*')
@@ -84,10 +97,20 @@ export class SupabaseScheduleRepository implements IScheduleRepository {
     return toEntity(data as ScheduleRow);
   }
 
-  async upsert(schedule: Omit<Schedule, 'id'>): Promise<Schedule> {
+  async update(id: string, schedule: Partial<Omit<Schedule, 'id'>>): Promise<Schedule> {
+    const row: Record<string, unknown> = {};
+    if (schedule.workerId !== undefined) row.worker_id = schedule.workerId;
+    if (schedule.storeId !== undefined) row.store_id = schedule.storeId;
+    if (schedule.dayOfWeek !== undefined) row.day_of_week = schedule.dayOfWeek;
+    if (schedule.startTime !== undefined) row.start_time = schedule.startTime;
+    if (schedule.endTime !== undefined) row.end_time = schedule.endTime;
+    if (schedule.hours !== undefined) row.hours = schedule.hours;
+    if (schedule.notes !== undefined) row.notes = schedule.notes ?? null;
+
     const { data, error } = await supabase
       .from('schedules')
-      .upsert(toRow(schedule), { onConflict: 'worker_id,store_id,day_of_week' })
+      .update(row)
+      .eq('id', id)
       .select()
       .single();
     if (error) throw error;

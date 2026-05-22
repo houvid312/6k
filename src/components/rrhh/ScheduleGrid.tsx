@@ -7,14 +7,16 @@ import { DAYS_OF_WEEK } from '../../utils/constants';
 interface Props {
   workers: Worker[];
   schedules: Schedule[];
-  onCellPress?: (worker: Worker, dayOfWeek: number) => void;  // H2
+  onCellPress?: (worker: Worker, dayOfWeek: number) => void;
 }
 
 export function ScheduleGrid({ workers, schedules, onCellPress }: Props) {
   const theme = useTheme();
 
-  const getScheduleForWorkerDay = (workerId: string, dayIndex: number): Schedule | undefined => {
-    return schedules.find((s) => s.workerId === workerId && s.dayOfWeek === dayIndex);
+  const getSchedulesForWorkerDay = (workerId: string, dayIndex: number): Schedule[] => {
+    return schedules
+      .filter((s) => s.workerId === workerId && s.dayOfWeek === dayIndex)
+      .sort((a, b) => a.startTime.localeCompare(b.startTime));
   };
 
   return (
@@ -45,19 +47,24 @@ export function ScheduleGrid({ workers, schedules, onCellPress }: Props) {
               </Text>
             </View>
             {DAYS_OF_WEEK.map((_, dayIndex) => {
-              const schedule = getScheduleForWorkerDay(worker.id, dayIndex);
-              const cell = schedule ? (
-                <Surface
-                  style={[styles.scheduleBlock, { backgroundColor: theme.colors.primaryContainer }]}
-                  elevation={0}
-                >
-                  <Text variant="labelSmall" style={{ fontSize: 9, textAlign: 'center' }}>
-                    {schedule.startTime}
-                  </Text>
-                  <Text variant="labelSmall" style={{ fontSize: 9, textAlign: 'center' }}>
-                    {schedule.endTime}
-                  </Text>
-                </Surface>
+              const daySchedules = getSchedulesForWorkerDay(worker.id, dayIndex);
+              const cell = daySchedules.length > 0 ? (
+                <View style={styles.blocks}>
+                  {daySchedules.map((schedule) => (
+                    <Surface
+                      key={schedule.id}
+                      style={[styles.scheduleBlock, { backgroundColor: theme.colors.primaryContainer }]}
+                      elevation={0}
+                    >
+                      <Text variant="labelSmall" style={styles.timeText}>
+                        {schedule.startTime}
+                      </Text>
+                      <Text variant="labelSmall" style={styles.timeText}>
+                        {schedule.endTime}
+                      </Text>
+                    </Surface>
+                  ))}
+                </View>
               ) : (
                 <Text variant="labelSmall" style={{ color: theme.colors.outline, textAlign: 'center' }}>
                   --
@@ -89,20 +96,30 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F0F0F0',
     paddingVertical: 4,
-    alignItems: 'center',
+    alignItems: 'stretch',
   },
   nameCell: {
     width: 100,
     paddingRight: 8,
   },
   dayCell: {
-    width: 60,
+    width: 78,
+    minHeight: 52,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  blocks: {
+    gap: 3,
+    width: '100%',
   },
   scheduleBlock: {
     borderRadius: 4,
     paddingHorizontal: 4,
     paddingVertical: 2,
+  },
+  timeText: {
+    fontSize: 9,
+    textAlign: 'center',
   },
 });

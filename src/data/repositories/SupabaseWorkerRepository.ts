@@ -13,6 +13,8 @@ interface WorkerRow {
   is_active: boolean;
   phone: string | null;
   pin: string | null;
+  username?: string | null;
+  worker_store_assignments?: { store_id: string }[];
 }
 
 // --- Mappers ---
@@ -26,6 +28,8 @@ function toEntity(row: WorkerRow): Worker {
     isActive: row.is_active,
     phone: row.phone ?? undefined,
     pin: row.pin ?? undefined,
+    username: row.username ?? undefined,
+    storeIds: row.worker_store_assignments?.map((assignment) => assignment.store_id) ?? [],
   };
 }
 
@@ -46,7 +50,18 @@ export class SupabaseWorkerRepository implements IWorkerRepository {
   async getAll(): Promise<Worker[]> {
     const { data, error } = await supabase
       .from('workers')
-      .select('*');
+      .select('*, worker_store_assignments(store_id)')
+      .order('name', { ascending: true });
+    if (error) throw error;
+    return (data as WorkerRow[]).map(toEntity);
+  }
+
+  async getByStore(storeId: string): Promise<Worker[]> {
+    const { data, error } = await supabase
+      .from('workers')
+      .select('*, worker_store_assignments!inner(store_id)')
+      .eq('worker_store_assignments.store_id', storeId)
+      .order('name', { ascending: true });
     if (error) throw error;
     return (data as WorkerRow[]).map(toEntity);
   }
@@ -54,7 +69,7 @@ export class SupabaseWorkerRepository implements IWorkerRepository {
   async getById(id: string): Promise<Worker | null> {
     const { data, error } = await supabase
       .from('workers')
-      .select('*')
+      .select('*, worker_store_assignments(store_id)')
       .eq('id', id)
       .single();
     if (error) {
@@ -67,7 +82,7 @@ export class SupabaseWorkerRepository implements IWorkerRepository {
   async getByRole(role: WorkerRole): Promise<Worker[]> {
     const { data, error } = await supabase
       .from('workers')
-      .select('*')
+      .select('*, worker_store_assignments(store_id)')
       .eq('role', role);
     if (error) throw error;
     return (data as WorkerRow[]).map(toEntity);

@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { FlatList, View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { Card, Text, Chip, Button, FAB, IconButton, useTheme, Modal, Portal, TextInput, RadioButton } from 'react-native-paper';
+import { Card, Text, Chip, Button, FAB, IconButton, useTheme, Modal, Portal, TextInput, RadioButton, Switch } from 'react-native-paper';
 import { router } from 'expo-router';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { useWorkerStore } from '../../../src/stores/useWorkerStore';
+import { useAppStore } from '../../../src/stores/useAppStore';
 import { Worker } from '../../../src/domain/entities';
 import { WorkerRole } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
@@ -31,29 +32,37 @@ const ROLE_LABELS: Record<WorkerRole, string> = {
 export default function RRHHScreen() {
   const theme = useTheme();
   const { workers, loading, loadWorkers } = useWorkerStore();
+  const { stores, selectedStoreId, loadStores } = useAppStore();
 
   const [modalVisible, setModalVisible] = useState(false);
+  const [editingWorker, setEditingWorker] = useState<Worker | null>(null);
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [hourlyRate, setHourlyRate] = useState('8000');
   const [role, setRole] = useState<WorkerRole>(WorkerRole.PREPARADOR);
+  const [isActive, setIsActive] = useState(true);
+  const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
 
   useEffect(() => {
     loadWorkers();
-  }, [loadWorkers]);
+    loadStores();
+  }, [loadStores, loadWorkers]);
 
-  const resetForm = useCallback(() => {
-    setName('');
-    setPhone('');
-    setPin('');
-    setHourlyRate('8000');
-    setRole(WorkerRole.PREPARADOR);
-  }, []);
+  const resetForm = useCallback((worker?: Worker) => {
+    setEditingWorker(worker ?? null);
+    setName(worker?.name ?? '');
+    setPhone(worker?.phone ?? '');
+    setPin(worker?.pin ?? '');
+    setHourlyRate(String(worker?.hourlyRate ?? 8000));
+    setRole(worker?.role ?? WorkerRole.PREPARADOR);
+    setIsActive(worker?.isActive ?? true);
+    setSelectedStoreIds(worker?.storeIds?.length ? worker.storeIds : selectedStoreId ? [selectedStoreId] : []);
+  }, [selectedStoreId]);
 
-  const openModal = useCallback(() => {
-    resetForm();
+  const openModal = useCallback((worker?: Worker) => {
+    resetForm(worker);
     setModalVisible(true);
   }, [resetForm]);
 
@@ -71,6 +80,10 @@ export default function RRHHScreen() {
       Alert.alert('Error', 'El PIN debe ser exactamente 6 digitos numericos.');
       return;
     }
+    if (selectedStoreIds.length === 0) {
+      Alert.alert('Error', 'Selecciona al menos un centro.');
+      return;
+    }
     const rate = Number(hourlyRate);
     if (isNaN(rate) || rate <= 0) {
       Alert.alert('Error', 'La tarifa por hora debe ser un numero positivo.');
@@ -79,22 +92,34 @@ export default function RRHHScreen() {
 
     setSaving(true);
     try {
-      await container.workerRepo.create({
+      const payload = {
         name: trimmedName,
         phone: phone.trim() || undefined,
         pin,
         hourlyRate: rate,
         role,
-        isActive: true,
-      });
+        isActive,
+      };
+      const worker = editingWorker
+        ? await container.workerRepo.update(editingWorker.id, payload)
+        : await container.workerRepo.create(payload);
+      await container.workerStoreAssignmentRepo.setWorkerStores(worker.id, selectedStoreIds, selectedStoreIds[0]);
       closeModal();
       await loadWorkers();
     } catch (error) {
-      Alert.alert('Error', 'No se pudo crear el trabajador. Intente de nuevo.');
+      Alert.alert('Error', 'No se pudo guardar el trabajador. Intente de nuevo.');
     } finally {
       setSaving(false);
     }
-  }, [name, phone, pin, hourlyRate, role, closeModal, loadWorkers]);
+  }, [name, phone, pin, selectedStoreIds, hourlyRate, role, isActive, editingWorker, closeModal, loadWorkers]);
+
+  const toggleStore = useCallback((storeId: string) => {
+    setSelectedStoreIds((current) => (
+      current.includes(storeId)
+        ? current.filter((id) => id !== storeId)
+        : [...current, storeId]
+    ));
+  }, []);
 
   // H1: Deactivate worker
   const handleDeactivate = useCallback((worker: Worker) => {
@@ -152,7 +177,18 @@ export default function RRHHScreen() {
                   {item.phone}
                 </Text>
               )}
+              <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, textAlign: 'right' }}>
+                {(item.storeIds ?? [])
+                  .map((id) => stores.find((store) => store.id === id)?.name)
+                  .filter(Boolean)
+                  .join(', ') || 'Sin centro'}
+              </Text>
             </View>
+            <IconButton
+              icon="pencil"
+              size={18}
+              onPress={() => openModal(item)}
+            />
             {item.isActive && (
               <IconButton
                 icon="account-off"
@@ -201,7 +237,7 @@ export default function RRHHScreen() {
 
       <FAB
         icon="account-plus"
-        onPress={openModal}
+        onPress={() => openModal()}
         style={[styles.fab, { backgroundColor: theme.colors.primary }]}
         color="#FFFFFF"
       />
@@ -214,7 +250,7 @@ export default function RRHHScreen() {
         >
           <ScrollView showsVerticalScrollIndicator={false}>
             <Text variant="titleLarge" style={styles.modalTitle}>
-              Nuevo Trabajador
+              {editingWorker ? 'Editar Trabajador' : 'Nuevo Trabajador'}
             </Text>
 
             <TextInput
@@ -276,6 +312,34 @@ export default function RRHHScreen() {
               </View>
             </RadioButton.Group>
 
+            <Text variant="titleSmall" style={styles.roleLabel}>
+              Centros *
+            </Text>
+            <View style={styles.storeGrid}>
+              {stores.map((store) => {
+                const selected = selectedStoreIds.includes(store.id);
+                return (
+                  <Chip
+                    key={store.id}
+                    selected={selected}
+                    icon={selected ? 'check' : 'store-outline'}
+                    onPress={() => toggleStore(store.id)}
+                    style={[styles.storeChip, selected && { backgroundColor: '#E6394622' }]}
+                    textStyle={{ color: '#F5F0EB' }}
+                  >
+                    {store.name}
+                  </Chip>
+                );
+              })}
+            </View>
+
+            <View style={styles.statusRow}>
+              <Text variant="bodyMedium" style={{ color: '#F5F0EB' }}>
+                Trabajador activo
+              </Text>
+              <Switch value={isActive} onValueChange={setIsActive} />
+            </View>
+
             <View style={styles.buttonRow}>
               <Button
                 mode="outlined"
@@ -292,7 +356,7 @@ export default function RRHHScreen() {
                 loading={saving}
                 disabled={saving}
               >
-                Crear Trabajador
+                {editingWorker ? 'Guardar Cambios' : 'Crear Trabajador'}
               </Button>
             </View>
           </ScrollView>
@@ -369,6 +433,22 @@ const styles = StyleSheet.create({
   },
   radioItem: {
     borderRadius: 8,
+  },
+  storeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  storeChip: {
+    borderWidth: 1,
+    borderColor: 'rgba(245, 240, 235, 0.2)',
+  },
+  statusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   buttonRow: {
     flexDirection: 'row',

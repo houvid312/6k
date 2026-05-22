@@ -8,4 +8,6 @@ export interface Worker {
   isActive: boolean;
   phone?: string;
   pin?: string;
+  username?: string;
+  storeIds?: string[];
 }

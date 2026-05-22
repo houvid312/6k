@@ -20,6 +20,45 @@ interface MasterDataState {
   getProductName: (id: string) => string;
 }
 
+async function loadMasterDataSlices(role: UserRole, current: MasterDataState): Promise<Partial<MasterDataState>> {
+  const [suppliesResult, productsResult, workersResult] = await Promise.allSettled([
+    container.supplyRepo.getAll(role === UserRole.ADMIN),
+    container.productRepo.getAll(),
+    container.workerRepo.getAll(),
+  ]);
+
+  if (__DEV__) {
+    const results = [
+      { name: 'insumos', result: suppliesResult },
+      { name: 'productos', result: productsResult },
+      { name: 'trabajadores', result: workersResult },
+    ];
+
+    for (const { name, result } of results) {
+      if (result.status === 'rejected') {
+        console.warn(`Error cargando ${name}:`, result.reason);
+      }
+    }
+  }
+
+  const hasCatalogData =
+    suppliesResult.status === 'fulfilled' &&
+    productsResult.status === 'fulfilled';
+  const hasAnyData =
+    suppliesResult.status === 'fulfilled' ||
+    productsResult.status === 'fulfilled' ||
+    workersResult.status === 'fulfilled';
+
+  return {
+    supplies: suppliesResult.status === 'fulfilled' ? suppliesResult.value : current.supplies,
+    products: productsResult.status === 'fulfilled' ? productsResult.value : current.products,
+    workers: workersResult.status === 'fulfilled' ? workersResult.value : current.workers,
+    loaded: hasCatalogData,
+    loadedForRole: role,
+    lastLoadedAt: hasAnyData ? Date.now() : current.lastLoadedAt,
+  };
+}
+
 export const useMasterDataStore = create<MasterDataState>((set, get) => ({
   supplies: [],
   products: [],
@@ -36,12 +75,7 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
     if (state.loading) return;
     set({ loading: true });
     try {
-      const [supplies, products, workers] = await Promise.all([
-        container.supplyRepo.getAll(role === UserRole.ADMIN),
-        container.productRepo.getAll(),
-        container.workerRepo.getAll(),
-      ]);
-      set({ supplies, products, workers, loaded: true, loadedForRole: role, lastLoadedAt: Date.now() });
+      set(await loadMasterDataSlices(role, state));
     } finally {
       set({ loading: false });
     }
@@ -51,12 +85,7 @@ export const useMasterDataStore = create<MasterDataState>((set, get) => ({
     const role = useAppStore.getState().userRole;
     set({ loading: true });
     try {
-      const [supplies, products, workers] = await Promise.all([
-        container.supplyRepo.getAll(role === UserRole.ADMIN),
-        container.productRepo.getAll(),
-        container.workerRepo.getAll(),
-      ]);
-      set({ supplies, products, workers, loaded: true, loadedForRole: role, lastLoadedAt: Date.now() });
+      set(await loadMasterDataSlices(role, get()));
     } finally {
       set({ loading: false });
     }

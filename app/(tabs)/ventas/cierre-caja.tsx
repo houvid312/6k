@@ -71,12 +71,14 @@ export default function CierreCajaScreen() {
         } catch { /* ignore */ }
 
         if (existing) {
+          const shouldRecalculateDraft = existing.status === ClosingStatus.DRAFT;
+
           for (const [key, count] of Object.entries(existing.denominations)) {
             setDenomination(key as keyof CashClosing['denominations'], count);
           }
-          setBankTotal(existing.bankTotal);
-          setExpenses(existing.expenses);
-          setExpectedTotal(existing.status === ClosingStatus.DRAFT ? summary.totalAmount : existing.expectedTotal);
+          setBankTotal(shouldRecalculateDraft ? summary.totalBankAmount : existing.bankTotal);
+          setExpenses(shouldRecalculateDraft ? totalExpenses : existing.expenses);
+          setExpectedTotal(shouldRecalculateDraft ? summary.totalAmount : existing.expectedTotal);
         } else {
           setExpectedTotal(summary.totalAmount);
           setBankTotal(summary.totalBankAmount);

@@ -1,5 +1,6 @@
 import { CreditEntry, DebtorType } from '../domain/entities';
 import { ICreditRepository } from '../domain/interfaces/repositories';
+import { todayColombia } from '../utils/dates';
 
 export class CreditService {
   constructor(private creditRepo: ICreditRepository) {}
@@ -37,12 +38,21 @@ export class CreditService {
       throw new Error(`Credit '${creditId}' not found`);
     }
 
-    const newBalance = Math.max(0, credit.balance - paymentAmount);
-    if (newBalance === 0) {
-      return this.creditRepo.markAsPaid(creditId);
-    }
+    await this.creditRepo.applyPayment({
+      creditEntryId: creditId,
+      workerId: credit.workerId,
+      storeId: credit.storeId,
+      amount: paymentAmount,
+      date: todayColombia(),
+      source: 'MANUAL',
+      notes: 'Abono manual',
+    });
 
-    return this.creditRepo.updateBalance(creditId, newBalance);
+    const updated = (await this.creditRepo.getAll()).find((c) => c.id === creditId);
+    if (!updated) {
+      throw new Error(`Credit '${creditId}' not found after payment`);
+    }
+    return updated;
   }
 
   /**

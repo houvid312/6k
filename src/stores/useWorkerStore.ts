@@ -8,7 +8,7 @@ interface WorkerState {
   attendance: Attendance[];
   loading: boolean;
 
-  loadWorkers: () => Promise<void>;
+  loadWorkers: (storeId?: string) => Promise<void>;
   loadSchedules: (storeId: string) => Promise<void>;
   loadAttendance: (storeId: string, date: string) => Promise<void>;
 }
@@ -19,10 +19,12 @@ export const useWorkerStore = create<WorkerState>((set) => ({
   attendance: [],
   loading: false,
 
-  loadWorkers: async () => {
+  loadWorkers: async (storeId?: string) => {
     set({ loading: true });
     try {
-      const workers = await container.workerRepo.getAll();
+      const workers = storeId
+        ? await container.workerRepo.getByStore(storeId)
+        : await container.workerRepo.getAll();
       set({ workers });
     } finally {
       set({ loading: false });

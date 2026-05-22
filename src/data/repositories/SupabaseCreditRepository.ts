@@ -1,6 +1,7 @@
 import { supabase } from '../../lib/supabase';
-import { CreditEntry, DebtorType } from '../../domain/entities';
+import { CreditEntry, CreditPayment, DebtorType } from '../../domain/entities';
 import { ICreditRepository } from '../../domain/interfaces/repositories';
+import { todayColombia } from '../../utils/dates';
 
 // --- Row type ---
 
@@ -17,6 +18,20 @@ interface CreditEntryRow {
   balance: number;
   is_paid: boolean;
   paid_date: string | null;
+}
+
+interface CreditPaymentRow {
+  id: string;
+  credit_entry_id: string;
+  worker_id: string | null;
+  store_id: string | null;
+  payroll_period_id: string | null;
+  payroll_entry_id: string | null;
+  amount: number;
+  date: string;
+  source: string;
+  notes: string | null;
+  created_at: string;
 }
 
 // --- Mappers ---
@@ -54,6 +69,22 @@ function toRow(entry: Omit<CreditEntry, 'id'>): Record<string, unknown> {
   };
 }
 
+function paymentToEntity(row: CreditPaymentRow): CreditPayment {
+  return {
+    id: row.id,
+    creditEntryId: row.credit_entry_id,
+    workerId: row.worker_id ?? undefined,
+    storeId: row.store_id ?? undefined,
+    payrollPeriodId: row.payroll_period_id ?? undefined,
+    payrollEntryId: row.payroll_entry_id ?? undefined,
+    amount: row.amount,
+    date: row.date,
+    source: row.source as CreditPayment['source'],
+    notes: row.notes ?? undefined,
+    createdAt: row.created_at,
+  };
+}
+
 // --- Repository ---
 
 export class SupabaseCreditRepository implements ICreditRepository {
@@ -87,7 +118,7 @@ export class SupabaseCreditRepository implements ICreditRepository {
   }
 
   async markAsPaid(id: string): Promise<CreditEntry> {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayColombia();
     const { data, error } = await supabase
       .from('credit_entries')
       .update({
@@ -108,7 +139,7 @@ export class SupabaseCreditRepository implements ICreditRepository {
       .update({
         balance,
         is_paid: balance <= 0,
-        paid_date: balance <= 0 ? new Date().toISOString().split('T')[0] : null,
+        paid_date: balance <= 0 ? todayColombia() : null,
       })
       .eq('id', id)
       .select()
@@ -126,5 +157,52 @@ export class SupabaseCreditRepository implements ICreditRepository {
       .order('date', { ascending: false });
     if (error) throw error;
     return (data as CreditEntryRow[]).map(toEntity);
+  }
+
+  async applyPayment(input: Omit<CreditPayment, 'id' | 'createdAt'>): Promise<CreditPayment> {
+    const { data: creditRow, error: creditError } = await supabase
+      .from('credit_entries')
+      .select('*')
+      .eq('id', input.creditEntryId)
+      .single();
+    if (creditError) throw creditError;
+
+    const credit = toEntity(creditRow as CreditEntryRow);
+    const amount = Math.min(input.amount, credit.balance);
+    if (amount <= 0) {
+      throw new Error('El abono debe ser mayor a cero');
+    }
+
+    const { data, error } = await supabase
+      .from('credit_payments')
+      .insert({
+        credit_entry_id: input.creditEntryId,
+        worker_id: input.workerId ?? credit.workerId ?? null,
+        store_id: input.storeId ?? null,
+        payroll_period_id: input.payrollPeriodId ?? null,
+        payroll_entry_id: input.payrollEntryId ?? null,
+        amount,
+        date: input.date,
+        source: input.source,
+        notes: input.notes ?? null,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+
+    await this.updateBalance(input.creditEntryId, Math.max(0, credit.balance - amount));
+    return paymentToEntity(data as CreditPaymentRow);
+  }
+
+  async getPaymentsByStoreDateRange(storeId: string, from: string, to: string): Promise<CreditPayment[]> {
+    const { data, error } = await supabase
+      .from('credit_payments')
+      .select('*')
+      .eq('store_id', storeId)
+      .gte('date', from)
+      .lte('date', to)
+      .order('date', { ascending: false });
+    if (error) throw error;
+    return (data as CreditPaymentRow[]).map(paymentToEntity);
   }
 }
