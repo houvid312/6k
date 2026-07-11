@@ -155,6 +155,7 @@ export default function ContabilidadScreen() {
     supplyRepo,
     recipeRepo,
     writeoffRepo,
+    productRepo,
   } = useDI();
   const { selectedStoreId, stores } = useAppStore();
   const selectedStore = stores.find((s) => s.id === selectedStoreId);
@@ -275,13 +276,15 @@ export default function ContabilidadScreen() {
         ? outgoingTransfers.reduce((sum, t) => sum + (t.totalPriceCop ?? 0), 0)
         : 0;
 
-      const [storeInventory, supplies, recipes, approvedWriteoffs] = await Promise.all([
+      const [storeInventory, supplies, recipes, approvedWriteoffs, products] = await Promise.all([
         inventoryRepo.getByStore(appliedStoreId, InventoryLevel.STORE),
         supplyRepo.getAll(false),
         recipeRepo.getAll(),
         writeoffRepo.getApprovedByStoreAndDateRange(appliedStoreId, startDate, endDate),
+        productRepo.getAll(),
       ]);
       const suppliesById = new Map(supplies.map((supply) => [supply.id, supply]));
+      const productsById = new Map(products.map((product) => [product.id, product]));
 
       const valueQuantityAtStorePrice = (supplyId: string | undefined, quantity: number) => {
         if (!supplyId || quantity <= 0) return 0;
@@ -359,14 +362,37 @@ export default function ContabilidadScreen() {
       }, 0);
 
       const currentWriteoffRows = approvedWriteoffs
-        .map((writeoff): WriteoffValuationRow => ({
-          date: formatDateTime(writeoff.createdAt),
-          supplyName: suppliesById.get(writeoff.supplyId)?.name ?? 'Insumo',
-          quantityGrams: writeoff.quantityGrams,
-          reason: writeoff.reason,
-          notes: writeoff.notes,
-          totalValueCop: valueQuantityAtStorePrice(writeoff.supplyId, writeoff.quantityGrams),
-        }))
+        .map((writeoff): WriteoffValuationRow => {
+          let supplyName = 'Insumo';
+          let totalValueCop = 0;
+
+          if (writeoff.productId) {
+            const product = productsById.get(writeoff.productId);
+            supplyName = product ? `${product.name} (Porciones)` : 'Producto';
+
+            const recipe = recipes.find((r) => r.productId === writeoff.productId);
+            if (recipe) {
+              totalValueCop = recipe.ingredients.reduce(
+                (sum, ingredient) =>
+                  sum + valueQuantityAtStorePrice(ingredient.supplyId, ingredient.gramsPerPortion * writeoff.quantityGrams),
+                0,
+              );
+            }
+          } else if (writeoff.supplyId) {
+            const supply = suppliesById.get(writeoff.supplyId);
+            supplyName = supply?.name ?? 'Insumo';
+            totalValueCop = valueQuantityAtStorePrice(writeoff.supplyId, writeoff.quantityGrams);
+          }
+
+          return {
+            date: formatDateTime(writeoff.createdAt),
+            supplyName,
+            quantityGrams: writeoff.quantityGrams,
+            reason: writeoff.reason,
+            notes: writeoff.notes,
+            totalValueCop,
+          };
+        })
         .sort((a, b) => b.totalValueCop - a.totalValueCop);
 
       const totalWriteoffInventoryCost = currentWriteoffRows.reduce(

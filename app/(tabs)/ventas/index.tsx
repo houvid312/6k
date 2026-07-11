@@ -145,11 +145,11 @@ export default function VentasScreen() {
         .select('product_id, portions')
         .eq('store_id', selectedStoreId)
         .eq('date', today);
+      const map: Record<string, number> = {};
       if (data && data.length > 0) {
-        const map: Record<string, number> = {};
         for (const row of data) map[row.product_id] = row.portions;
-        setAvailablePortions(map);
       }
+      setAvailablePortions(map);
     })();
   }, [selectedStoreId]);
 
@@ -245,35 +245,78 @@ export default function VentasScreen() {
   }, [loadPendingSales]);
 
   const handleBajaSubmit = useCallback(async () => {
-    const grams = parseFloat(bajaGrams);
-    if (!bajaSupplyId || !grams || grams <= 0) {
-      Alert.alert('Error', 'Selecciona un insumo e ingresa una cantidad valida');
-      return;
+    if (bajaMode === 'supply') {
+      const grams = parseFloat(bajaGrams);
+      if (!bajaSupplyId || !grams || grams <= 0) {
+        Alert.alert('Error', 'Selecciona un insumo e ingresa una cantidad valida');
+        return;
+      }
+      setBajaSubmitting(true);
+      try {
+        await writeoffService.createRequest(
+          selectedStoreId,
+          bajaSupplyId,
+          Number(bajaLevel) as InventoryLevel,
+          grams,
+          bajaReason,
+          bajaNotes,
+          userId,
+        );
+        setBajaModalVisible(false);
+        setBajaSupplyId('');
+        setBajaGrams('');
+        setBajaNotes('');
+        setBajaReason(WriteoffReason.DAMAGED);
+        setBajaLevel(String(InventoryLevel.STORE));
+        setSnackbar({ visible: true, success: true, message: 'Baja registrada. Pendiente de aprobacion.' });
+      } catch {
+        setSnackbar({ visible: true, success: false, message: 'Error al registrar la baja' });
+      } finally {
+        setBajaSubmitting(false);
+      }
+    } else {
+      const portions = parseInt(bajaPortions, 10);
+      if (!bajaProductId || !portions || portions <= 0) {
+        Alert.alert('Error', 'Selecciona un producto e ingresa una cantidad valida');
+        return;
+      }
+      setBajaSubmitting(true);
+      try {
+        await writeoffService.createRequest(
+          selectedStoreId,
+          undefined,
+          InventoryLevel.STORE,
+          portions,
+          bajaReason,
+          bajaNotes,
+          userId,
+          bajaProductId,
+        );
+        setBajaModalVisible(false);
+        setBajaProductId('');
+        setBajaPortions('');
+        setBajaNotes('');
+        setBajaReason(WriteoffReason.DAMAGED);
+        setSnackbar({ visible: true, success: true, message: 'Baja registrada. Pendiente de aprobacion.' });
+      } catch {
+        setSnackbar({ visible: true, success: false, message: 'Error al registrar la baja' });
+      } finally {
+        setBajaSubmitting(false);
+      }
     }
-    setBajaSubmitting(true);
-    try {
-      await writeoffService.createRequest(
-        selectedStoreId,
-        bajaSupplyId,
-        Number(bajaLevel) as InventoryLevel,
-        grams,
-        bajaReason,
-        bajaNotes,
-        userId,
-      );
-      setBajaModalVisible(false);
-      setBajaSupplyId('');
-      setBajaGrams('');
-      setBajaNotes('');
-      setBajaReason(WriteoffReason.DAMAGED);
-      setBajaLevel(String(InventoryLevel.STORE));
-      setSnackbar({ visible: true, success: true, message: 'Baja registrada. Pendiente de aprobacion.' });
-    } catch {
-      setSnackbar({ visible: true, success: false, message: 'Error al registrar la baja' });
-    } finally {
-      setBajaSubmitting(false);
-    }
-  }, [bajaSupplyId, bajaGrams, bajaLevel, bajaReason, bajaNotes, selectedStoreId, userId, writeoffService]);
+  }, [
+    bajaMode,
+    bajaSupplyId,
+    bajaGrams,
+    bajaLevel,
+    bajaProductId,
+    bajaPortions,
+    bajaReason,
+    bajaNotes,
+    selectedStoreId,
+    userId,
+    writeoffService,
+  ]);
 
   // V7: Compra en turno handler
   const handleCompraTurnoSubmit = useCallback(async () => {
@@ -880,18 +923,77 @@ export default function VentasScreen() {
       behavior={Platform.OS === 'web' ? undefined : Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
-      <ScrollView
-        ref={scrollRef}
-        contentContainerStyle={[styles.scrollContent, { minHeight: windowHeight }]}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Header */}
+      {/* Sticky Header and Quick Actions Bar */}
+      <View style={{ paddingHorizontal: 12, paddingTop: 12, backgroundColor: theme.colors.background }}>
         <View style={styles.headerRow}>
           <StoreSelector excludeProductionCenter />
           <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
             {formatDate(new Date())}
           </Text>
         </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4, flexGrow: 0 }}>
+          <View style={styles.navRow}>
+            <Button
+              mode="outlined"
+              icon="cart-plus"
+              compact
+              onPress={() => setCompraTurnoVisible(true)}
+            >
+              Compra Turno
+            </Button>
+            <Button
+              mode="outlined"
+              icon="package-variant-remove"
+              compact
+              onPress={() => {
+                if (userRole !== UserRole.ADMIN) setBajaLevel(String(InventoryLevel.STORE));
+                setBajaModalVisible(true);
+              }}
+            >
+              Baja
+            </Button>
+            <Button
+              mode="outlined"
+              icon="clipboard-check-outline"
+              compact
+              onPress={() => router.push('/(tabs)/inventario/cierre-fisico')}
+            >
+              Conteo
+            </Button>
+            <Button
+              mode="outlined"
+              icon="cash-lock"
+              compact
+              onPress={() => router.push('/(tabs)/ventas/cierre-caja')}
+            >
+              Cierre
+            </Button>
+            <Button
+              mode="outlined"
+              icon="history"
+              compact
+              onPress={() => router.push('/(tabs)/ventas/historial')}
+            >
+              Historial
+            </Button>
+            <Button
+              mode="outlined"
+              icon="food"
+              compact
+              onPress={() => router.push('/(tabs)/ventas/consumo-ventas')}
+            >
+              Consumo
+            </Button>
+          </View>
+        </ScrollView>
+      </View>
+
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={[styles.scrollContent, { minHeight: windowHeight, paddingTop: 4 }]}
+        keyboardShouldPersistTaps="handled"
+      >
 
         {/* V1: Cash opening banner */}
         {needsOpening && (
@@ -1113,93 +1215,97 @@ export default function VentasScreen() {
               onPackagingChange={setCartPackaging}
             />
 
-            {/* V4: Payment method, isPaid, and observations always visible */}
-            <Divider style={styles.divider} />
+            {cart.length > 0 && (
+              <>
+                {/* V4: Payment method, isPaid, and observations always visible */}
+                <Divider style={styles.divider} />
 
-            <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 8 }}>
-              Metodo de Pago
-            </Text>
-            <PaymentMethodPicker value={paymentMethod} onChange={handlePaymentMethodChange} />
+                <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 8 }}>
+                  Metodo de Pago
+                </Text>
+                <PaymentMethodPicker value={paymentMethod} onChange={handlePaymentMethodChange} />
 
-            {cart.length > 0 && paymentMethod === PaymentMethod.MIXTO && (
-              <View style={styles.mixtoInputs}>
-                <CurrencyInput
-                  value={cashAmount}
-                  onChangeValue={handleMixedCashChange}
-                  label="Efectivo"
-                  style={styles.halfInput}
+                {paymentMethod === PaymentMethod.MIXTO && (
+                  <View style={styles.mixtoInputs}>
+                    <CurrencyInput
+                      value={cashAmount}
+                      onChangeValue={handleMixedCashChange}
+                      label="Efectivo"
+                      style={styles.halfInput}
+                    />
+                    <CurrencyInput
+                      value={bankAmount}
+                      onChangeValue={handleMixedBankChange}
+                      label="Transferencia"
+                      style={styles.halfInput}
+                    />
+                  </View>
+                )}
+
+                {/* V5: Calculadora de cambio */}
+                {(paymentMethod === PaymentMethod.EFECTIVO || paymentMethod === PaymentMethod.MIXTO) && (
+                  <View style={{ marginTop: 10 }}>
+                    <CurrencyInput
+                      value={amountReceived}
+                      onChangeValue={setAmountReceived}
+                      label="Monto Recibido"
+                    />
+                    {amountReceived > 0 && (() => {
+                      const cashPortion = paymentMethod === PaymentMethod.MIXTO ? normalizeMixedPayment().cash : totalAmount;
+                      const change = amountReceived - cashPortion;
+                      return (
+                        <Text
+                          variant="titleMedium"
+                          style={{
+                            fontWeight: 'bold',
+                            marginTop: 6,
+                            color: change >= 0 ? '#4CAF50' : '#F44336',
+                          }}
+                        >
+                          Cambio: {formatCOP(Math.max(0, change))}
+                          {change < 0 ? ` (Faltan ${formatCOP(Math.abs(change))})` : ''}
+                        </Text>
+                      );
+                    })()}
+                  </View>
+                )}
+
+                <Divider style={styles.divider} />
+
+                {/* Paid toggle — always visible */}
+                <View style={styles.paidRow}>
+                  <Text variant="bodyMedium" style={{ flex: 1 }}>
+                    {isPaid ? 'Pagado' : 'Pendiente de pago'}
+                  </Text>
+                  <Chip
+                    selected={isPaid}
+                    onPress={() => setIsPaid(!isPaid)}
+                    mode="flat"
+                    selectedColor={isPaid ? theme.colors.primary : theme.colors.error}
+                    style={{
+                      backgroundColor: isPaid
+                        ? theme.colors.primaryContainer
+                        : theme.colors.errorContainer,
+                    }}
+                  >
+                    {isPaid ? 'Pagado' : 'No pagado'}
+                  </Chip>
+                </View>
+
+                <Divider style={styles.divider} />
+
+                <TextInput
+                  label="Observaciones (opcional)"
+                  value={observations}
+                  onChangeText={setObservations}
+                  mode="outlined"
+                  multiline
+                  numberOfLines={2}
+                  dense
+                  style={styles.observationsInput}
                 />
-                <CurrencyInput
-                  value={bankAmount}
-                  onChangeValue={handleMixedBankChange}
-                  label="Transferencia"
-                  style={styles.halfInput}
-                />
-              </View>
+              </>
             )}
-
-            {/* V5: Calculadora de cambio */}
-            {cart.length > 0 && (paymentMethod === PaymentMethod.EFECTIVO || paymentMethod === PaymentMethod.MIXTO) && (
-              <View style={{ marginTop: 10 }}>
-                <CurrencyInput
-                  value={amountReceived}
-                  onChangeValue={setAmountReceived}
-                  label="Monto Recibido"
-                />
-                {amountReceived > 0 && (() => {
-                  const cashPortion = paymentMethod === PaymentMethod.MIXTO ? normalizeMixedPayment().cash : totalAmount;
-                  const change = amountReceived - cashPortion;
-                  return (
-                    <Text
-                      variant="titleMedium"
-                      style={{
-                        fontWeight: 'bold',
-                        marginTop: 6,
-                        color: change >= 0 ? '#4CAF50' : '#F44336',
-                      }}
-                    >
-                      Cambio: {formatCOP(Math.max(0, change))}
-                      {change < 0 ? ` (Faltan ${formatCOP(Math.abs(change))})` : ''}
-                    </Text>
-                  );
-                })()}
-              </View>
-            )}
-
-            <Divider style={styles.divider} />
-
-            {/* Paid toggle — always visible */}
-            <View style={styles.paidRow}>
-              <Text variant="bodyMedium" style={{ flex: 1 }}>
-                {isPaid ? 'Pagado' : 'Pendiente de pago'}
-              </Text>
-              <Chip
-                selected={isPaid}
-                onPress={() => setIsPaid(!isPaid)}
-                mode="flat"
-                selectedColor={isPaid ? theme.colors.primary : theme.colors.error}
-                style={{
-                  backgroundColor: isPaid
-                    ? theme.colors.primaryContainer
-                    : theme.colors.errorContainer,
-                }}
-              >
-                {isPaid ? 'Pagado' : 'No pagado'}
-              </Chip>
-            </View>
-
-            <Divider style={styles.divider} />
-
-            <TextInput
-              label="Observaciones (opcional)"
-              value={observations}
-              onChangeText={setObservations}
-              mode="outlined"
-              multiline
-              numberOfLines={2}
-              dense
-              style={styles.observationsInput}
-            />
           </Card.Content>
         </Card>
 
@@ -1234,62 +1340,7 @@ export default function VentasScreen() {
             : 'Cargar porciones disponibles'}
         </Button>
 
-        {/* Quick nav — moved to bottom (V2) */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12, flexGrow: 0 }}>
-          <View style={styles.navRow}>
-            <Button
-              mode="outlined"
-              icon="history"
-              compact
-              onPress={() => router.push('/(tabs)/ventas/historial')}
-            >
-              Historial
-            </Button>
-            <Button
-              mode="outlined"
-              icon="cash-lock"
-              compact
-              onPress={() => router.push('/(tabs)/ventas/cierre-caja')}
-            >
-              Cierre
-            </Button>
-            <Button
-              mode="outlined"
-              icon="clipboard-check-outline"
-              compact
-              onPress={() => router.push('/(tabs)/inventario/cierre-fisico')}
-            >
-              Conteo
-            </Button>
-            <Button
-              mode="outlined"
-              icon="package-variant-remove"
-              compact
-              onPress={() => {
-              if (userRole !== UserRole.ADMIN) setBajaLevel(String(InventoryLevel.STORE));
-              setBajaModalVisible(true);
-            }}
-            >
-              Baja
-            </Button>
-            <Button
-              mode="outlined"
-              icon="food"
-              compact
-              onPress={() => router.push('/(tabs)/ventas/consumo-ventas')}
-            >
-              Consumo
-            </Button>
-            <Button
-              mode="outlined"
-              icon="cart-plus"
-              compact
-              onPress={() => setCompraTurnoVisible(true)}
-            >
-              Compra Turno
-            </Button>
-          </View>
-        </ScrollView>
+        {/* Nav row removed from bottom */}
 
       </ScrollView>
 
@@ -1483,12 +1534,18 @@ export default function VentasScreen() {
               buttonColor="#E63946"
               textColor="#FFFFFF"
               onPress={() => {
-                // Sumar lo ingresado al disponible actual
+                // Sumar lo ingresado al disponible actual, restando lo ya vendido si es primera carga
                 const updated = { ...availablePortions };
                 for (const [id, val] of Object.entries(portionsInput)) {
                   const n = parseInt(val, 10);
                   if (n > 0) {
-                    updated[id] = (updated[id] ?? 0) + n;
+                    const isAlreadyLoaded = availablePortions[id] !== undefined;
+                    if (isAlreadyLoaded) {
+                      updated[id] = (updated[id] ?? 0) + n;
+                    } else {
+                      const sold = soldPortions[id] ?? 0;
+                      updated[id] = Math.max(0, n - sold);
+                    }
                   }
                 }
                 setAvailablePortions(updated);

@@ -90,7 +90,7 @@ const physicalCountService = new PhysicalCountService(physicalCountRepo, invento
 const productionService = new ProductionService(productionRecipeRepo, productionRecordRepo, inventoryRepo);
 const demandEstimationService = new DemandEstimationService(demandEstimateRepo, recipeRepo, inventoryRepo, supplyRepo, productRepo, productStoreAssignmentRepo);
 const alertService = new AlertService(dailyAlertRepo, validationService, physicalCountRepo, supplyRepo, transferRepo);
-const writeoffService = new WriteoffService(writeoffRepo, inventoryRepo);
+const writeoffService = new WriteoffService(writeoffRepo, inventoryRepo, recipeRepo);
 const cashClosingService = new CashClosingService(cashClosingRepo, saleRepo, expenseRepo, alertService, cashOpeningRepo, scheduleRepo, attendanceRepo, workerRepo);
 
 export const container = {

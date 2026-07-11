@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, Button, Card, Divider, Portal, Snackbar, SegmentedButtons, TextInput, useTheme, Searchbar } from 'react-native-paper';
+import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
@@ -168,6 +169,15 @@ export default function CierreFisicoScreen() {
   return (
     <ScreenContainer>
       <View style={styles.header}>
+        <Button
+          mode="text"
+          icon="arrow-left"
+          compact
+          onPress={() => router.replace('/(tabs)/ventas')}
+          style={{ alignSelf: 'flex-start', marginBottom: 8 }}
+        >
+          Volver a Ventas
+        </Button>
         <StoreSelector />
       </View>
 

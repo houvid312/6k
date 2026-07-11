@@ -37,6 +37,7 @@ export default function CierreCajaScreen() {
     setCashBase,
     getTotal,
     reset,
+    setCurrentStore,
   } = useCashClosingStore();
 
   const [expectedTotal, setExpectedTotal] = useState(0);
@@ -51,6 +52,7 @@ export default function CierreCajaScreen() {
   const isReadOnly = !isEditable;
 
   useEffect(() => {
+    setCurrentStore(selectedStoreId);
     (async () => {
       try {
         const summary = await cashClosingService.getDailyExpected(selectedStoreId, today);
@@ -88,7 +90,7 @@ export default function CierreCajaScreen() {
         setExpectedTotal(0);
       }
     })();
-  }, [selectedStoreId, today, cashClosingService, expenseRepo, setBankTotal, setCashBase, setDenomination, setExpenses]);
+  }, [selectedStoreId, today, cashClosingService, expenseRepo, setBankTotal, setCashBase, setDenomination, setExpenses, setCurrentStore]);
 
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);

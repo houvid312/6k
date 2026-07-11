@@ -48,7 +48,7 @@ export default function BajasScreen() {
   const theme = useTheme();
   const { writeoffService } = useDI();
   const { selectedStoreId, userRole, userId } = useAppStore();
-  const { getSupplyName, getWorkerName } = useMasterDataStore();
+  const { getSupplyName, getWorkerName, getProductName } = useMasterDataStore();
   const isAdmin = userRole === UserRole.ADMIN;
 
   const [tab, setTab] = useState<string>(isAdmin ? 'pending' : 'history');
@@ -68,13 +68,9 @@ export default function BajasScreen() {
     try {
       let data: InventoryWriteoff[];
       if (tab === 'pending') {
-        data = isAdmin
-          ? await writeoffService.getPendingRequests()
-          : await writeoffService.getPendingByStore(selectedStoreId);
+        data = await writeoffService.getPendingByStore(selectedStoreId);
       } else {
-        data = isAdmin
-          ? await writeoffService.getAllHistory()
-          : await writeoffService.getHistory(selectedStoreId);
+        data = await writeoffService.getHistory(selectedStoreId);
         data = data.filter((writeoff) => writeoff.status !== WriteoffStatus.PENDING);
       }
       setWriteoffs(data);
@@ -83,7 +79,7 @@ export default function BajasScreen() {
     } finally {
       setLoading(false);
     }
-  }, [tab, isAdmin, selectedStoreId, writeoffService]);
+  }, [tab, selectedStoreId, writeoffService]);
 
   useEffect(() => {
     loadData();
@@ -148,7 +144,7 @@ export default function BajasScreen() {
           <View style={styles.cardHeader}>
             <View style={{ flex: 1 }}>
               <Text variant="titleMedium" style={{ fontWeight: '700' }}>
-                {getSupplyName(wo.supplyId)}
+                {wo.productId ? `${getProductName(wo.productId)} (Porciones)` : getSupplyName(wo.supplyId!)}
               </Text>
               <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                 {formatTime(wo.createdAt)} · {LEVEL_LABELS[wo.level] ?? 'Local'}
@@ -167,7 +163,7 @@ export default function BajasScreen() {
 
           <View style={styles.detailRow}>
             <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>Cantidad:</Text>
-            <Text variant="bodyMedium" style={{ fontWeight: '600' }}>{wo.quantityGrams}g</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: '600' }}>{wo.quantityGrams}{wo.productId ? ' porc.' : 'g'}</Text>
           </View>
           <View style={styles.detailRow}>
             <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>Razon:</Text>
@@ -282,10 +278,12 @@ export default function BajasScreen() {
             {selectedWriteoff ? (
               <View style={styles.dialogDetails}>
                 <Text variant="titleSmall" style={{ fontWeight: '700' }}>
-                  {getSupplyName(selectedWriteoff.supplyId)}
+                  {selectedWriteoff.productId
+                    ? getProductName(selectedWriteoff.productId)
+                    : getSupplyName(selectedWriteoff.supplyId!)}
                 </Text>
                 <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  {selectedWriteoff.quantityGrams}g · {REASON_LABELS[selectedWriteoff.reason] ?? selectedWriteoff.reason}
+                  {selectedWriteoff.quantityGrams}{selectedWriteoff.productId ? ' porc.' : 'g'} · {REASON_LABELS[selectedWriteoff.reason] ?? selectedWriteoff.reason}
                 </Text>
               </View>
             ) : null}
