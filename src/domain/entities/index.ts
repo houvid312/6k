@@ -30,3 +30,5 @@ export type { AdditionCatalogItem, SaleItemAddition } from './Addition';
 export type { CashOpening } from './CashOpening';
 export type { ChecklistItem, ChecklistEntry } from './ChecklistItem';
 export type { PayrollPeriod, PeriodType, PeriodStatus } from './PayrollPeriod';
+export type { Customer } from './Customer';
+

@@ -27,7 +27,7 @@ import { AdditionSelector } from '../../../src/components/ventas/AdditionSelecto
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useSaleStore, CartItem, CartItemAddition } from '../../../src/stores/useSaleStore';
-import { Product, Sale, ProductFormat, AdditionCatalogItem } from '../../../src/domain/entities';
+import { Product, Sale, ProductFormat, AdditionCatalogItem, Customer } from '../../../src/domain/entities';
 import {
   PaymentMethod,
   InventoryLevel,
@@ -46,9 +46,9 @@ import { colombiaDateRangeToUtc, formatDate, todayColombia } from '../../../src/
 
 export default function VentasScreen() {
   const theme = useTheme();
-  const { saleService, writeoffService, cashClosingService, expenseRepo, productFormatRepo, productStoreAssignmentRepo, additionCatalogRepo } = useDI();
+  const { saleService, writeoffService, cashClosingService, creditService, expenseRepo, productFormatRepo, productStoreAssignmentRepo, additionCatalogRepo, customerRepo } = useDI();
   const { selectedStoreId, userId, userRole } = useAppStore();
-  const { products: cachedProducts, supplies } = useMasterDataStore();
+  const { products: cachedProducts, supplies, workers } = useMasterDataStore();
   const {
     cart,
     cartPackagingSupplyId,
@@ -125,6 +125,24 @@ export default function VentasScreen() {
   const [compraTurnoDesc, setCompraTurnoDesc] = useState('');
   const [compraTurnoAmount, setCompraTurnoAmount] = useState(0);
   const [compraTurnoSubmitting, setCompraTurnoSubmitting] = useState(false);
+  const [salidaType, setSalidaType] = useState<string>('COMPRA');
+  const [salidaWorkerId, setSalidaWorkerId] = useState<string>('');
+
+  // Estados deudor para fiados (isPaid = false)
+  const [isCredit, setIsCredit] = useState<boolean>(false);
+  const [debtorType, setDebtorType] = useState<string>('TRABAJADOR');
+  const [debtorWorkerId, setDebtorWorkerId] = useState<string>('');
+  const [debtorCustomerId, setDebtorCustomerId] = useState<string>('');
+  const [debtorName, setDebtorName] = useState<string>('');
+
+  // Clientes y modal de registro de cliente
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [newCustomerModalVisible, setNewCustomerModalVisible] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+  const [newCustEmail, setNewCustEmail] = useState('');
+  const [newCustSubmitting, setNewCustSubmitting] = useState(false);
 
   // Porciones disponibles por tipo de pizza
   const [portionsModalVisible, setPortionsModalVisible] = useState(false);
@@ -230,6 +248,49 @@ export default function VentasScreen() {
     })();
   }, [cachedProducts, productFormatRepo]);
 
+  const loadCustomers = useCallback(async () => {
+    setLoadingCustomers(true);
+    try {
+      const list = await customerRepo.getAll();
+      setCustomers(list.filter((c) => c.isActive));
+    } catch (e) {
+      console.error('Error loading customers:', e);
+    } finally {
+      setLoadingCustomers(false);
+    }
+  }, [customerRepo]);
+
+  useEffect(() => {
+    loadCustomers();
+  }, [loadCustomers]);
+
+  const handleCreateCustomer = useCallback(async () => {
+    if (!newCustName.trim()) {
+      Alert.alert('Error', 'Por favor ingresa el nombre del cliente');
+      return;
+    }
+    setNewCustSubmitting(true);
+    try {
+      const created = await customerRepo.create({
+        name: newCustName.trim(),
+        phone: newCustPhone.trim() || undefined,
+        email: newCustEmail.trim() || undefined,
+      });
+      await loadCustomers();
+      setDebtorCustomerId(created.id);
+      setDebtorName(created.name);
+      setNewCustomerModalVisible(false);
+      setNewCustName('');
+      setNewCustPhone('');
+      setNewCustEmail('');
+      setSnackbar({ visible: true, success: true, message: `Cliente registrado: ${created.name}` });
+    } catch (err) {
+      Alert.alert('Error', 'No se pudo registrar el cliente');
+    } finally {
+      setNewCustSubmitting(false);
+    }
+  }, [newCustName, newCustPhone, newCustEmail, customerRepo, loadCustomers]);
+
   const loadPendingSales = useCallback(async () => {
     if (!selectedStoreId) return;
     try {
@@ -320,30 +381,53 @@ export default function VentasScreen() {
 
   // V7: Compra en turno handler
   const handleCompraTurnoSubmit = useCallback(async () => {
+    if (salidaType === 'ADELANTO' && !salidaWorkerId) {
+      Alert.alert('Error', 'Por favor selecciona el trabajador para el adelanto');
+      return;
+    }
     if (!compraTurnoDesc.trim() || compraTurnoAmount <= 0) {
       Alert.alert('Error', 'Ingresa una descripcion y un monto valido');
       return;
     }
     setCompraTurnoSubmitting(true);
     try {
+      const selectedWorker = workers.find((w) => w.id === salidaWorkerId);
+      const category = salidaType === 'ADELANTO' ? 'Adelanto' : 'Compra Turno';
+      const desc = salidaType === 'ADELANTO'
+        ? `Adelanto a ${selectedWorker ? selectedWorker.name : 'trabajador'}: ${compraTurnoDesc.trim()}`
+        : compraTurnoDesc.trim();
+
       await expenseRepo.create({
         date: todayColombia(),
         storeId: selectedStoreId,
-        category: 'Compra Turno',
-        description: compraTurnoDesc.trim(),
+        category,
+        description: desc,
         amount: compraTurnoAmount,
         paymentMethod: PaymentMethod.EFECTIVO,
+        workerId: salidaType === 'ADELANTO' ? salidaWorkerId : undefined,
       });
       setCompraTurnoVisible(false);
       setCompraTurnoDesc('');
       setCompraTurnoAmount(0);
-      setSnackbar({ visible: true, success: true, message: `Compra registrada: ${formatCOP(compraTurnoAmount)}` });
+      setSalidaType('COMPRA');
+      setSalidaWorkerId('');
+      setSnackbar({
+        visible: true,
+        success: true,
+        message: salidaType === 'ADELANTO'
+          ? `Adelanto registrado: ${formatCOP(compraTurnoAmount)}`
+          : `Compra registrada: ${formatCOP(compraTurnoAmount)}`,
+      });
     } catch {
-      setSnackbar({ visible: true, success: false, message: 'Error al registrar la compra' });
+      setSnackbar({
+        visible: true,
+        success: false,
+        message: salidaType === 'ADELANTO' ? 'Error al registrar el adelanto' : 'Error al registrar la compra',
+      });
     } finally {
       setCompraTurnoSubmitting(false);
     }
-  }, [compraTurnoDesc, compraTurnoAmount, selectedStoreId, expenseRepo]);
+  }, [compraTurnoDesc, compraTurnoAmount, selectedStoreId, expenseRepo, salidaType, salidaWorkerId, workers]);
 
   const selectedProduct = products.find((p) => p.id === selectedProductId);
   const getPackagingSalePrice = useCallback((packagingSupplyId?: string) => {
@@ -730,12 +814,28 @@ export default function VentasScreen() {
     setBankAmount(sale.bankAmount);
     setAmountReceived(0);
     setIsPaid(sale.isPaid);
+    setIsCredit(sale.isCredit ?? false);
+    setDebtorType(sale.debtorType ?? 'TRABAJADOR');
+    setDebtorWorkerId(sale.debtorWorkerId ?? '');
+    setDebtorCustomerId(sale.debtorCustomerId ?? '');
+    setDebtorName(sale.debtorName ?? '');
     setObservations(sale.observations ?? '');
     setReadyToConfirm(false);
     scrollToTop();
   }, [saleToCartItems, scrollToTop, setCart]);
 
   const handleSubmitSale = useCallback(async () => {
+    if (!isPaid && isCredit) {
+      if (debtorType === 'TRABAJADOR' && !debtorWorkerId) {
+        setSnackbar({ visible: true, success: false, message: 'Por favor selecciona el trabajador a quien se le fía' });
+        return;
+      }
+      if (debtorType === 'CLIENTE' && !debtorCustomerId) {
+        setSnackbar({ visible: true, success: false, message: 'Por favor selecciona el cliente a quien se le fía' });
+        return;
+      }
+    }
+
     const mixedAmounts = normalizeMixedPayment();
     const effectiveCash = paymentMethod === PaymentMethod.TRANSFERENCIA ? 0
       : paymentMethod === PaymentMethod.EFECTIVO ? totalAmount
@@ -780,6 +880,11 @@ export default function VentasScreen() {
             isPaid,
             customerNoteForSubmit,
             cartPackagingSupplyId,
+            isCredit,
+            debtorName || undefined,
+            debtorType || undefined,
+            debtorWorkerId || undefined,
+            debtorCustomerId || undefined,
           )
         : await saleService.createSale(
             selectedStoreId,
@@ -791,10 +896,15 @@ export default function VentasScreen() {
             isPaid,
             customerNoteForSubmit,
             cartPackagingSupplyId,
+            isCredit,
+            debtorName || undefined,
+            debtorType || undefined,
+            debtorWorkerId || undefined,
+            debtorCustomerId || undefined,
           );
 
       const totalPortions = submittedCart.reduce((sum, i) => sum + i.portions, 0);
-      const paidLabel = isPaid ? '' : ' (PENDIENTE DE PAGO)';
+      const paidLabel = isPaid ? '' : isCredit ? ' (FIADO)' : ' (PENDIENTE DE PAGO)';
 
       clearCart();
       setEditingSale(null);
@@ -804,6 +914,11 @@ export default function VentasScreen() {
       setPaymentMethod(PaymentMethod.EFECTIVO);
       setObservations('');
       setIsPaid(false);
+      setIsCredit(false);
+      setDebtorType('TRABAJADOR');
+      setDebtorWorkerId('');
+      setDebtorCustomerId('');
+      setDebtorName('');
       setReadyToConfirm(false);
 
       setSnackbar({
@@ -827,7 +942,7 @@ export default function VentasScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [applyPortionDelta, cart, cartPackagingSupplyId, clearCart, editingSale, isPaid, loadPendingSales, normalizeMixedPayment, observations, paymentMethod, saleService, selectedStoreId, totalAmount]);
+  }, [applyPortionDelta, cart, cartPackagingSupplyId, clearCart, editingSale, isPaid, isCredit, debtorType, debtorWorkerId, debtorCustomerId, debtorName, loadPendingSales, normalizeMixedPayment, observations, paymentMethod, saleService, selectedStoreId, totalAmount]);
 
   const handleFabPress = useCallback(() => {
     if (cart.length === 0) {
@@ -849,13 +964,13 @@ export default function VentasScreen() {
   const updatePendingSale = useCallback((saleId: string, updates: Partial<Sale>): boolean => {
     const merged = pendingSales.map((s) => s.id === saleId ? { ...s, ...updates } : s);
     const completed = merged.find((s) => s.id === saleId);
-    const isFullyDone = !!(completed && completed.isPaid && completed.isDispatched);
+    const isFullyDone = !!(completed && (completed.isPaid || completed.isCredit) && completed.isDispatched);
     if (editingSale?.id === saleId && completed) {
       setEditingSale(completed);
       if (updates.isPaid !== undefined) setIsPaid(updates.isPaid);
       if (updates.paymentMethod !== undefined) handlePaymentMethodChange(updates.paymentMethod);
     }
-    setPendingSales(merged.filter((s) => !(s.isPaid && s.isDispatched)));
+    setPendingSales(merged.filter((s) => !((s.isPaid || s.isCredit) && s.isDispatched)));
     return isFullyDone;
   }, [editingSale, handlePaymentMethodChange, pendingSales, setPendingSales]);
 
@@ -936,11 +1051,17 @@ export default function VentasScreen() {
           <View style={styles.navRow}>
             <Button
               mode="outlined"
-              icon="cart-plus"
+              icon="cash-minus"
               compact
-              onPress={() => setCompraTurnoVisible(true)}
+              onPress={() => {
+                setSalidaType('COMPRA');
+                setSalidaWorkerId('');
+                setCompraTurnoDesc('');
+                setCompraTurnoAmount(0);
+                setCompraTurnoVisible(true);
+              }}
             >
-              Compra Turno
+              Salida Caja
             </Button>
             <Button
               mode="outlined"
@@ -1070,6 +1191,15 @@ export default function VentasScreen() {
                       >
                         Pagado
                       </Chip>
+                    ) : sale.isCredit ? (
+                      <Chip
+                        compact
+                        icon="account-cash"
+                        textStyle={{ fontSize: 11, color: '#FFB74D' }}
+                        style={{ backgroundColor: '#4E342E' }}
+                      >
+                        Fiado a: {sale.debtorName || 'Cliente'}
+                      </Chip>
                     ) : (
                       <>
                         <Button
@@ -1137,7 +1267,7 @@ export default function VentasScreen() {
                   </View>
 
                   {/* Change calculator for unpaid cash sales */}
-                  {!sale.isPaid && (sale.paymentMethod === PaymentMethod.EFECTIVO || sale.paymentMethod === PaymentMethod.MIXTO) && (
+                  {!sale.isPaid && !sale.isCredit && (sale.paymentMethod === PaymentMethod.EFECTIVO || sale.paymentMethod === PaymentMethod.MIXTO) && (
                     <View style={{ marginTop: 6 }}>
                       <CurrencyInput
                         value={received}
@@ -1279,7 +1409,15 @@ export default function VentasScreen() {
                   </Text>
                   <Chip
                     selected={isPaid}
-                    onPress={() => setIsPaid(!isPaid)}
+                    onPress={() => {
+                      const next = !isPaid;
+                      setIsPaid(next);
+                      if (next) {
+                        setDebtorType('TRABAJADOR');
+                        setDebtorWorkerId('');
+                        setDebtorName('');
+                      }
+                    }}
                     mode="flat"
                     selectedColor={isPaid ? theme.colors.primary : theme.colors.error}
                     style={{
@@ -1291,6 +1429,97 @@ export default function VentasScreen() {
                     {isPaid ? 'Pagado' : 'No pagado'}
                   </Chip>
                 </View>
+
+                {!isPaid && (
+                  <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.elevation.level1, borderRadius: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
+                        ¿Registrar como Crédito (Fiado)?
+                      </Text>
+                      <Chip
+                        selected={isCredit}
+                        onPress={() => {
+                          const next = !isCredit;
+                          setIsCredit(next);
+                          if (!next) {
+                            setDebtorType('TRABAJADOR');
+                            setDebtorWorkerId('');
+                            setDebtorName('');
+                          }
+                        }}
+                        mode="flat"
+                        selectedColor={isCredit ? theme.colors.primary : theme.colors.onSurfaceVariant}
+                        style={{
+                          backgroundColor: isCredit
+                            ? theme.colors.primaryContainer
+                            : theme.colors.surfaceVariant,
+                        }}
+                      >
+                        {isCredit ? 'Fiar' : 'No fiar'}
+                      </Chip>
+                    </View>
+
+                    {isCredit && (
+                      <>
+                        <SegmentedButtons
+                          value={debtorType}
+                          onValueChange={(val) => {
+                            setDebtorType(val);
+                            setDebtorWorkerId('');
+                            setDebtorCustomerId('');
+                            setDebtorName('');
+                          }}
+                          buttons={[
+                            { value: 'TRABAJADOR', label: 'Trabajador' },
+                            { value: 'CLIENTE', label: 'Cliente Especial' },
+                          ]}
+                          style={{ marginBottom: 12 }}
+                          density="small"
+                        />
+
+                        {debtorType === 'TRABAJADOR' ? (
+                          <SearchableSelect
+                            options={workers
+                              .filter((w) => w.isActive)
+                              .map((w) => ({ value: w.id, label: w.name, subtitle: w.role }))}
+                            selectedValue={debtorWorkerId}
+                            placeholder="Seleccionar Trabajador"
+                            icon="account"
+                            onSelect={(id) => {
+                              setDebtorWorkerId(id);
+                              const w = workers.find((x) => x.id === id);
+                              setDebtorName(w ? w.name : '');
+                            }}
+                          />
+                        ) : (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <View style={{ flex: 1 }}>
+                              <SearchableSelect
+                                options={customers.map((c) => ({ value: c.id, label: c.name, subtitle: c.phone || 'Sin teléfono' }))}
+                                selectedValue={debtorCustomerId}
+                                placeholder="Seleccionar Cliente"
+                                icon="account-tie"
+                                onSelect={(id) => {
+                                  setDebtorCustomerId(id);
+                                  const c = customers.find((x) => x.id === id);
+                                  setDebtorName(c ? c.name : '');
+                                }}
+                              />
+                            </View>
+                            <IconButton
+                              icon="plus"
+                              mode="contained"
+                              containerColor={theme.colors.primaryContainer}
+                              iconColor={theme.colors.onPrimaryContainer}
+                              onPress={() => setNewCustomerModalVisible(true)}
+                              style={{ margin: 0 }}
+                            />
+                          </View>
+                        )}
+                      </>
+                    )}
+                  </View>
+                )}
 
                 <Divider style={styles.divider} />
 
@@ -1708,7 +1937,7 @@ export default function VentasScreen() {
         </Modal>
       </Portal>
 
-      {/* V7: Compra en Turno Modal */}
+      {/* V7: Salida de Caja Modal */}
       <Portal>
         <Modal
           visible={compraTurnoVisible}
@@ -1716,11 +1945,40 @@ export default function VentasScreen() {
           contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
         >
           <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 4 }}>
-            Compra en Turno
+            Salida de Caja
           </Text>
           <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>
-            Registra compras de insumos con dinero de la caja
+            Registra egresos o adelantos con dinero en efectivo de la caja
           </Text>
+
+          <SegmentedButtons
+            value={salidaType}
+            onValueChange={(val) => {
+              setSalidaType(val);
+              setSalidaWorkerId('');
+            }}
+            buttons={[
+              { value: 'COMPRA', label: 'Compra Insumos' },
+              { value: 'ADELANTO', label: 'Adelanto Nómina' },
+            ]}
+            style={{ marginBottom: 16 }}
+            density="small"
+          />
+
+          {salidaType === 'ADELANTO' && (
+            <View style={{ marginBottom: 12 }}>
+              <SearchableSelect
+                options={workers
+                  .filter((w) => w.isActive)
+                  .map((w) => ({ value: w.id, label: w.name, subtitle: w.role }))}
+                selectedValue={salidaWorkerId}
+                placeholder="Seleccionar Trabajador"
+                icon="account"
+                onSelect={setSalidaWorkerId}
+              />
+            </View>
+          )}
+
           <TextInput
             label="Descripcion"
             value={compraTurnoDesc}
@@ -1740,10 +1998,78 @@ export default function VentasScreen() {
               mode="contained"
               onPress={handleCompraTurnoSubmit}
               loading={compraTurnoSubmitting}
-              disabled={!compraTurnoDesc.trim() || compraTurnoAmount <= 0 || compraTurnoSubmitting}
+              disabled={
+                !compraTurnoDesc.trim() ||
+                compraTurnoAmount <= 0 ||
+                compraTurnoSubmitting ||
+                (salidaType === 'ADELANTO' && !salidaWorkerId)
+              }
               buttonColor="#E63946"
             >
-              Registrar Compra
+              Registrar Salida
+            </Button>
+          </View>
+        </Modal>
+      </Portal>
+
+      {/* V7: Registrar Cliente Modal */}
+      <Portal>
+        <Modal
+          visible={newCustomerModalVisible}
+          onDismiss={() => {
+            if (!newCustSubmitting) {
+              setNewCustomerModalVisible(false);
+              setNewCustName('');
+              setNewCustPhone('');
+              setNewCustEmail('');
+            }
+          }}
+          contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
+        >
+          <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 4 }}>
+            Registrar Nuevo Cliente
+          </Text>
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>
+            Crea un cliente nuevo para habilitarle ventas a crédito
+          </Text>
+          <TextInput
+            label="Nombre Completo"
+            value={newCustName}
+            onChangeText={setNewCustName}
+            mode="outlined"
+            dense
+            style={{ marginBottom: 12 }}
+          />
+          <TextInput
+            label="Teléfono (Opcional)"
+            value={newCustPhone}
+            onChangeText={setNewCustPhone}
+            mode="outlined"
+            dense
+            keyboardType="phone-pad"
+            style={{ marginBottom: 12 }}
+          />
+          <TextInput
+            label="Correo Electrónico (Opcional)"
+            value={newCustEmail}
+            onChangeText={setNewCustEmail}
+            mode="outlined"
+            dense
+            keyboardType="email-address"
+            style={{ marginBottom: 16 }}
+          />
+          <View style={styles.modalActions}>
+            <Button onPress={() => setNewCustomerModalVisible(false)} disabled={newCustSubmitting}>
+              Cancelar
+            </Button>
+            <Button
+              mode="contained"
+              onPress={handleCreateCustomer}
+              loading={newCustSubmitting}
+              disabled={!newCustName.trim() || newCustSubmitting}
+              buttonColor="#E63946"
+            >
+              Registrar Cliente
             </Button>
           </View>
         </Modal>

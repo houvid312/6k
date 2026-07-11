@@ -11,8 +11,11 @@ interface CreditEntryRow {
   debtor_name: string;
   debtor_type: string;
   worker_id: string | null;
+  customer_id: string | null;
   store_id: string | null;
   transfer_id: string | null;
+  sale_id: string | null;
+  expense_id: string | null;
   concept: string;
   amount: number;
   balance: number;
@@ -43,8 +46,11 @@ function toEntity(row: CreditEntryRow): CreditEntry {
     debtorName: row.debtor_name,
     debtorType: row.debtor_type as DebtorType,
     workerId: row.worker_id ?? undefined,
+    customerId: row.customer_id ?? undefined,
     storeId: row.store_id ?? undefined,
     transferId: row.transfer_id ?? undefined,
+    saleId: row.sale_id ?? undefined,
+    expenseId: row.expense_id ?? undefined,
     concept: row.concept,
     amount: row.amount,
     balance: row.balance,
@@ -59,8 +65,11 @@ function toRow(entry: Omit<CreditEntry, 'id'>): Record<string, unknown> {
     debtor_name: entry.debtorName,
     debtor_type: entry.debtorType,
     worker_id: entry.workerId ?? null,
+    customer_id: entry.customerId ?? null,
     store_id: entry.storeId ?? null,
     transfer_id: entry.transferId ?? null,
+    sale_id: entry.saleId ?? null,
+    expense_id: entry.expenseId ?? null,
     concept: entry.concept,
     amount: entry.amount,
     balance: entry.balance,

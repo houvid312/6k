@@ -6,8 +6,11 @@ export interface CreditEntry {
   debtorName: string;
   debtorType: DebtorType;
   workerId?: string;
+  customerId?: string;
   storeId?: string;
   transferId?: string;
+  saleId?: string;
+  expenseId?: string;
   concept: string;
   amount: number;
   balance: number;

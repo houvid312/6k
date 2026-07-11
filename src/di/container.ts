@@ -28,6 +28,7 @@ import {
   SupabaseAdditionCatalogRepository,
   SupabaseCashOpeningRepository,
   SupabaseChecklistRepository,
+  SupabaseCustomerRepository,
 } from '../data/repositories';
 import {
   SaleService,
@@ -76,6 +77,7 @@ const productStoreAssignmentRepo = new SupabaseProductStoreAssignmentRepository(
 const additionCatalogRepo = new SupabaseAdditionCatalogRepository();
 const cashOpeningRepo = new SupabaseCashOpeningRepository();
 const checklistRepo = new SupabaseChecklistRepository();
+const customerRepo = new SupabaseCustomerRepository();
 
 // Services
 const saleService = new SaleService(saleRepo, inventoryRepo, recipeRepo, supplyRepo);
@@ -124,6 +126,7 @@ export const container = {
   additionCatalogRepo,
   cashOpeningRepo,
   checklistRepo,
+  customerRepo,
 
   // Services
   saleService,

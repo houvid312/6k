@@ -5,6 +5,7 @@ export interface DailySummary {
   totalAmount: number;
   totalCashAmount: number;
   totalBankAmount: number;
+  totalCreditAmount: number;
   salesCount: number;
 }
 

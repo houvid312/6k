@@ -8,4 +8,5 @@ export interface Expense {
   description: string;
   amount: number;
   paymentMethod: PaymentMethod;
+  workerId?: string;
 }

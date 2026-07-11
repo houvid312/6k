@@ -15,12 +15,18 @@ export class CreditService {
     amount: number,
     date: string,
     workerId?: string,
+    saleId?: string,
+    expenseId?: string,
+    storeId?: string,
   ): Promise<CreditEntry> {
     return this.creditRepo.create({
       date,
       debtorName,
       debtorType,
       workerId,
+      storeId,
+      saleId,
+      expenseId,
       concept,
       amount,
       balance: amount,

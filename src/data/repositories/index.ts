@@ -27,3 +27,5 @@ export { SupabaseProductStoreAssignmentRepository } from './SupabaseProductStore
 export { SupabaseAdditionCatalogRepository } from './SupabaseAdditionCatalogRepository';
 export { SupabaseCashOpeningRepository } from './SupabaseCashOpeningRepository';
 export { SupabaseChecklistRepository } from './SupabaseChecklistRepository';
+export { SupabaseCustomerRepository } from './SupabaseCustomerRepository';
+

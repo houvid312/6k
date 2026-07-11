@@ -17,6 +17,11 @@ export interface Sale {
   observations?: string;
   isPaid: boolean;
   isDispatched: boolean;
+  isCredit?: boolean;
+  debtorName?: string;
+  debtorType?: string;
+  debtorWorkerId?: string;
+  debtorCustomerId?: string;
   customerNote?: string;
   workerName?: string;
   packagingSupplyId?: string;

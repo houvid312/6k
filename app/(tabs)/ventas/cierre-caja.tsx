@@ -41,12 +41,14 @@ export default function CierreCajaScreen() {
   } = useCashClosingStore();
 
   const [expectedTotal, setExpectedTotal] = useState(0);
+  const [totalCredit, setTotalCredit] = useState(0);
+  const [totalAdvances, setTotalAdvances] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [existingClosing, setExistingClosing] = useState<CashClosing | null>(null);
 
   const today = todayColombia();
   const actualTotal = getTotal();
-  const discrepancy = actualTotal - cashBase - (expectedTotal - expenses);
+  const discrepancy = actualTotal - cashBase - (expectedTotal - totalCredit - expenses);
   const isAdmin = userRole === UserRole.ADMIN;
   const isEditable = !existingClosing || existingClosing.status === ClosingStatus.DRAFT;
   const isReadOnly = !isEditable;
@@ -58,12 +60,18 @@ export default function CierreCajaScreen() {
         const summary = await cashClosingService.getDailyExpected(selectedStoreId, today);
         const existing = await cashClosingService.getClosingByDate(selectedStoreId, today);
         setExistingClosing(existing);
+        setTotalCredit(summary.totalCreditAmount ?? 0);
 
         // Auto-load expenses from today (Compra Turno, etc.)
         let totalExpenses = 0;
+        let advances = 0;
         try {
           const dayExpenses = await expenseRepo.getByDateRange(selectedStoreId, today, today + 'T23:59:59');
           totalExpenses = dayExpenses.reduce((sum, e) => sum + e.amount, 0);
+          advances = dayExpenses
+            .filter((e) => e.category === 'Adelanto')
+            .reduce((sum, e) => sum + e.amount, 0);
+          setTotalAdvances(advances);
         } catch { /* ignore */ }
 
         // Auto-load opening base
@@ -88,6 +96,8 @@ export default function CierreCajaScreen() {
         }
       } catch {
         setExpectedTotal(0);
+        setTotalCredit(0);
+        setTotalAdvances(0);
       }
     })();
   }, [selectedStoreId, today, cashClosingService, expenseRepo, setBankTotal, setCashBase, setDenomination, setExpenses, setCurrentStore]);
@@ -220,15 +230,60 @@ export default function CierreCajaScreen() {
         </Card>
       )}
 
-      {/* Expected */}
+      {/* Expected & Breakdown */}
       <Card style={styles.card} mode="elevated">
         <Card.Content>
-          <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 8 }}>
-            Ventas Esperadas
+          <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 12 }}>
+            Resumen Financiero del Día
           </Text>
-          <Text variant="headlineSmall" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
-            {formatCOP(expectedTotal)}
-          </Text>
+
+          <View style={styles.summaryRow}>
+            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>Total Ventas (Bruto):</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>
+              {formatCOP(expectedTotal)}
+            </Text>
+          </View>
+
+          <View style={styles.summaryRow}>
+            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>Ventas por Transferencia:</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#E63946' }}>
+              -{formatCOP(bankTotal)}
+            </Text>
+          </View>
+
+          <View style={styles.summaryRow}>
+            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>Ventas Fiadas (A Cartera):</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#E63946' }}>
+              -{formatCOP(totalCredit)}
+            </Text>
+          </View>
+
+          <View style={styles.summaryRow}>
+            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>Egresos Totales (Gastos):</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#E63946' }}>
+              -{formatCOP(expenses)}
+            </Text>
+          </View>
+
+          {totalAdvances > 0 && (
+            <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>└ De los cuales Adelantos:</Text>
+              <Text variant="bodySmall" style={{ fontWeight: '600', color: theme.colors.onSurfaceVariant }}>
+                {formatCOP(totalAdvances)}
+              </Text>
+            </View>
+          )}
+
+          <Divider style={{ marginVertical: 8 }} />
+
+          <View style={styles.summaryRow}>
+            <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+              Efectivo Esperado en Caja:
+            </Text>
+            <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+              {formatCOP(expectedTotal - bankTotal - totalCredit - expenses)}
+            </Text>
+          </View>
         </Card.Content>
       </Card>
 
@@ -268,7 +323,7 @@ export default function CierreCajaScreen() {
             value={expenses}
             onChangeValue={setExpenses}
             label="Gastos del Dia"
-            disabled={isReadOnly}
+            disabled
           />
         </Card.Content>
       </Card>
@@ -305,9 +360,9 @@ export default function CierreCajaScreen() {
           </View>
           <Divider style={{ marginVertical: 8 }} />
           <View style={styles.summaryRow}>
-            <Text variant="bodyMedium">Esperado (- gastos)</Text>
+            <Text variant="bodyMedium">Esperado neto (- fiados, - gastos)</Text>
             <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
-              {formatCOP(expectedTotal - expenses)}
+              {formatCOP(expectedTotal - totalCredit - expenses)}
             </Text>
           </View>
           <View style={styles.summaryRow}>
