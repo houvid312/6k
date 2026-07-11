@@ -1,5 +1,6 @@
+// Casing fix reload trigger
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Image } from 'react-native';
 import { Text } from 'react-native-paper';
 import { useAppStore } from '../../stores/useAppStore';
 
@@ -8,11 +9,12 @@ export function HeaderLogo() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.logoRing}>
-        <Text style={styles.logo}>6K</Text>
-      </View>
+      <Image
+        source={require('../../../assets/logo.png')}
+        style={styles.logoImage}
+      />
       <View style={styles.textContainer}>
-        <Text style={styles.brand} numberOfLines={1}>6K Pizza</Text>
+        <Text style={styles.brand} numberOfLines={1}>Pizza</Text>
         <Text style={styles.userName} numberOfLines={1}>{userName}</Text>
       </View>
     </View>
@@ -29,24 +31,14 @@ const styles = StyleSheet.create({
   textContainer: {
     flexShrink: 1,
   },
-  logoRing: {
+  logoImage: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(230, 57, 70, 0.12)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#D4A843',
-  },
-  logo: {
-    fontSize: 13,
-    fontWeight: '900',
-    color: '#F5F0EB',
-    letterSpacing: 1,
   },
   brand: {
     fontSize: 14,
+    fontFamily: 'Arvo',
     fontWeight: '700',
     color: '#F5F0EB',
   },
