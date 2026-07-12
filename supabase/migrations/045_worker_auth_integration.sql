@@ -9,7 +9,12 @@ WHERE auth_user_id IS NOT NULL
     SELECT 1 FROM auth.users u WHERE u.id = w.auth_user_id
   );
 
--- 2. Crear función del trigger con comprobaciones y conversiones a minúsculas
+-- 2. Limpiar teléfonos vacíos en auth.users (para evitar conflictos de la restricción UNIQUE users_phone_key)
+UPDATE auth.users 
+SET phone = NULL 
+WHERE phone = '';
+
+-- 3. Crear función del trigger con comprobaciones y conversiones a minúsculas
 CREATE OR REPLACE FUNCTION public.sync_worker_credentials_to_auth()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -26,7 +31,8 @@ BEGIN
     IF new_auth_id IS NULL THEN
       new_auth_id := gen_random_uuid();
       
-      -- Insertar en auth.users (inicializando columnas opcionales a '' para evitar errores de scan en GoTrue)
+      -- Insertar en auth.users (inicializando columnas opcionales a '' para evitar errores de scan en GoTrue,
+      -- pero dejando 'phone' en NULL para respetar su restricción de unicidad users_phone_key)
       INSERT INTO auth.users (
         instance_id,
         id,
@@ -66,7 +72,7 @@ BEGIN
         '',
         '',
         '',
-        '',
+        NULL, -- El teléfono DEBE ser NULL en lugar de '' para evitar violaciones de la restricción users_phone_key
         '',
         '',
         '',
