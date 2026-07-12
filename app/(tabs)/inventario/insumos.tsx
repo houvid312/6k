@@ -63,7 +63,7 @@ export default function InsumosScreen() {
   const userRole = useAppStore((s) => s.userRole);
   const { supplies: cachedSupplies, refreshMasterData } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
-  const isAdmin = userRole === UserRole.ADMIN;
+  const isAdmin = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
 
   const [supplies, setSupplies] = useState<Supply[]>([]);
   const [loading, setLoading] = useState(true);

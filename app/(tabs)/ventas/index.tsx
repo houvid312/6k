@@ -1068,7 +1068,7 @@ export default function VentasScreen() {
               icon="package-variant-remove"
               compact
               onPress={() => {
-                if (userRole !== UserRole.ADMIN) setBajaLevel(String(InventoryLevel.STORE));
+                if (userRole !== UserRole.GERENTE && userRole !== UserRole.ADMIN_LOCAL) setBajaLevel(String(InventoryLevel.STORE));
                 setBajaModalVisible(true);
               }}
             >
@@ -1828,7 +1828,7 @@ export default function VentasScreen() {
                   onSelect={setBajaSupplyId}
                 />
 
-                {userRole === UserRole.ADMIN ? (
+                {userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL ? (
                   <>
                     <Text variant="labelLarge" style={{ marginBottom: 6 }}>Nivel de inventario</Text>
                     <SegmentedButtons

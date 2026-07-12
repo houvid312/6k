@@ -1,7 +1,7 @@
 import { supabase } from '../../lib/supabase';
 import { Worker } from '../../domain/entities';
 import { IWorkerRepository } from '../../domain/interfaces/repositories';
-import { WorkerRole } from '../../domain/enums';
+import { WorkerRole, UserRole } from '../../domain/enums';
 
 // --- Row type ---
 
@@ -9,6 +9,7 @@ interface WorkerRow {
   id: string;
   name: string;
   role: string;
+  user_role?: string;
   hourly_rate: number;
   is_active: boolean;
   phone: string | null;
@@ -24,6 +25,7 @@ function toEntity(row: WorkerRow): Worker {
     id: row.id,
     name: row.name,
     role: row.role as WorkerRole,
+    userRole: row.user_role as UserRole,
     hourlyRate: row.hourly_rate,
     isActive: row.is_active,
     phone: row.phone ?? undefined,
@@ -37,10 +39,12 @@ function toRow(worker: Omit<Worker, 'id'>): Record<string, unknown> {
   return {
     name: worker.name,
     role: worker.role,
+    user_role: worker.userRole,
     hourly_rate: worker.hourlyRate,
     is_active: worker.isActive,
     phone: worker.phone ?? null,
     pin: worker.pin ?? null,
+    username: worker.username ?? null,
   };
 }
 
@@ -102,10 +106,12 @@ export class SupabaseWorkerRepository implements IWorkerRepository {
     const row: Record<string, unknown> = {};
     if (updates.name !== undefined) row.name = updates.name;
     if (updates.role !== undefined) row.role = updates.role;
+    if (updates.userRole !== undefined) row.user_role = updates.userRole;
     if (updates.hourlyRate !== undefined) row.hourly_rate = updates.hourlyRate;
     if (updates.isActive !== undefined) row.is_active = updates.isActive;
     if (updates.phone !== undefined) row.phone = updates.phone;
     if (updates.pin !== undefined) row.pin = updates.pin;
+    if (updates.username !== undefined) row.username = updates.username;
 
     const { data, error } = await supabase
       .from('workers')

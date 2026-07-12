@@ -8,7 +8,7 @@ import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { useWorkerStore } from '../../../src/stores/useWorkerStore';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { Worker } from '../../../src/domain/entities';
-import { WorkerRole } from '../../../src/domain/enums';
+import { WorkerRole, UserRole } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
 import { container } from '../../../src/di/container';
 
@@ -30,6 +30,14 @@ const ROLE_LABELS: Record<WorkerRole, string> = {
   [WorkerRole.COORDINADOR]: 'Coordinador',
 };
 
+const USER_ROLE_LABELS: Record<UserRole, string> = {
+  [UserRole.GERENTE]: 'Gerente (CEO)',
+  [UserRole.ADMIN_LOCAL]: 'Admin Local',
+  [UserRole.PREPARADOR]: 'Preparador',
+  [UserRole.RODY]: 'Rody (Repartidor)',
+  [UserRole.VENDEDOR]: 'Vendedor',
+};
+
 export default function RRHHScreen() {
   const theme = useTheme();
   const { workers, loading, loadWorkers } = useWorkerStore();
@@ -39,10 +47,13 @@ export default function RRHHScreen() {
   const [editingWorker, setEditingWorker] = useState<Worker | null>(null);
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
+  const [showPin, setShowPin] = useState(false);
   const [hourlyRate, setHourlyRate] = useState('8000');
   const [role, setRole] = useState<WorkerRole>(WorkerRole.PREPARADOR);
+  const [userRole, setUserRole] = useState<UserRole>(UserRole.VENDEDOR);
   const [isActive, setIsActive] = useState(true);
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
 
@@ -59,10 +70,13 @@ export default function RRHHScreen() {
   const resetForm = useCallback((worker?: Worker) => {
     setEditingWorker(worker ?? null);
     setName(worker?.name ?? '');
+    setUsername(worker?.username ?? '');
     setPhone(worker?.phone ?? '');
     setPin(worker?.pin ?? '');
+    setShowPin(false);
     setHourlyRate(String(worker?.hourlyRate ?? 8000));
     setRole(worker?.role ?? WorkerRole.PREPARADOR);
+    setUserRole(worker?.userRole ?? UserRole.VENDEDOR);
     setIsActive(worker?.isActive ?? true);
     setSelectedStoreIds(worker?.storeIds?.length ? worker.storeIds : selectedStoreId ? [selectedStoreId] : []);
   }, [selectedStoreId]);
@@ -78,6 +92,7 @@ export default function RRHHScreen() {
 
   const handleSubmit = useCallback(async () => {
     const trimmedName = name.trim();
+    const trimmedUsername = username.trim().toLowerCase();
     if (!trimmedName) {
       Alert.alert('Error', 'El nombre es obligatorio.');
       return;
@@ -100,10 +115,12 @@ export default function RRHHScreen() {
     try {
       const payload = {
         name: trimmedName,
+        username: trimmedUsername || undefined,
         phone: phone.trim() || undefined,
         pin,
         hourlyRate: rate,
         role,
+        userRole,
         isActive,
       };
       const worker = editingWorker
@@ -117,7 +134,7 @@ export default function RRHHScreen() {
     } finally {
       setSaving(false);
     }
-  }, [name, phone, pin, selectedStoreIds, hourlyRate, role, isActive, editingWorker, closeModal, loadWorkers]);
+  }, [name, username, phone, pin, selectedStoreIds, hourlyRate, role, userRole, isActive, editingWorker, closeModal, loadWorkers]);
 
   const toggleStore = useCallback((storeId: string) => {
     setSelectedStoreIds((current) => (
@@ -156,7 +173,7 @@ export default function RRHHScreen() {
         <View style={styles.workerRow}>
           <View style={styles.workerInfo}>
             <Text variant="titleSmall" style={{ fontWeight: '600' }}>
-              {item.name}
+              {item.name} {item.username ? `(@${item.username})` : ''}
             </Text>
             <View style={styles.chipRow}>
               <Chip
@@ -166,6 +183,15 @@ export default function RRHHScreen() {
               >
                 {item.role}
               </Chip>
+              {item.userRole && (
+                <Chip
+                  compact
+                  textStyle={{ fontSize: 10, color: '#FFFFFF' }}
+                  style={{ backgroundColor: '#D32F2F', marginLeft: 4 }}
+                >
+                  {USER_ROLE_LABELS[item.userRole]}
+                </Chip>
+              )}
               {!item.isActive && (
                 <Chip compact textStyle={{ fontSize: 10 }} style={{ backgroundColor: '#FFEBEE' }}>
                   Inactivo
@@ -272,6 +298,17 @@ export default function RRHHScreen() {
             />
 
             <TextInput
+              label="Usuario (para iniciar sesión)"
+              value={username}
+              onChangeText={(text) => setUsername(text.toLowerCase().replace(/\s/g, ''))}
+              mode="outlined"
+              style={styles.input}
+              left={<TextInput.Icon icon="account-outline" />}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            <TextInput
               label="Telefono"
               value={phone}
               onChangeText={setPhone}
@@ -287,8 +324,16 @@ export default function RRHHScreen() {
               mode="outlined"
               keyboardType="numeric"
               maxLength={6}
-              secureTextEntry
+              secureTextEntry={!showPin}
               style={styles.input}
+              left={<TextInput.Icon icon="lock-outline" />}
+              right={
+                <TextInput.Icon
+                  icon={showPin ? 'eye-off' : 'eye'}
+                  onPress={() => setShowPin(!showPin)}
+                  color="#8B8178"
+                />
+              }
             />
 
             <TextInput
@@ -322,8 +367,29 @@ export default function RRHHScreen() {
             </RadioButton.Group>
 
             <Text variant="titleSmall" style={styles.roleLabel}>
-              Centros *
-            </Text>
+              Rol del Sistema (Seguridad RLS) *
+             </Text>
+             <RadioButton.Group onValueChange={(value) => setUserRole(value as UserRole)} value={userRole}>
+               <View style={styles.roleGrid}>
+                 {Object.values(UserRole).map((ur) => (
+                   <View key={ur} style={styles.roleOption}>
+                     <RadioButton.Item
+                       label={USER_ROLE_LABELS[ur]}
+                       value={ur}
+                       labelStyle={{ color: '#F5F0EB', fontSize: 13 }}
+                       style={[
+                         styles.radioItem,
+                         userRole === ur && { backgroundColor: '#E6394622', borderColor: '#E63946', borderWidth: 1 },
+                       ]}
+                     />
+                   </View>
+                 ))}
+               </View>
+             </RadioButton.Group>
+
+             <Text variant="titleSmall" style={styles.roleLabel}>
+               Centros *
+             </Text>
             <View style={styles.storeGrid}>
               {stores.map((store) => {
                 const selected = selectedStoreIds.includes(store.id);

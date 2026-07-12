@@ -30,9 +30,24 @@ export function StoreSelector({ excludeProductionCenter = false }: Props) {
   }, [isFocused, excludeProductionCenter, filteredStores, selectedStoreId, setSelectedStore]);
 
   const selectedStore = stores.find((s) => s.id === selectedStoreId);
+  const canSelect = filteredStores.length > 1;
+
+  if (!canSelect) {
+    return (
+      <View style={{ zIndex: 1000, position: 'relative', alignSelf: 'flex-start' }}>
+        <Chip
+          icon={() => <MaterialCommunityIcons name="store" size={18} color="#D32F2F" />}
+          mode="outlined"
+          compact
+        >
+          {selectedStore?.name ?? 'Seleccionar tienda'}
+        </Chip>
+      </View>
+    );
+  }
 
   return (
-    <View style={{ zIndex: 1000, position: 'relative' }}>
+    <View style={{ zIndex: 1000, position: 'relative', alignSelf: 'flex-start' }}>
     <Menu
       visible={visible}
       onDismiss={() => setVisible(false)}

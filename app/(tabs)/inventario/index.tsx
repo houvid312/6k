@@ -34,7 +34,7 @@ export default function InventarioScreen() {
   const { inventoryService, stockMinimumRepo } = useDI();
   const { selectedStoreId, stores, userRole } = useAppStore();
 
-  const isAdmin = userRole === UserRole.ADMIN;
+  const isAdmin = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
   const isProductionCenter = stores.find((s) => s.id === selectedStoreId)?.isProductionCenter ?? false;
 
   const [level, setLevel] = useState<InventoryLevel>(

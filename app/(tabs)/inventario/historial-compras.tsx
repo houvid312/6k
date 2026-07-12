@@ -60,7 +60,7 @@ export default function HistorialComprasScreen() {
 
   const productionCenter = stores.find((s) => s.isProductionCenter);
   const productionCenterId = productionCenter?.id ?? '';
-  const canViewHistory = userRole === UserRole.ADMIN && selectedStoreId === productionCenterId;
+  const canViewHistory = (userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL) && selectedStoreId === productionCenterId;
 
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [loading, setLoading] = useState(true);

@@ -49,7 +49,7 @@ export default function CierreCajaScreen() {
   const today = todayColombia();
   const actualTotal = getTotal();
   const discrepancy = actualTotal - cashBase - (expectedTotal - totalCredit - expenses);
-  const isAdmin = userRole === UserRole.ADMIN;
+  const isAdmin = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
   const isEditable = !existingClosing || existingClosing.status === ClosingStatus.DRAFT;
   const isReadOnly = !isEditable;
 

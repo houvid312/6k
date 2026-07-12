@@ -15,7 +15,7 @@ export class SupabaseAuthService implements IAuthService {
     });
 
     if (authError) {
-      return { success: false, error: 'Usuario o PIN incorrecto' };
+      return { success: false, error: authError.message };
     }
 
     // 2. Obtener perfil del worker vinculado

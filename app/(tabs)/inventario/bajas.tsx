@@ -49,7 +49,7 @@ export default function BajasScreen() {
   const { writeoffService } = useDI();
   const { selectedStoreId, userRole, userId } = useAppStore();
   const { getSupplyName, getWorkerName, getProductName } = useMasterDataStore();
-  const isAdmin = userRole === UserRole.ADMIN;
+  const isAdmin = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
 
   const [tab, setTab] = useState<string>(isAdmin ? 'pending' : 'history');
   const [writeoffs, setWriteoffs] = useState<InventoryWriteoff[]>([]);
