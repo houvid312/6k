@@ -32,7 +32,7 @@ export default function LoginScreen() {
     try {
       const result = await authService.login(name.trim(), pin.trim());
       if (result.success && result.user) {
-        login(result.user.id, result.user.name, result.user.role);
+        login(result.user.id, result.user.name, result.user.role, result.user.storeIds);
         await loadStores();
         await loadMasterData();
         router.replace('/(tabs)/ventas');
