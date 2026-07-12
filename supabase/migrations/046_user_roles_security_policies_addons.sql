@@ -99,9 +99,9 @@ CREATE POLICY "daily_alerts_policy" ON daily_alerts
   USING (get_user_role() = 'GERENTE')
   WITH CHECK (get_user_role() = 'GERENTE');
 
--- 8. BAJAS DE INVENTARIO (writeoffs)
-DROP POLICY IF EXISTS "Admin manage writeoffs" ON writeoffs;
-CREATE POLICY "writeoffs_policy" ON writeoffs
+-- 8. BAJAS DE INVENTARIO (inventory_writeoffs)
+DROP POLICY IF EXISTS "Admin manage writeoffs" ON inventory_writeoffs;
+CREATE POLICY "writeoffs_policy" ON inventory_writeoffs
   FOR ALL TO authenticated
   USING (is_admin_or_assigned_local(store_id))
   WITH CHECK (is_admin_or_assigned_local(store_id));
