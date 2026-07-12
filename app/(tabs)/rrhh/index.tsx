@@ -97,6 +97,10 @@ export default function RRHHScreen() {
       Alert.alert('Error', 'El nombre es obligatorio.');
       return;
     }
+    if (!trimmedUsername) {
+      Alert.alert('Error', 'El usuario (username) es obligatorio.');
+      return;
+    }
     if (pin.length !== 6 || !/^\d{6}$/.test(pin)) {
       Alert.alert('Error', 'El PIN debe ser exactamente 6 digitos numericos.');
       return;
@@ -298,7 +302,7 @@ export default function RRHHScreen() {
             />
 
             <TextInput
-              label="Usuario (para iniciar sesión)"
+              label="Usuario (para iniciar sesión) *"
               value={username}
               onChangeText={(text) => setUsername(text.toLowerCase().replace(/\s/g, ''))}
               mode="outlined"
