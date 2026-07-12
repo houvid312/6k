@@ -1,9 +1,10 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { FlatList, View, StyleSheet, ScrollView, Alert } from 'react-native';
 import { Card, Text, Chip, Button, FAB, IconButton, useTheme, Modal, Portal, TextInput, RadioButton, Switch } from 'react-native-paper';
 import { router } from 'expo-router';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
+import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { useWorkerStore } from '../../../src/stores/useWorkerStore';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { Worker } from '../../../src/domain/entities';
@@ -49,6 +50,11 @@ export default function RRHHScreen() {
     loadWorkers();
     loadStores();
   }, [loadStores, loadWorkers]);
+
+  const filteredWorkers = useMemo(() => {
+    if (!selectedStoreId) return workers;
+    return workers.filter((w) => w.storeIds?.includes(selectedStoreId));
+  }, [workers, selectedStoreId]);
 
   const resetForm = useCallback((worker?: Worker) => {
     setEditingWorker(worker ?? null);
@@ -205,6 +211,9 @@ export default function RRHHScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={styles.topSection}>
+        <StoreSelector />
+      </View>
       {/* Nav buttons */}
       <View style={styles.navRow}>
         <Button mode="outlined" compact icon="calendar-clock" onPress={() => router.push('/(tabs)/rrhh/horarios')}>
@@ -223,11 +232,11 @@ export default function RRHHScreen() {
 
       {loading ? (
         <LoadingIndicator message="Cargando trabajadores..." />
-      ) : workers.length === 0 ? (
-        <EmptyState icon="account-group" title="Sin trabajadores" subtitle="No hay trabajadores registrados" />
+      ) : filteredWorkers.length === 0 ? (
+        <EmptyState icon="account-group" title="Sin trabajadores" subtitle="No hay trabajadores registrados para este local" />
       ) : (
         <FlatList
-          data={workers}
+          data={filteredWorkers}
           renderItem={renderWorker}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
@@ -369,6 +378,11 @@ export default function RRHHScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  topSection: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 0,
   },
   navRow: {
     flexDirection: 'row',

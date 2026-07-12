@@ -12,6 +12,7 @@ export default function RRHHLayout() {
         headerTintColor: '#F5F0EB',
         headerTitleStyle: { fontWeight: '600' },
         headerBackVisible: true,
+        headerRight: () => <HeaderUserMenu />,
       }}
     >
       <Stack.Screen
@@ -19,7 +20,6 @@ export default function RRHHLayout() {
         options={{
           title: 'Recursos Humanos',
           headerBackVisible: false,
-          headerRight: () => <HeaderUserMenu />,
         }}
       />
       <Stack.Screen name="horarios" options={{ title: 'Horarios' }} />

@@ -5,7 +5,8 @@ import { Text } from 'react-native-paper';
 import { useAppStore } from '../../stores/useAppStore';
 
 export function HeaderLogo() {
-  const userName = useAppStore((s) => s.userName);
+  const { selectedStoreId, stores } = useAppStore();
+  const storeName = stores.find(s => s.id === selectedStoreId)?.name ?? 'Sin Local';
 
   return (
     <View style={styles.container}>
@@ -15,7 +16,7 @@ export function HeaderLogo() {
       />
       <View style={styles.textContainer}>
         <Text style={styles.brand} numberOfLines={1}>Pizza</Text>
-        <Text style={styles.userName} numberOfLines={1}>{userName}</Text>
+        <Text style={styles.userName} numberOfLines={1}>{storeName}</Text>
       </View>
     </View>
   );

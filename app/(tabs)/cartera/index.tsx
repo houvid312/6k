@@ -4,6 +4,8 @@ import { Card, Text, FAB, Chip, Divider, Button, useTheme } from 'react-native-p
 import { Link, router } from 'expo-router';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
+import { StoreSelector } from '../../../src/components/common/StoreSelector';
+import { useAppStore } from '../../../src/stores/useAppStore';
 import { useDI } from '../../../src/di/providers';
 import { CreditEntry } from '../../../src/domain/entities';
 import { formatCOP } from '../../../src/utils/currency';
@@ -89,6 +91,7 @@ function buildDebtorSummaries(credits: CreditEntry[]): DebtorSummary[] {
 export default function CarteraScreen() {
   const theme = useTheme();
   const { creditService } = useDI();
+  const { selectedStoreId } = useAppStore();
 
   const [allCredits, setAllCredits] = useState<CreditEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,21 +113,26 @@ export default function CarteraScreen() {
     loadData();
   }, [loadData]);
 
+  const storeCredits = useMemo(() => {
+    if (!selectedStoreId) return allCredits;
+    return allCredits.filter((c) => c.storeId === selectedStoreId);
+  }, [allCredits, selectedStoreId]);
+
   const activeDebtors = useMemo(
-    () => buildDebtorSummaries(allCredits.filter((c) => !c.isPaid)),
-    [allCredits],
+    () => buildDebtorSummaries(storeCredits.filter((c) => !c.isPaid)),
+    [storeCredits],
   );
 
   const historicalDebtors = useMemo(
-    () => buildDebtorSummaries(allCredits),
-    [allCredits],
+    () => buildDebtorSummaries(storeCredits),
+    [storeCredits],
   );
 
   const totalCartera = activeDebtors.reduce((sum, d) => sum + d.totalBalance, 0);
 
   /** Summary stats */
   const stats = useMemo(() => {
-    const activeCredits = allCredits.filter((c) => !c.isPaid);
+    const activeCredits = storeCredits.filter((c) => !c.isPaid);
     const overdueCredits = activeCredits.filter((c) => isOverdue(c));
     const followUpCredits = activeCredits.filter((c) => needsFollowUpThisWeek(c));
 
@@ -132,7 +140,7 @@ export default function CarteraScreen() {
       overdueCount: overdueCredits.length,
       followUpCount: followUpCredits.length,
     };
-  }, [allCredits]);
+  }, [storeCredits]);
 
   /** Filtered debtors based on active filter */
   const filteredDebtors = useMemo(() => {
@@ -254,6 +262,9 @@ export default function CarteraScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={styles.topSection}>
+        <StoreSelector />
+      </View>
       {/* Total banner */}
       <Card style={[styles.totalCard, { backgroundColor: theme.colors.primaryContainer }]} mode="contained">
         <Card.Content style={styles.totalContent}>
@@ -372,6 +383,11 @@ export default function CarteraScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  topSection: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 0,
   },
   totalCard: {
     margin: 16,
