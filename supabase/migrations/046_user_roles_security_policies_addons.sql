@@ -21,14 +21,14 @@ CREATE POLICY "credit_payments_policy" ON credit_payments
   USING (
     EXISTS (
       SELECT 1 FROM credit_entries ce
-      WHERE ce.id = credit_payments.credit_id
+      WHERE ce.id = credit_payments.credit_entry_id
         AND is_admin_or_assigned_local(ce.store_id)
     )
   )
   WITH CHECK (
     EXISTS (
       SELECT 1 FROM credit_entries ce
-      WHERE ce.id = credit_payments.credit_id
+      WHERE ce.id = credit_payments.credit_entry_id
         AND is_admin_or_assigned_local(ce.store_id)
     )
   );
