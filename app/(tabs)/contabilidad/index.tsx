@@ -9,7 +9,8 @@ import { LoadingIndicator } from '../../../src/components/common/LoadingIndicato
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
-import { Sale, Expense, Purchase, Transfer, CashClosing, CashAuditEntry } from '../../../src/domain/entities';
+import { Sale, Expense, Purchase, Transfer, CashClosing, CashAuditEntry, DenominationCount } from '../../../src/domain/entities';
+import { DenominationCounter } from '../../../src/components/ventas/DenominationCounter';
 import { InventoryLevel, PaymentMethod } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate, formatDateTime, toISODate, todayColombia } from '../../../src/utils/dates';
@@ -43,6 +44,14 @@ interface CashAuditRow {
   actualTotal: number;
   discrepancy: number;
   notes: string;
+  bills100k: number;
+  bills50k: number;
+  bills20k: number;
+  bills10k: number;
+  bills5k: number;
+  bills2k: number;
+  coins: number;
+  bankTotal: number;
 }
 
 type ExcelCell = string | number | null | { value: string | number | null; style?: string };
@@ -227,6 +236,16 @@ export default function ContabilidadScreen() {
   const [auditNotes, setAuditNotes] = useState('');
   const [auditSaving, setAuditSaving] = useState(false);
   const [auditError, setAuditError] = useState('');
+  const [auditDenominations, setAuditDenominations] = useState<DenominationCount>({
+    bills100k: 0,
+    bills50k: 0,
+    bills20k: 0,
+    bills10k: 0,
+    bills5k: 0,
+    bills2k: 0,
+    coins: 0,
+  });
+  const [auditBankTotal, setAuditBankTotal] = useState(0);
 
   const loadData = useCallback(async () => {
     if (!hasAppliedFilter || !appliedStoreId) {
@@ -457,58 +476,29 @@ export default function ContabilidadScreen() {
       let cashAuditYearValue = auditYear;
 
       if (appliedStoreId !== 'consolidado') {
-        const [yearClosings, yearAuditEntries] = await Promise.all([
-          cashClosingService.getClosingsByDateRange(appliedStoreId, auditYearStart, endDate),
-          cashAuditRepo.getByDateRange(appliedStoreId, auditYearStart, endDate),
-        ]);
-        const closingByDate = new Map(yearClosings.map((closing) => [closing.date, closing]));
-        const manualAuditByDate = new Map(yearAuditEntries.map((entry) => [entry.date, entry]));
-        const auditDates = Array.from(new Set([
-          ...yearClosings.map((closing) => closing.date),
-          ...yearAuditEntries.map((entry) => entry.date),
-        ])).sort((a, b) => a.localeCompare(b));
-        const openingsByDate = await Promise.all(
-          auditDates.map((date) =>
-            cashClosingService.getOpeningByDate(appliedStoreId, date).catch(() => null),
-          ),
-        );
-        auditRows = auditDates.map((date, index): CashAuditRow | null => {
-          const manualAudit = manualAuditByDate.get(date);
-          if (manualAudit) {
-            return {
-              date: manualAudit.date,
-              status: 'AUDIT',
-              source: 'MANUAL',
-              openingBase: manualAudit.openingBase,
-              expectedTotal: manualAudit.cashSales,
-              expenses: manualAudit.cashExpenses,
-              theoreticalTotal: manualAudit.theoreticalTotal,
-              actualTotal: manualAudit.actualTotal,
-              discrepancy: manualAudit.discrepancy,
-              notes: manualAudit.notes,
-            };
-          }
-
-          const closing = closingByDate.get(date);
-          if (!closing) return null;
-          const openingBaseValue = openingsByDate[index]?.total ?? 0;
-          const theoreticalTotal = openingBaseValue + closing.expectedTotal - closing.expenses;
-          const actualTotal = closing.actualTotal;
-          const discrepancy = actualTotal - theoreticalTotal;
-
+        const yearAuditEntries = await cashAuditRepo.getByDateRange(appliedStoreId, auditYearStart, endDate);
+        auditRows = yearAuditEntries.map((entry): CashAuditRow => {
           return {
-            date: closing.date,
-            status: closing.status,
-            source: 'CLOSING',
-            openingBase: openingBaseValue,
-            expectedTotal: closing.expectedTotal,
-            expenses: closing.expenses,
-            theoreticalTotal,
-            actualTotal,
-            discrepancy,
-            notes: '',
+            date: entry.date,
+            status: 'AUDIT',
+            source: 'MANUAL',
+            openingBase: entry.openingBase,
+            expectedTotal: entry.cashSales,
+            expenses: entry.cashExpenses,
+            theoreticalTotal: entry.theoreticalTotal,
+            actualTotal: entry.actualTotal,
+            discrepancy: entry.discrepancy,
+            notes: entry.notes,
+            bills100k: entry.bills100k,
+            bills50k: entry.bills50k,
+            bills20k: entry.bills20k,
+            bills10k: entry.bills10k,
+            bills5k: entry.bills5k,
+            bills2k: entry.bills2k,
+            coins: entry.coins,
+            bankTotal: entry.bankTotal,
           };
-        }).filter((row): row is CashAuditRow => !!row);
+        });
       }
 
       const fixed = allExpenses.filter(e => e.isFixed).reduce((sum, e) => sum + e.amount, 0);
@@ -693,8 +683,17 @@ export default function ContabilidadScreen() {
     const defaultDate = todayColombia();
     const existingAudit = cashAuditRows.find((row) => row.date === defaultDate);
     setAuditDate(defaultDate);
-    setAuditActualTotal(existingAudit?.actualTotal ?? 0);
     setAuditNotes(existingAudit?.notes ?? '');
+    setAuditDenominations({
+      bills100k: existingAudit?.bills100k ?? 0,
+      bills50k: existingAudit?.bills50k ?? 0,
+      bills20k: existingAudit?.bills20k ?? 0,
+      bills10k: existingAudit?.bills10k ?? 0,
+      bills5k: existingAudit?.bills5k ?? 0,
+      bills2k: existingAudit?.bills2k ?? 0,
+      coins: existingAudit?.coins ?? 0,
+    });
+    setAuditBankTotal(existingAudit?.bankTotal ?? 0);
     setAuditError('');
     setAuditModalVisible(true);
   }, [cashAuditRows]);
@@ -723,6 +722,16 @@ export default function ContabilidadScreen() {
           .reduce((sum, purchase) => sum + purchase.priceCOP, 0);
       const theoreticalTotal = openingBaseValue + cashSales - cashExpenses;
 
+      const cashTotal =
+        (auditDenominations.bills100k * 100000) +
+        (auditDenominations.bills50k * 50000) +
+        (auditDenominations.bills20k * 20000) +
+        (auditDenominations.bills10k * 10000) +
+        (auditDenominations.bills5k * 5000) +
+        (auditDenominations.bills2k * 2000) +
+        auditDenominations.coins;
+      const actualTotalComputed = cashTotal + auditBankTotal;
+
       const entry: Omit<CashAuditEntry, 'id' | 'createdAt' | 'updatedAt'> = {
         storeId: appliedStoreId,
         date: auditDate,
@@ -730,9 +739,17 @@ export default function ContabilidadScreen() {
         cashSales,
         cashExpenses,
         theoreticalTotal,
-        actualTotal: auditActualTotal,
-        discrepancy: auditActualTotal - theoreticalTotal,
+        actualTotal: actualTotalComputed,
+        discrepancy: actualTotalComputed - theoreticalTotal,
         notes: auditNotes.trim(),
+        bills100k: auditDenominations.bills100k,
+        bills50k: auditDenominations.bills50k,
+        bills20k: auditDenominations.bills20k,
+        bills10k: auditDenominations.bills10k,
+        bills5k: auditDenominations.bills5k,
+        bills2k: auditDenominations.bills2k,
+        coins: auditDenominations.coins,
+        bankTotal: auditBankTotal,
       };
 
       await cashAuditRepo.upsert(entry);
@@ -749,15 +766,16 @@ export default function ContabilidadScreen() {
     }
   }, [
     appliedStoreId,
-    auditActualTotal,
     auditDate,
+    auditDenominations,
+    auditBankTotal,
     auditNotes,
-    cashAuditRepo,
     cashClosingService,
-    expenseRepo,
-    loadData,
-    purchaseRepo,
     saleService,
+    expenseRepo,
+    purchaseRepo,
+    cashAuditRepo,
+    loadData,
   ]);
 
   const handlePeriodPress = useCallback((nextPeriod: ContaPeriod) => {
@@ -1237,58 +1255,30 @@ export default function ContabilidadScreen() {
                     <View style={styles.txRow}>
                       <View style={{ flex: 1, marginRight: 8 }}>
                         <Text variant="bodyMedium" style={{ fontWeight: '600' }}>{formatDate(row.date)}</Text>
-                        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                          {getClosingStatusLabel(row.status)}
-                          {row.source === 'MANUAL' ? ' · saldo real actualizado' : ' · desde cierre'}
+                        <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
+                          Efectivo: {formatCOP((row.actualTotal ?? 0) - (row.bankTotal ?? 0))} | Cuenta: {formatCOP(row.bankTotal ?? 0)}
                         </Text>
+                        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
+                          Total Conteo (HAY): {formatCOP(row.actualTotal ?? 0)}
+                        </Text>
+                        {row.notes ? (
+                          <Text variant="bodySmall" style={{ color: '#DDBB99', fontStyle: 'italic', marginTop: 4 }}>
+                            Nota: {row.notes}
+                          </Text>
+                        ) : null}
                       </View>
-                      <Text
-                        variant="bodyMedium"
-                        style={{ fontWeight: '700', color: row.discrepancy === 0 ? '#388E3C' : '#D32F2F' }}
-                      >
-                        {formatCOP(row.discrepancy)}
-                      </Text>
-                    </View>
-                    <Divider style={{ marginVertical: 8 }} />
-                    <View style={styles.auditGrid}>
-                      <View style={styles.auditCell}>
-                        <Text variant="bodySmall" style={styles.txInfoText}>Base</Text>
-                        <Text variant="bodySmall" style={styles.auditValue}>{formatCOP(row.openingBase)}</Text>
-                      </View>
-                      <View style={styles.auditCell}>
-                        <Text variant="bodySmall" style={styles.txInfoText}>Ventas</Text>
-                        <Text variant="bodySmall" style={styles.auditValue}>{formatCOP(row.expectedTotal)}</Text>
-                      </View>
-                      <View style={styles.auditCell}>
-                        <Text variant="bodySmall" style={styles.txInfoText}>Egresos</Text>
-                        <Text variant="bodySmall" style={styles.auditValue}>{formatCOP(row.expenses)}</Text>
-                      </View>
-                      <View style={styles.auditCell}>
-                        <Text variant="bodySmall" style={styles.txInfoText}>Teorico</Text>
-                        <Text variant="bodySmall" style={styles.auditValue}>{formatCOP(row.theoreticalTotal)}</Text>
-                      </View>
-                      <View style={styles.auditCell}>
-                        <Text variant="bodySmall" style={styles.txInfoText}>Real</Text>
-                        <Text variant="bodySmall" style={styles.auditValue}>{formatCOP(row.actualTotal)}</Text>
-                      </View>
-                      <View style={styles.auditCell}>
-                        <Text variant="bodySmall" style={styles.txInfoText}>Descuadre</Text>
+                      <View style={{ alignItems: 'flex-end' }}>
                         <Text
-                          variant="bodySmall"
-                          style={[
-                            styles.auditValue,
-                            { color: row.discrepancy === 0 ? '#388E3C' : '#D32F2F' },
-                          ]}
+                          variant="bodyMedium"
+                          style={{ fontWeight: '700', color: row.discrepancy === 0 ? '#388E3C' : '#D32F2F' }}
                         >
-                          {formatCOP(row.discrepancy)}
+                          {row.discrepancy > 0 ? '+' : ''}{formatCOP(row.discrepancy)}
+                        </Text>
+                        <Text variant="bodySmall" style={{ color: '#777', fontSize: 10 }}>
+                          Descuadre
                         </Text>
                       </View>
                     </View>
-                    {!!row.notes && (
-                      <Text variant="bodySmall" style={[styles.txInfoText, { marginTop: 8 }]}>
-                        {row.notes}
-                      </Text>
-                    )}
                   </Card.Content>
                 </Card>
               ))}
@@ -1729,29 +1719,71 @@ export default function ContabilidadScreen() {
           <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>
             Guarda el saldo real de caja para el centro de costo aplicado. Si la fecha ya existe, se actualiza.
           </Text>
-          <TextInput
-            label="Fecha"
-            value={auditDate}
-            onChangeText={setAuditDate}
-            mode="outlined"
-            dense
-            placeholder="YYYY-MM-DD"
-            style={{ marginBottom: 12 }}
-          />
-          <CurrencyInput
-            value={auditActualTotal}
-            onChangeValue={setAuditActualTotal}
-            label="Valor real contado"
-          />
-          <TextInput
-            label="Notas"
-            value={auditNotes}
-            onChangeText={setAuditNotes}
-            mode="outlined"
-            multiline
-            numberOfLines={3}
-            style={{ marginTop: 12 }}
-          />
+          <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={true}>
+            <TextInput
+              label="Fecha"
+              value={auditDate}
+              onChangeText={setAuditDate}
+              mode="outlined"
+              dense
+              placeholder="YYYY-MM-DD"
+              style={{ marginBottom: 12 }}
+            />
+            
+            <Text variant="titleSmall" style={{ fontWeight: '600', marginVertical: 8 }}>
+              Efectivo en Caja (Billetes / Monedas)
+            </Text>
+            
+            <DenominationCounter
+              denominations={auditDenominations}
+              onChange={(key, count) => setAuditDenominations((p) => ({ ...p, [key]: count }))}
+              total={
+                (auditDenominations.bills100k * 100000) +
+                (auditDenominations.bills50k * 50000) +
+                (auditDenominations.bills20k * 20000) +
+                (auditDenominations.bills10k * 10000) +
+                (auditDenominations.bills5k * 5000) +
+                (auditDenominations.bills2k * 2000) +
+                auditDenominations.coins
+              }
+            />
+
+            <View style={{ marginVertical: 12 }}>
+              <CurrencyInput
+                value={auditBankTotal}
+                onChangeValue={(val) => setAuditBankTotal(val ?? 0)}
+                label="Valor en Cuenta Bancaria (CUENTA)"
+              />
+            </View>
+
+            <Divider style={{ marginVertical: 12 }} />
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Total General Conteo (HAY):</Text>
+              <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+                {formatCOP(
+                  (auditDenominations.bills100k * 100000) +
+                  (auditDenominations.bills50k * 50000) +
+                  (auditDenominations.bills20k * 20000) +
+                  (auditDenominations.bills10k * 10000) +
+                  (auditDenominations.bills5k * 5000) +
+                  (auditDenominations.bills2k * 2000) +
+                  auditDenominations.coins +
+                  auditBankTotal
+                )}
+              </Text>
+            </View>
+
+            <TextInput
+              label="Notas"
+              value={auditNotes}
+              onChangeText={setAuditNotes}
+              mode="outlined"
+              multiline
+              numberOfLines={3}
+              style={{ marginTop: 4 }}
+            />
+          </ScrollView>
           {!!auditError && (
             <Text variant="bodySmall" style={{ color: '#D32F2F', marginTop: 12 }}>
               {auditError}

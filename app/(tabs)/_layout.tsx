@@ -16,7 +16,7 @@ export default function TabLayout() {
       case UserRole.GERENTE:
         return true;
       case UserRole.ADMIN_LOCAL:
-        return ['ventas', 'inventario', 'cartera', 'rrhh', 'dashboard'].includes(tabName);
+        return ['ventas', 'inventario', 'cartera', 'rrhh', 'dashboard', 'contabilidad'].includes(tabName);
       case UserRole.PREPARADOR:
       case UserRole.RODY:
         return ['inventario'].includes(tabName);
