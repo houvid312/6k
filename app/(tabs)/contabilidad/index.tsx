@@ -2123,7 +2123,7 @@ export default function ContabilidadScreen() {
             Verificar y Aprobar Cierre
           </Text>
           <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>
-            Fecha: {formatDate(closingDate)} | Revisa las denominaciones del cajero y aprueba para ingresar a la Caja General.
+            Fecha: {closingDate ? formatDate(closingDate) : ''} | Revisa las denominaciones del cajero y aprueba para ingresar a la Caja General.
           </Text>
           <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={true}>
             <DenominationCounter
