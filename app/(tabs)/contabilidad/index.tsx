@@ -255,6 +255,22 @@ export default function ContabilidadScreen() {
   const [dbCartera, setDbCartera] = useState(0);
   const [reportClosings, setReportClosings] = useState<CashClosing[]>([]);
 
+  // States for verification and approval modal
+  const [approvingClosing, setApprovingClosing] = useState<CashClosing | null>(null);
+  const [closingDenoms, setClosingDenoms] = useState<DenominationCount>({
+    bills100k: 0,
+    bills50k: 0,
+    bills20k: 0,
+    bills10k: 0,
+    bills5k: 0,
+    bills2k: 0,
+    coins: 0,
+  });
+  const [closingBankTotal, setClosingBankTotal] = useState(0);
+  const [closingExpenses, setClosingExpenses] = useState(0);
+  const [closingDate, setClosingDate] = useState('');
+  const [closingExpected, setClosingExpected] = useState(0);
+
   // Helper date function for chronological lists
   const getDatesInRange = (startStr: string, endStr: string) => {
     const dates: string[] = [];
@@ -526,8 +542,14 @@ export default function ContabilidadScreen() {
         setReportClosings(closings);
 
         const initialBase = lastAudit ? lastAudit.actualTotal : 0;
+        const initialBank = lastAudit ? lastAudit.bankTotal : 0;
+        const initialCartera = lastAudit ? lastAudit.cartera : totalCartera;
+        const initialCash = initialBase - initialBank - initialCartera;
+
         const dates = getDatesInRange(startDate, endDate);
-        let runningBalance = initialBase;
+        let runningCash = initialCash;
+        let runningBank = initialBank;
+        let runningCartera = initialCartera;
 
         const closingsByDate = new Map(closings.map(c => [c.date, c]));
         const auditsByDate = new Map(audits.map(a => [a.date, a]));
@@ -558,26 +580,30 @@ export default function ContabilidadScreen() {
 
           // Sales deposit transferred to Caja General (only if closing status is APPROVED)
           const openingBaseVal = openingsByDate.get(date) ?? 100000;
-          const salesTransfer = (closing && closing.status === ClosingStatus.APPROVED)
-            ? (closing.actualTotal - openingBaseVal)
-            : 0;
+          const isApproved = closing && closing.status === ClosingStatus.APPROVED;
+          const salesTransferCash = isApproved ? (closing.actualTotal - closing.bankTotal - openingBaseVal) : 0;
+          const salesTransferBank = isApproved ? closing.bankTotal : 0;
 
           const generalExp = expensesByDate.get(date) ?? 0;
           const generalPur = purchasesByDate.get(date) ?? 0;
 
-          sumIngresosGral += salesTransfer;
+          sumIngresosGral += salesTransferCash + salesTransferBank;
           sumEgresosGral += generalExp + generalPur;
 
-          const theoreticalToday = runningBalance + salesTransfer - generalExp - generalPur;
+          const theoreticalCashToday = runningCash + salesTransferCash;
+          const theoreticalBankToday = runningBank + salesTransferBank - generalExp - generalPur;
+          const theoreticalToday = theoreticalCashToday + theoreticalBankToday + runningCartera;
 
           if (audit) {
-            runningBalance = audit.actualTotal;
+            runningBank = audit.bankTotal;
+            runningCartera = audit.cartera;
+            runningCash = audit.actualTotal - audit.bankTotal - audit.cartera;
             calculatedAudits.push({
               date,
               status: 'AUDIT',
               source: 'MANUAL',
-              openingBase: theoreticalToday - salesTransfer + generalExp + generalPur,
-              expectedTotal: salesTransfer,
+              openingBase: theoreticalToday - (salesTransferCash + salesTransferBank) + generalExp + generalPur,
+              expectedTotal: salesTransferCash + salesTransferBank,
               expenses: generalExp + generalPur,
               theoreticalTotal: theoreticalToday,
               actualTotal: audit.actualTotal,
@@ -594,13 +620,14 @@ export default function ContabilidadScreen() {
               cartera: audit.cartera,
             });
           } else {
-            runningBalance = theoreticalToday;
+            runningCash = theoreticalCashToday;
+            runningBank = theoreticalBankToday;
             calculatedAudits.push({
               date,
               status: 'DRAFT',
               source: 'MANUAL',
-              openingBase: theoreticalToday - salesTransfer + generalExp + generalPur,
-              expectedTotal: salesTransfer,
+              openingBase: theoreticalToday - (salesTransferCash + salesTransferBank) + generalExp + generalPur,
+              expectedTotal: salesTransferCash + salesTransferBank,
               expenses: generalExp + generalPur,
               theoreticalTotal: theoreticalToday,
               actualTotal: theoreticalToday,
@@ -613,8 +640,8 @@ export default function ContabilidadScreen() {
               bills5k: 0,
               bills2k: 0,
               coins: 0,
-              bankTotal: 0,
-              cartera: totalCartera,
+              bankTotal: runningBank,
+              cartera: runningCartera,
             });
           }
         }
@@ -910,27 +937,47 @@ export default function ContabilidadScreen() {
     loadData,
   ]);
 
-  const handleApproveClosing = useCallback(async (closingId: string) => {
-    Alert.alert(
-      'Aprobar Cierre',
-      '¿Estás seguro de que deseas aprobar este cierre de caja? Esto transferirá e ingresará el saldo formalmente a la Caja General.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Aprobar',
-          onPress: async () => {
-            try {
-              await cashClosingService.approveClosing(closingId, '');
-              Alert.alert('Éxito', 'Cierre de caja de ventas aprobado correctamente.');
-              loadData();
-            } catch (error) {
-              Alert.alert('Error', error instanceof Error ? error.message : 'No se pudo aprobar el cierre');
-            }
-          },
-        },
-      ]
-    );
-  }, [cashClosingService, loadData]);
+  const handleOpenApproveModal = useCallback((closing: CashClosing) => {
+    setApprovingClosing(closing);
+    setClosingDenoms(closing.denominations);
+    setClosingBankTotal(closing.bankTotal);
+    setClosingExpenses(closing.expenses);
+    setClosingDate(closing.date);
+    setClosingExpected(closing.expectedTotal);
+  }, []);
+
+  const handleSaveAndApproveClosing = useCallback(async () => {
+    if (!approvingClosing) return;
+    try {
+      if (approvingClosing.status === ClosingStatus.CONFIRMED) {
+        await cashClosingService.returnToDraft(approvingClosing.id);
+      }
+      await cashClosingService.updateClosing(
+        approvingClosing.id,
+        approvingClosing.storeId,
+        closingDate,
+        closingDenoms,
+        closingBankTotal,
+        closingExpenses
+      );
+      await cashClosingService.approveClosing(approvingClosing.id, '');
+      
+      if (Platform.OS === 'web') {
+        window.alert('Cierre de caja verificado y aprobado correctamente.');
+      } else {
+        Alert.alert('Éxito', 'Cierre de caja verificado y aprobado correctamente.');
+      }
+      setApprovingClosing(null);
+      loadData();
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'No se pudo guardar e ingresar el cierre.';
+      if (Platform.OS === 'web') {
+        window.alert(errMsg);
+      } else {
+        Alert.alert('Error', errMsg);
+      }
+    }
+  }, [approvingClosing, closingDate, closingDenoms, closingBankTotal, closingExpenses, cashClosingService, loadData]);
 
   const handlePeriodPress = useCallback((nextPeriod: ContaPeriod) => {
     setFilterPeriod(nextPeriod);
@@ -1335,13 +1382,13 @@ export default function ContabilidadScreen() {
                   icon="scale-balance"
                   label="Descuadre"
                   value={formatCOP(latestCashAuditDiscrepancy)}
-                  color={latestCashAuditDiscrepancy === 0 ? '#388E3C' : '#D32F2F'}
+                  color={latestCashAuditDiscrepancy >= 0 ? '#388E3C' : '#D32F2F'}
                 />
                 <KpiCard
                   icon="chart-timeline-variant"
                   label="Mayor descuadre"
                   value={formatCOP(maxCashAuditDiscrepancy)}
-                  color={maxCashAuditDiscrepancy === 0 ? '#388E3C' : '#D32F2F'}
+                  color={maxCashAuditDiscrepancy >= 0 ? '#388E3C' : '#D32F2F'}
                 />
               </View>
 
@@ -1382,7 +1429,7 @@ export default function ContabilidadScreen() {
                     <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Diferencia Descuadre</Text>
                     <Text
                       variant="bodyMedium"
-                      style={{ fontWeight: 'bold', color: latestCashAuditDiscrepancy === 0 ? '#388E3C' : '#D32F2F' }}
+                      style={{ fontWeight: 'bold', color: latestCashAuditDiscrepancy >= 0 ? '#388E3C' : '#D32F2F' }}
                     >
                       {formatCOP(latestCashAuditDiscrepancy)}
                     </Text>
@@ -1447,7 +1494,7 @@ export default function ContabilidadScreen() {
                       <View style={{ alignItems: 'flex-end' }}>
                         <Text
                           variant="bodyMedium"
-                          style={{ fontWeight: '700', color: row.discrepancy === 0 ? '#388E3C' : '#D32F2F' }}
+                          style={{ fontWeight: '700', color: row.discrepancy >= 0 ? '#388E3C' : '#D32F2F' }}
                         >
                           {row.discrepancy > 0 ? '+' : ''}{formatCOP(row.discrepancy)}
                         </Text>
@@ -1499,7 +1546,7 @@ export default function ContabilidadScreen() {
                         <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
                           <Text
                             variant="bodyMedium"
-                            style={{ fontWeight: '700', color: closing.discrepancy === 0 ? '#388E3C' : '#D32F2F' }}
+                            style={{ fontWeight: '700', color: closing.discrepancy >= 0 ? '#388E3C' : '#D32F2F' }}
                           >
                             {closing.discrepancy > 0 ? '+' : ''}{formatCOP(closing.discrepancy)}
                           </Text>
@@ -1513,7 +1560,7 @@ export default function ContabilidadScreen() {
                               buttonColor="#388E3C"
                               textColor="#FFFFFF"
                               style={{ height: 28, justifyContent: 'center' }}
-                              onPress={() => handleApproveClosing(closing.id)}
+                              onPress={() => handleOpenApproveModal(closing)}
                             >
                               Aprobar
                             </Button>
@@ -2060,6 +2107,124 @@ export default function ContabilidadScreen() {
               onPress={handleSaveCashAudit}
             >
               Guardar
+            </Button>
+          </View>
+        </Modal>
+      </Portal>
+
+      {/* Verify and Approve Closing Modal */}
+      <Portal>
+        <Modal
+          visible={!!approvingClosing}
+          onDismiss={() => setApprovingClosing(null)}
+          contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
+        >
+          <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 4 }}>
+            Verificar y Aprobar Cierre
+          </Text>
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>
+            Fecha: {formatDate(closingDate)} | Revisa las denominaciones del cajero y aprueba para ingresar a la Caja General.
+          </Text>
+          <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={true}>
+            <DenominationCounter
+              denominations={closingDenoms}
+              onChange={(key, count) => setClosingDenoms((p) => ({ ...p, [key]: count }))}
+              total={
+                (closingDenoms.bills100k * 100000) +
+                (closingDenoms.bills50k * 50000) +
+                (closingDenoms.bills20k * 20000) +
+                (closingDenoms.bills10k * 10000) +
+                (closingDenoms.bills5k * 5000) +
+                (closingDenoms.bills2k * 2000) +
+                closingDenoms.coins
+              }
+            />
+
+            <View style={{ marginVertical: 12 }}>
+              <CurrencyInput
+                value={closingBankTotal}
+                onChangeValue={(val) => setClosingBankTotal(val ?? 0)}
+                label="Valor en Cuenta Bancaria (CUENTA)"
+              />
+            </View>
+
+            <View style={{ marginVertical: 12 }}>
+              <CurrencyInput
+                value={closingExpenses}
+                onChangeValue={(val) => setClosingExpenses(val ?? 0)}
+                label="Gastos de Caja (Turno)"
+              />
+            </View>
+
+            <Divider style={{ marginVertical: 12 }} />
+
+            <View style={styles.txRow}>
+              <Text variant="bodyMedium">Ventas esperadas:</Text>
+              <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
+                {formatCOP(closingExpected)}
+              </Text>
+            </View>
+
+            <View style={styles.txRow}>
+              <Text variant="bodyMedium">Total reportado (Hay):</Text>
+              <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+                {formatCOP(
+                  (closingDenoms.bills100k * 100000) +
+                  (closingDenoms.bills50k * 50000) +
+                  (closingDenoms.bills20k * 20000) +
+                  (closingDenoms.bills10k * 10000) +
+                  (closingDenoms.bills5k * 5000) +
+                  (closingDenoms.bills2k * 2000) +
+                  closingDenoms.coins +
+                  closingBankTotal
+                )}
+              </Text>
+            </View>
+
+            <View style={[styles.txRow, { marginTop: 8 }]}>
+              <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>
+                Descuadre estimado:
+              </Text>
+              {(() => {
+                const totalContado =
+                  (closingDenoms.bills100k * 100000) +
+                  (closingDenoms.bills50k * 50000) +
+                  (closingDenoms.bills20k * 20000) +
+                  (closingDenoms.bills10k * 10000) +
+                  (closingDenoms.bills5k * 5000) +
+                  (closingDenoms.bills2k * 2000) +
+                  closingDenoms.coins +
+                  closingBankTotal;
+                const disc = totalContado - 100000 - (closingExpected - closingExpenses);
+                return (
+                  <Text
+                    variant="titleMedium"
+                    style={{
+                      fontWeight: 'bold',
+                      color: disc >= 0 ? '#388E3C' : '#D32F2F',
+                    }}
+                  >
+                    {formatCOP(disc)}
+                  </Text>
+                );
+              })()}
+            </View>
+          </ScrollView>
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 }}>
+            <Button
+              mode="text"
+              onPress={() => setApprovingClosing(null)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor="#388E3C"
+              textColor="#FFFFFF"
+              onPress={handleSaveAndApproveClosing}
+            >
+              Aprobar Cierre
             </Button>
           </View>
         </Modal>
