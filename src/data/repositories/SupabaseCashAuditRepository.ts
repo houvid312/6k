@@ -21,6 +21,7 @@ interface CashAuditRow {
   bills_2k: number;
   coins: number;
   bank_total: number;
+  cartera: number;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -45,6 +46,7 @@ function toEntity(row: CashAuditRow): CashAuditEntry {
     bills2k: row.bills_2k ?? 0,
     coins: row.coins ?? 0,
     bankTotal: row.bank_total ?? 0,
+    cartera: row.cartera ?? 0,
     createdAt: row.created_at ?? undefined,
     updatedAt: row.updated_at ?? undefined,
   };
@@ -69,6 +71,7 @@ function toRow(entry: Omit<CashAuditEntry, 'id' | 'createdAt' | 'updatedAt'>): R
     bills_2k: entry.bills2k,
     coins: entry.coins,
     bank_total: entry.bankTotal,
+    cartera: entry.cartera,
   };
 }
 
@@ -95,6 +98,20 @@ export class SupabaseCashAuditRepository implements ICashAuditRepository {
       .order('date', { ascending: false });
     if (error) throw error;
     return (data as CashAuditRow[]).map(toEntity);
+  }
+
+  async getLastAuditBeforeDate(storeId: string, date: string): Promise<CashAuditEntry | null> {
+    const { data, error } = await supabase
+      .from('cash_audit_entries')
+      .select('*')
+      .eq('store_id', storeId)
+      .lt('date', date)
+      .order('date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return toEntity(data as CashAuditRow);
   }
 
   async upsert(entry: Omit<CashAuditEntry, 'id' | 'createdAt' | 'updatedAt'>): Promise<CashAuditEntry> {

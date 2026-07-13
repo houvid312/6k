@@ -17,6 +17,7 @@ export interface CashAuditEntry {
   bills2k: number;
   coins: number;
   bankTotal: number;
+  cartera: number;
   createdAt?: string;
   updatedAt?: string;
 }

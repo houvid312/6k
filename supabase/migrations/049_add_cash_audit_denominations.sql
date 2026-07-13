@@ -1,5 +1,5 @@
 -- 049_add_cash_audit_denominations.sql
--- Añadir campos de denominaciones de billetes, monedas y total bancario a la tabla cash_audit_entries.
+-- Añadir campos de denominaciones de billetes, monedas, total bancario y cartera a la tabla cash_audit_entries.
 ALTER TABLE public.cash_audit_entries
   ADD COLUMN IF NOT EXISTS bills_100k INTEGER NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS bills_50k INTEGER NOT NULL DEFAULT 0,
@@ -8,4 +8,5 @@ ALTER TABLE public.cash_audit_entries
   ADD COLUMN IF NOT EXISTS bills_5k INTEGER NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS bills_2k INTEGER NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS coins INTEGER NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS bank_total INTEGER NOT NULL DEFAULT 0;
+  ADD COLUMN IF NOT EXISTS bank_total INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS cartera INTEGER NOT NULL DEFAULT 0;

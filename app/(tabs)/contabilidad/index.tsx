@@ -11,9 +11,10 @@ import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { Sale, Expense, Purchase, Transfer, CashClosing, CashAuditEntry, DenominationCount } from '../../../src/domain/entities';
 import { DenominationCounter } from '../../../src/components/ventas/DenominationCounter';
-import { InventoryLevel, PaymentMethod } from '../../../src/domain/enums';
+import { InventoryLevel, PaymentMethod, ClosingStatus } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate, formatDateTime, toISODate, todayColombia } from '../../../src/utils/dates';
+import { supabase } from '../../../src/lib/supabase';
 
 interface InventoryValuationRow {
   supplyName: string;
@@ -35,7 +36,7 @@ interface WriteoffValuationRow {
 
 interface CashAuditRow {
   date: string;
-  status: CashClosing['status'] | 'AUDIT';
+  status: CashClosing['status'] | 'AUDIT' | 'DRAFT';
   source: 'CLOSING' | 'MANUAL';
   openingBase: number;
   expectedTotal: number;
@@ -52,6 +53,7 @@ interface CashAuditRow {
   bills2k: number;
   coins: number;
   bankTotal: number;
+  cartera: number;
 }
 
 type ExcelCell = string | number | null | { value: string | number | null; style?: string };
@@ -143,7 +145,7 @@ function getMonthToDateRange() {
   };
 }
 
-function getClosingStatusLabel(status: CashClosing['status'] | 'AUDIT'): string {
+function getClosingStatusLabel(status: CashClosing['status'] | 'AUDIT' | 'DRAFT'): string {
   if (status === 'AUDIT') return 'Conteo manual';
   if (status === 'APPROVED') return 'Aprobado';
   if (status === 'CONFIRMED') return 'Confirmado';
@@ -165,6 +167,7 @@ export default function ContabilidadScreen() {
     recipeRepo,
     writeoffRepo,
     productRepo,
+    creditRepo,
   } = useDI();
   const { selectedStoreId, stores, userRole } = useAppStore();
   const selectedStore = stores.find((s) => s.id === selectedStoreId);
@@ -183,7 +186,7 @@ export default function ContabilidadScreen() {
   const [rangeEndDraft, setRangeEndDraft] = useState(initialRange.end);
   const [rangeStartDate, setRangeStartDate] = useState(initialRange.start);
   const [rangeEndDate, setRangeEndDate] = useState(initialRange.end);
-  const [activeView, setActiveView] = useState<'resultado' | 'arqueo'>('resultado');
+  const [activeView, setActiveView] = useState<'general' | 'diaria' | 'rentabilidad'>('general');
 
   const [ingresos, setIngresos] = useState(0);
   const [egresos, setEgresos] = useState(0);
@@ -246,6 +249,24 @@ export default function ContabilidadScreen() {
     coins: 0,
   });
   const [auditBankTotal, setAuditBankTotal] = useState(0);
+  const [auditCartera, setAuditCartera] = useState(0);
+  const [dbCartera, setDbCartera] = useState(0);
+  const [reportClosings, setReportClosings] = useState<CashClosing[]>([]);
+
+  // Helper date function for chronological lists
+  const getDatesInRange = (startStr: string, endStr: string) => {
+    const dates: string[] = [];
+    const curr = new Date(`${startStr}T12:00:00`);
+    const end = new Date(`${endStr}T12:00:00`);
+    while (curr <= end) {
+      const y = curr.getFullYear();
+      const m = String(curr.getMonth() + 1).padStart(2, '0');
+      const d = String(curr.getDate()).padStart(2, '0');
+      dates.push(`${y}-${m}-${d}`);
+      curr.setDate(curr.getDate() + 1);
+    }
+    return dates;
+  };
 
   const loadData = useCallback(async () => {
     if (!hasAppliedFilter || !appliedStoreId) {
@@ -293,7 +314,7 @@ export default function ContabilidadScreen() {
 
       if (appliedStoreId === 'consolidado') {
         const fetchPromises = stores.map(async (store) => {
-          const [s, e, p, inc, out, inv, wo] = await Promise.all([
+          const [s, e, p, inc, out, inv, wo, closings, audits] = await Promise.all([
             saleService.getSalesByDateRange(store.id, startDate, endDateTime),
             expenseRepo.getByDateRange(store.id, startDate, endDateTime),
             purchaseRepo.getByDateRange(startDate, endDateTime, store.id),
@@ -301,8 +322,10 @@ export default function ContabilidadScreen() {
             transferRepo.getReceivedByOrigin(store.id, startDate, endDate),
             inventoryRepo.getByStore(store.id, InventoryLevel.STORE),
             writeoffRepo.getApprovedByStoreAndDateRange(store.id, startDate, endDate),
+            cashClosingService.getClosingsByDateRange(store.id, startDate, endDate),
+            cashAuditRepo.getByDateRange(store.id, startDate, endDate),
           ]);
-          return { s, e, p, inc, out, inv, wo, storeIsProd: store.isProductionCenter };
+          return { s, e, p, inc, out, inv, wo, closings, audits, storeIsProd: store.isProductionCenter };
         });
 
         const results = await Promise.all(fetchPromises);
@@ -318,7 +341,7 @@ export default function ContabilidadScreen() {
           approvedWriteoffs = [...approvedWriteoffs, ...res.wo];
         }
       } else {
-        const [s, e, p, inc, out, inv, wo] = await Promise.all([
+        const [s, e, p, inc, out, inv, wo, closings, audits] = await Promise.all([
           saleService.getSalesByDateRange(appliedStoreId, startDate, endDateTime),
           expenseRepo.getByDateRange(appliedStoreId, startDate, endDateTime),
           purchaseRepo.getByDateRange(startDate, endDateTime, appliedStoreId),
@@ -326,6 +349,8 @@ export default function ContabilidadScreen() {
           transferRepo.getReceivedByOrigin(appliedStoreId, startDate, endDate),
           inventoryRepo.getByStore(appliedStoreId, InventoryLevel.STORE),
           writeoffRepo.getApprovedByStoreAndDateRange(appliedStoreId, startDate, endDate),
+          cashClosingService.getClosingsByDateRange(appliedStoreId, startDate, endDate),
+          cashAuditRepo.getByDateRange(appliedStoreId, startDate, endDate),
         ]);
         sales = s;
         allExpenses = e;
@@ -476,29 +501,117 @@ export default function ContabilidadScreen() {
       let cashAuditYearValue = auditYear;
 
       if (appliedStoreId !== 'consolidado') {
-        const yearAuditEntries = await cashAuditRepo.getByDateRange(appliedStoreId, auditYearStart, endDate);
-        auditRows = yearAuditEntries.map((entry): CashAuditRow => {
-          return {
-            date: entry.date,
-            status: 'AUDIT',
-            source: 'MANUAL',
-            openingBase: entry.openingBase,
-            expectedTotal: entry.cashSales,
-            expenses: entry.cashExpenses,
-            theoreticalTotal: entry.theoreticalTotal,
-            actualTotal: entry.actualTotal,
-            discrepancy: entry.discrepancy,
-            notes: entry.notes,
-            bills100k: entry.bills100k,
-            bills50k: entry.bills50k,
-            bills20k: entry.bills20k,
-            bills10k: entry.bills10k,
-            bills5k: entry.bills5k,
-            bills2k: entry.bills2k,
-            coins: entry.coins,
-            bankTotal: entry.bankTotal,
-          };
-        });
+        const [lastAudit, credits, closings, audits, openingsRes] = await Promise.all([
+          cashAuditRepo.getLastAuditBeforeDate(appliedStoreId, startDate),
+          creditRepo.getAll(),
+          cashClosingService.getClosingsByDateRange(appliedStoreId, startDate, endDate),
+          cashAuditRepo.getByDateRange(appliedStoreId, startDate, endDate),
+          supabase
+            .from('cash_openings')
+            .select('date,total')
+            .eq('store_id', appliedStoreId)
+            .gte('date', startDate)
+            .lte('date', endDate),
+        ]);
+
+        const openingsByDate = new Map<string, number>(
+          (openingsRes.data || []).map((o: any) => [o.date, o.total])
+        );
+
+        const activeStoreCredits = credits.filter(c => c.storeId === appliedStoreId && c.balance > 0);
+        const totalCartera = activeStoreCredits.reduce((sum, c) => sum + c.balance, 0);
+        setDbCartera(totalCartera);
+        setReportClosings(closings);
+
+        const initialBase = lastAudit ? lastAudit.actualTotal : 0;
+        const dates = getDatesInRange(startDate, endDate);
+        let runningBalance = initialBase;
+
+        const closingsByDate = new Map(closings.map(c => [c.date, c]));
+        const auditsByDate = new Map(audits.map(a => [a.date, a]));
+
+        // Segment expenses and purchases by date
+        const expensesByDate = new Map<string, number>();
+        for (const exp of allExpenses) {
+          const isRegister = exp.category === 'Compra Turno' || exp.category === 'Adelanto';
+          if (!isRegister) {
+            const expDate = exp.date.split('T')[0];
+            expensesByDate.set(expDate, (expensesByDate.get(expDate) ?? 0) + exp.amount);
+          }
+        }
+
+        const purchasesByDate = new Map<string, number>();
+        for (const pur of purchases) {
+          const purDate = pur.timestamp.split('T')[0];
+          purchasesByDate.set(purDate, (purchasesByDate.get(purDate) ?? 0) + pur.priceCOP);
+        }
+
+        const calculatedAudits: CashAuditRow[] = [];
+        for (const date of dates) {
+          const closing = closingsByDate.get(date);
+          const audit = auditsByDate.get(date);
+
+          // Sales deposit transferred to Caja General (only if closing status is APPROVED)
+          const openingBaseVal = openingsByDate.get(date) ?? 100000;
+          const salesTransfer = (closing && closing.status === ClosingStatus.APPROVED)
+            ? (closing.actualTotal - openingBaseVal)
+            : 0;
+
+          const generalExp = expensesByDate.get(date) ?? 0;
+          const generalPur = purchasesByDate.get(date) ?? 0;
+
+          const theoreticalToday = runningBalance + salesTransfer - generalExp - generalPur;
+
+          if (audit) {
+            runningBalance = audit.actualTotal;
+            calculatedAudits.push({
+              date,
+              status: 'AUDIT',
+              source: 'MANUAL',
+              openingBase: theoreticalToday - salesTransfer + generalExp + generalPur,
+              expectedTotal: salesTransfer,
+              expenses: generalExp + generalPur,
+              theoreticalTotal: theoreticalToday,
+              actualTotal: audit.actualTotal,
+              discrepancy: audit.actualTotal - theoreticalToday,
+              notes: audit.notes,
+              bills100k: audit.bills100k,
+              bills50k: audit.bills50k,
+              bills20k: audit.bills20k,
+              bills10k: audit.bills10k,
+              bills5k: audit.bills5k,
+              bills2k: audit.bills2k,
+              coins: audit.coins,
+              bankTotal: audit.bankTotal,
+              cartera: audit.cartera,
+            });
+          } else {
+            runningBalance = theoreticalToday;
+            calculatedAudits.push({
+              date,
+              status: 'DRAFT',
+              source: 'MANUAL',
+              openingBase: theoreticalToday - salesTransfer + generalExp + generalPur,
+              expectedTotal: salesTransfer,
+              expenses: generalExp + generalPur,
+              theoreticalTotal: theoreticalToday,
+              actualTotal: theoreticalToday,
+              discrepancy: 0,
+              notes: '',
+              bills100k: 0,
+              bills50k: 0,
+              bills20k: 0,
+              bills10k: 0,
+              bills5k: 0,
+              bills2k: 0,
+              coins: 0,
+              bankTotal: 0,
+              cartera: totalCartera,
+            });
+          }
+        }
+
+        auditRows = calculatedAudits;
       }
 
       const fixed = allExpenses.filter(e => e.isFixed).reduce((sum, e) => sum + e.amount, 0);
@@ -583,7 +696,7 @@ export default function ContabilidadScreen() {
 
   useEffect(() => {
     if (appliedStoreId === 'consolidado') {
-      setActiveView('resultado');
+      setActiveView('rentabilidad');
     }
   }, [appliedStoreId]);
 
@@ -694,9 +807,10 @@ export default function ContabilidadScreen() {
       coins: existingAudit?.coins ?? 0,
     });
     setAuditBankTotal(existingAudit?.bankTotal ?? 0);
+    setAuditCartera(existingAudit?.cartera ?? dbCartera);
     setAuditError('');
     setAuditModalVisible(true);
-  }, [cashAuditRows]);
+  }, [cashAuditRows, dbCartera]);
 
   const handleSaveCashAudit = useCallback(async () => {
     if (!appliedStoreId) return;
@@ -730,7 +844,7 @@ export default function ContabilidadScreen() {
         (auditDenominations.bills5k * 5000) +
         (auditDenominations.bills2k * 2000) +
         auditDenominations.coins;
-      const actualTotalComputed = cashTotal + auditBankTotal;
+      const actualTotalComputed = cashTotal + auditBankTotal + auditCartera;
 
       const entry: Omit<CashAuditEntry, 'id' | 'createdAt' | 'updatedAt'> = {
         storeId: appliedStoreId,
@@ -750,6 +864,7 @@ export default function ContabilidadScreen() {
         bills2k: auditDenominations.bills2k,
         coins: auditDenominations.coins,
         bankTotal: auditBankTotal,
+        cartera: auditCartera,
       };
 
       await cashAuditRepo.upsert(entry);
@@ -769,6 +884,7 @@ export default function ContabilidadScreen() {
     auditDate,
     auditDenominations,
     auditBankTotal,
+    auditCartera,
     auditNotes,
     cashClosingService,
     saleService,
@@ -777,6 +893,28 @@ export default function ContabilidadScreen() {
     cashAuditRepo,
     loadData,
   ]);
+
+  const handleApproveClosing = useCallback(async (closingId: string) => {
+    Alert.alert(
+      'Aprobar Cierre',
+      '¿Estás seguro de que deseas aprobar este cierre de caja? Esto transferirá e ingresará el saldo formalmente a la Caja General.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Aprobar',
+          onPress: async () => {
+            try {
+              await cashClosingService.approveClosing(closingId, '');
+              Alert.alert('Éxito', 'Cierre de caja de ventas aprobado correctamente.');
+              loadData();
+            } catch (error) {
+              Alert.alert('Error', error instanceof Error ? error.message : 'No se pudo aprobar el cierre');
+            }
+          },
+        },
+      ]
+    );
+  }, [cashClosingService, loadData]);
 
   const handlePeriodPress = useCallback((nextPeriod: ContaPeriod) => {
     setFilterPeriod(nextPeriod);
@@ -1112,27 +1250,36 @@ export default function ContabilidadScreen() {
           {appliedStoreId !== 'consolidado' && (
             <View style={styles.viewTabs}>
               <Chip
-                selected={activeView === 'resultado'}
-                onPress={() => setActiveView('resultado')}
-                mode={activeView === 'resultado' ? 'flat' : 'outlined'}
-                icon="chart-line"
-                style={activeView === 'resultado' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
+                selected={activeView === 'general'}
+                onPress={() => setActiveView('general')}
+                mode={activeView === 'general' ? 'flat' : 'outlined'}
+                icon="cash-register"
+                style={activeView === 'general' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
               >
-                Resultado
+                Caja General (Safe/Bank)
               </Chip>
               <Chip
-                selected={activeView === 'arqueo'}
-                onPress={() => setActiveView('arqueo')}
-                mode={activeView === 'arqueo' ? 'flat' : 'outlined'}
-                icon="cash-register"
-                style={activeView === 'arqueo' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
+                selected={activeView === 'diaria'}
+                onPress={() => setActiveView('diaria')}
+                mode={activeView === 'diaria' ? 'flat' : 'outlined'}
+                icon="cash"
+                style={activeView === 'diaria' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
               >
-                Arqueo caja
+                Caja Diaria (Ventas)
+              </Chip>
+              <Chip
+                selected={activeView === 'rentabilidad'}
+                onPress={() => setActiveView('rentabilidad')}
+                mode={activeView === 'rentabilidad' ? 'flat' : 'outlined'}
+                icon="chart-line"
+                style={activeView === 'rentabilidad' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
+              >
+                Rentabilidad (P&L)
               </Chip>
             </View>
           )}
 
-          {activeView === 'arqueo' ? (
+          {activeView === 'general' ? (
             <>
               <View style={styles.kpiRow}>
                 <KpiCard
@@ -1166,36 +1313,38 @@ export default function ContabilidadScreen() {
               <Card style={styles.txCard} mode="elevated">
                 <Card.Content>
                   <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 8 }}>
-                    Arqueo de caja {cashAuditYear || 'ano'}
+                    Caja General (Fuerte + Cuenta + Cartera)
                   </Text>
                   <Text variant="bodySmall" style={styles.txInfoText}>
-                    Historial anual por centro de costo. Cada registro es un saldo real del dia, por eso el valor actual se toma del ultimo conteo y no de una suma.
+                    Libro diario acumulativo. Cada conteo real reportado reajusta la base para el dia siguiente. La cartera se computa como valor positivo.
                   </Text>
                   <View style={styles.txRow}>
-                    <Text variant="bodySmall">Dias auditados</Text>
-                    <Text variant="bodySmall" style={{ fontWeight: '600' }}>{cashAuditRows.length}</Text>
-                  </View>
-                  <View style={styles.txRow}>
-                    <Text variant="bodySmall">Ultimo conteo</Text>
+                    <Text variant="bodySmall">Base Inicial (Ayer)</Text>
                     <Text variant="bodySmall" style={{ fontWeight: '600' }}>
-                      {latestCashAudit ? formatDate(latestCashAudit.date) : 'Sin registro'}
+                      {latestCashAudit ? formatCOP(latestCashAudit.openingBase) : '$0'}
                     </Text>
                   </View>
                   <View style={styles.txRow}>
-                    <Text variant="bodySmall">Real actual</Text>
-                    <Text variant="bodySmall" style={{ fontWeight: '600', color: '#1976D2' }}>
-                      {formatCOP(latestCashAuditActual)}
+                    <Text variant="bodySmall">Ingresos (Traslados aprobados)</Text>
+                    <Text variant="bodySmall" style={{ fontWeight: '600', color: '#388E3C' }}>
+                      +{latestCashAudit ? formatCOP(latestCashAudit.expectedTotal) : '$0'}
                     </Text>
                   </View>
                   <View style={styles.txRow}>
-                    <Text variant="bodySmall">Teorico actual</Text>
+                    <Text variant="bodySmall">Egresos (Gastos + Compras)</Text>
+                    <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
+                      -{latestCashAudit ? formatCOP(latestCashAudit.expenses) : '$0'}
+                    </Text>
+                  </View>
+                  <View style={styles.txRow}>
+                    <Text variant="bodySmall">Esperado Teórico</Text>
                     <Text variant="bodySmall" style={{ fontWeight: '600', color: '#6A5ACD' }}>
                       {formatCOP(latestCashAuditTheoretical)}
                     </Text>
                   </View>
                   <Divider style={{ marginVertical: 8 }} />
                   <View style={styles.txRow}>
-                    <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Diferencia actual</Text>
+                    <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Diferencia Descuadre</Text>
                     <Text
                       variant="bodyMedium"
                       style={{ fontWeight: 'bold', color: latestCashAuditDiscrepancy === 0 ? '#388E3C' : '#D32F2F' }}
@@ -1217,13 +1366,6 @@ export default function ContabilidadScreen() {
                   Registrar conteo
                 </Button>
                 <Button
-                  mode="outlined"
-                  icon="calendar-check"
-                  onPress={() => router.push('/(tabs)/ventas/cierre-caja')}
-                >
-                  Registrar cierre
-                </Button>
-                <Button
                   mode="contained"
                   icon="file-excel"
                   buttonColor="#2E7D32"
@@ -1235,7 +1377,7 @@ export default function ContabilidadScreen() {
               </View>
 
               <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600' }]}>
-                Detalle diario
+                Detalle diario (Caja General)
               </Text>
 
               {cashAuditRows.length === 0 ? (
@@ -1245,7 +1387,7 @@ export default function ContabilidadScreen() {
                       Sin conteos registrados
                     </Text>
                     <Text variant="bodySmall" style={styles.txInfoText}>
-                      No hay registros de arqueo para el ano corrido del centro de costo aplicado.
+                      No hay registros de arqueo para el local o periodo seleccionado.
                     </Text>
                   </Card.Content>
                 </Card>
@@ -1256,10 +1398,10 @@ export default function ContabilidadScreen() {
                       <View style={{ flex: 1, marginRight: 8 }}>
                         <Text variant="bodyMedium" style={{ fontWeight: '600' }}>{formatDate(row.date)}</Text>
                         <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
-                          Efectivo: {formatCOP((row.actualTotal ?? 0) - (row.bankTotal ?? 0))} | Cuenta: {formatCOP(row.bankTotal ?? 0)}
+                          Efectivo: {formatCOP(row.actualTotal - row.bankTotal - row.cartera)} | Cuenta: {formatCOP(row.bankTotal)} | Cartera: {formatCOP(row.cartera)}
                         </Text>
                         <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
-                          Total Conteo (HAY): {formatCOP(row.actualTotal ?? 0)}
+                          Total Conteo (HAY): {formatCOP(row.actualTotal)}
                         </Text>
                         {row.notes ? (
                           <Text variant="bodySmall" style={{ color: '#DDBB99', fontStyle: 'italic', marginTop: 4 }}>
@@ -1282,6 +1424,71 @@ export default function ContabilidadScreen() {
                   </Card.Content>
                 </Card>
               ))}
+            </>
+          ) : activeView === 'diaria' ? (
+            <>
+              <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600', marginBottom: 12 }]}>
+                Cierre Caja Diaria (Ventas)
+              </Text>
+              {reportClosings.length === 0 ? (
+                <Card style={styles.txCard} mode="elevated">
+                  <Card.Content>
+                    <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 4 }}>
+                      Sin cierres de ventas
+                    </Text>
+                    <Text variant="bodySmall" style={styles.txInfoText}>
+                      No hay registros de cierre en este periodo.
+                    </Text>
+                  </Card.Content>
+                </Card>
+              ) : reportClosings.map((closing) => {
+                const statusColor = closing.status === ClosingStatus.APPROVED ? '#388E3C' : (closing.status === ClosingStatus.CONFIRMED ? '#1976D2' : '#F57C00');
+                const statusText = closing.status === ClosingStatus.APPROVED ? 'Aprobado' : (closing.status === ClosingStatus.CONFIRMED ? 'Pendiente' : 'Borrador');
+                const closingOpeningBase = closing.actualTotal - closing.discrepancy - closing.expectedTotal + closing.expenses;
+                return (
+                  <Card key={closing.id} style={styles.txCard} mode="elevated">
+                    <Card.Content>
+                      <View style={styles.txRow}>
+                        <View style={{ flex: 1, marginRight: 8 }}>
+                          <Text variant="bodyMedium" style={{ fontWeight: '600' }}>{formatDate(closing.date)}</Text>
+                          <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
+                            Base: {formatCOP(closingOpeningBase)} | Ventas: {formatCOP(closing.expectedTotal)}
+                          </Text>
+                          <Text variant="bodySmall" style={{ color: '#999' }}>
+                            Egresos: {formatCOP(closing.expenses)} | Reportado (HAY): {formatCOP(closing.actualTotal)}
+                          </Text>
+                          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 4 }}>
+                            Estado: <Text style={{ color: statusColor, fontWeight: 'bold' }}>{statusText}</Text>
+                          </Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+                          <Text
+                            variant="bodyMedium"
+                            style={{ fontWeight: '700', color: closing.discrepancy === 0 ? '#388E3C' : '#D32F2F' }}
+                          >
+                            {closing.discrepancy > 0 ? '+' : ''}{formatCOP(closing.discrepancy)}
+                          </Text>
+                          <Text variant="bodySmall" style={{ color: '#777', fontSize: 10, marginBottom: 8 }}>
+                            Descuadre
+                          </Text>
+                          {closing.status === ClosingStatus.CONFIRMED && (
+                            <Button
+                              mode="contained"
+                              compact
+                              buttonColor="#388E3C"
+                              textColor="#FFFFFF"
+                              style={{ height: 28, justifyContent: 'center' }}
+                              onPress={() => handleApproveClosing(closing.id)}
+                            >
+                              Aprobar
+                            </Button>
+                          )}
+                        </View>
+                      </View>
+                    </Card.Content>
+                  </Card>
+                );
+              })}
             </>
           ) : (
             <>
@@ -1756,6 +1963,14 @@ export default function ContabilidadScreen() {
               />
             </View>
 
+            <View style={{ marginVertical: 12 }}>
+              <CurrencyInput
+                value={auditCartera}
+                onChangeValue={(val) => setAuditCartera(val ?? 0)}
+                label="Valor de Cartera (Cuentas por Cobrar)"
+              />
+            </View>
+
             <Divider style={{ marginVertical: 12 }} />
 
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -1769,7 +1984,8 @@ export default function ContabilidadScreen() {
                   (auditDenominations.bills5k * 5000) +
                   (auditDenominations.bills2k * 2000) +
                   auditDenominations.coins +
-                  auditBankTotal
+                  auditBankTotal +
+                  auditCartera
                 )}
               </Text>
             </View>
