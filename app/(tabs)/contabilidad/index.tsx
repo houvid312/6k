@@ -169,7 +169,7 @@ export default function ContabilidadScreen() {
     productRepo,
     creditRepo,
   } = useDI();
-  const { selectedStoreId, stores, userRole } = useAppStore();
+  const { selectedStoreId, stores, userRole, setSelectedStore } = useAppStore();
   const selectedStore = stores.find((s) => s.id === selectedStoreId);
   const isGerente = userRole === 'GERENTE';
 
@@ -190,6 +190,8 @@ export default function ContabilidadScreen() {
 
   const [ingresos, setIngresos] = useState(0);
   const [egresos, setEgresos] = useState(0);
+  const [generalIngresos, setGeneralIngresos] = useState(0);
+  const [generalEgresos, setGeneralEgresos] = useState(0);
   const [salesIncome, setSalesIncome] = useState(0);
   const [fixedExpenses, setFixedExpenses] = useState(0);
   const [variableExpenses, setVariableExpenses] = useState(0);
@@ -547,6 +549,9 @@ export default function ContabilidadScreen() {
         }
 
         const calculatedAudits: CashAuditRow[] = [];
+        let sumIngresosGral = 0;
+        let sumEgresosGral = 0;
+
         for (const date of dates) {
           const closing = closingsByDate.get(date);
           const audit = auditsByDate.get(date);
@@ -559,6 +564,9 @@ export default function ContabilidadScreen() {
 
           const generalExp = expensesByDate.get(date) ?? 0;
           const generalPur = purchasesByDate.get(date) ?? 0;
+
+          sumIngresosGral += salesTransfer;
+          sumEgresosGral += generalExp + generalPur;
 
           const theoreticalToday = runningBalance + salesTransfer - generalExp - generalPur;
 
@@ -611,6 +619,8 @@ export default function ContabilidadScreen() {
           }
         }
 
+        setGeneralIngresos(sumIngresosGral);
+        setGeneralEgresos(sumEgresosGral);
         auditRows = calculatedAudits;
       }
 
@@ -699,6 +709,12 @@ export default function ContabilidadScreen() {
       setActiveView('rentabilidad');
     }
   }, [appliedStoreId]);
+
+  useEffect(() => {
+    if (selectedStoreId && selectedStoreId !== appliedStoreId) {
+      setAppliedStoreId(selectedStoreId);
+    }
+  }, [selectedStoreId, appliedStoreId]);
 
   const utilidad = ingresos - egresos;
   const flujoConInventario = utilidad + inventoryAssetValue;
@@ -1137,9 +1153,11 @@ export default function ContabilidadScreen() {
           >
             <Chip
               selected={appliedStoreId === 'consolidado'}
-              onPress={() => setAppliedStoreId('consolidado')}
+              onPress={() => {
+                setAppliedStoreId('consolidado');
+              }}
               mode={appliedStoreId === 'consolidado' ? 'flat' : 'outlined'}
-              icon="view-dashboard"
+              icon="earth"
               style={[
                 styles.tabChip,
                 appliedStoreId === 'consolidado' ? { backgroundColor: theme.colors.primaryContainer } : undefined,
@@ -1151,7 +1169,10 @@ export default function ContabilidadScreen() {
               <Chip
                 key={store.id}
                 selected={appliedStoreId === store.id}
-                onPress={() => setAppliedStoreId(store.id)}
+                onPress={() => {
+                  setAppliedStoreId(store.id);
+                  setSelectedStore(store.id);
+                }}
                 mode={appliedStoreId === store.id ? 'flat' : 'outlined'}
                 icon={store.isProductionCenter ? 'factory' : 'storefront'}
                 style={[
@@ -1283,22 +1304,36 @@ export default function ContabilidadScreen() {
             <>
               <View style={styles.kpiRow}>
                 <KpiCard
-                  icon="cash-check"
-                  label="Real actual"
-                  value={formatCOP(latestCashAuditActual)}
-                  color="#1976D2"
+                  icon="arrow-down-circle"
+                  label="Total Ingresos"
+                  value={formatCOP(generalIngresos)}
+                  color="#388E3C"
                 />
                 <KpiCard
+                  icon="arrow-up-circle"
+                  label="Total Egresos"
+                  value={formatCOP(generalEgresos)}
+                  color="#D32F2F"
+                />
+              </View>
+              <View style={styles.kpiRow}>
+                <KpiCard
                   icon="calculator"
-                  label="Teorico actual"
+                  label="Debe Haber (Teórico)"
                   value={formatCOP(latestCashAuditTheoretical)}
                   color="#6A5ACD"
+                />
+                <KpiCard
+                  icon="cash-check"
+                  label="Conteo Real (HAY)"
+                  value={formatCOP(latestCashAuditActual)}
+                  color="#1976D2"
                 />
               </View>
               <View style={styles.kpiRow}>
                 <KpiCard
                   icon="scale-balance"
-                  label="Descuadre actual"
+                  label="Descuadre"
                   value={formatCOP(latestCashAuditDiscrepancy)}
                   color={latestCashAuditDiscrepancy === 0 ? '#388E3C' : '#D32F2F'}
                 />
@@ -1471,7 +1506,7 @@ export default function ContabilidadScreen() {
                           <Text variant="bodySmall" style={{ color: '#777', fontSize: 10, marginBottom: 8 }}>
                             Descuadre
                           </Text>
-                          {closing.status === ClosingStatus.CONFIRMED && (
+                          {closing.status !== ClosingStatus.APPROVED && (
                             <Button
                               mode="contained"
                               compact
