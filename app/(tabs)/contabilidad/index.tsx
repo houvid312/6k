@@ -255,6 +255,11 @@ export default function ContabilidadScreen() {
   const [dbCartera, setDbCartera] = useState(0);
   const [reportClosings, setReportClosings] = useState<CashClosing[]>([]);
 
+  // States for general cash breakdown
+  const [latestTheoreticalCash, setLatestTheoreticalCash] = useState(0);
+  const [latestTheoreticalBank, setLatestTheoreticalBank] = useState(0);
+  const [latestTheoreticalCartera, setLatestTheoreticalCartera] = useState(0);
+
   // States for verification and approval modal
   const [approvingClosing, setApprovingClosing] = useState<CashClosing | null>(null);
   const [closingDenoms, setClosingDenoms] = useState<DenominationCount>({
@@ -648,6 +653,9 @@ export default function ContabilidadScreen() {
 
         setGeneralIngresos(sumIngresosGral);
         setGeneralEgresos(sumEgresosGral);
+        setLatestTheoreticalCash(runningCash);
+        setLatestTheoreticalBank(runningBank);
+        setLatestTheoreticalCartera(runningCartera);
         auditRows = calculatedAudits;
       }
 
@@ -1236,6 +1244,64 @@ export default function ContabilidadScreen() {
         )}
       </View>
 
+      {/* Nav buttons — permanently visible below the store selector */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ marginVertical: 8, paddingHorizontal: 16, maxHeight: 40 }}
+      >
+        <Button
+          mode="outlined"
+          compact
+          icon="wallet"
+          style={{ marginRight: 8, height: 32 }}
+          labelStyle={{ fontSize: 12, marginVertical: 4 }}
+          onPress={() => router.push('/(tabs)/contabilidad/gastos')}
+        >
+          Gastos
+        </Button>
+        <Button
+          mode="outlined"
+          compact
+          icon="bank"
+          style={{ marginRight: 8, height: 32 }}
+          labelStyle={{ fontSize: 12, marginVertical: 4 }}
+          onPress={() => router.push('/(tabs)/contabilidad/bancos')}
+        >
+          Bancos
+        </Button>
+        <Button
+          mode="outlined"
+          compact
+          icon="calendar-check"
+          style={{ marginRight: 8, height: 32 }}
+          labelStyle={{ fontSize: 12, marginVertical: 4 }}
+          onPress={() => router.push('/(tabs)/contabilidad/cierres')}
+        >
+          Cierres
+        </Button>
+        <Button
+          mode="outlined"
+          compact
+          icon="cart"
+          style={{ marginRight: 8, height: 32 }}
+          labelStyle={{ fontSize: 12, marginVertical: 4 }}
+          onPress={() => router.push('/(tabs)/inventario/compras')}
+        >
+          Compras
+        </Button>
+        <Button
+          mode="outlined"
+          compact
+          icon="scale-balance"
+          style={{ marginRight: 8, height: 32 }}
+          labelStyle={{ fontSize: 12, marginVertical: 4 }}
+          onPress={() => router.push('/(tabs)/contabilidad/balances')}
+        >
+          Balances
+        </Button>
+      </ScrollView>
+
       {/* Period filter */}
       <View style={styles.periodRow}>
         {(['hoy', 'ayer', 'semana', 'mes', 'rango'] as const).map((p) => (
@@ -1391,6 +1457,25 @@ export default function ContabilidadScreen() {
                   color={maxCashAuditDiscrepancy >= 0 ? '#388E3C' : '#D32F2F'}
                 />
               </View>
+
+              <Card style={[styles.txCard, { marginTop: 4 }]} mode="outlined">
+                <Card.Content style={{ paddingVertical: 10 }}>
+                  <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 6 }}>
+                    Distribución Teórica (Debe Haber)
+                  </Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text variant="bodySmall" style={{ color: '#aaa' }}>
+                      Efectivo: <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{formatCOP(latestTheoreticalCash)}</Text>
+                    </Text>
+                    <Text variant="bodySmall" style={{ color: '#aaa' }}>
+                      Bancos: <Text style={{ color: '#388E3C', fontWeight: 'bold' }}>{formatCOP(latestTheoreticalBank)}</Text>
+                    </Text>
+                    <Text variant="bodySmall" style={{ color: '#aaa' }}>
+                      Cartera: <Text style={{ color: '#1976D2', fontWeight: 'bold' }}>{formatCOP(latestTheoreticalCartera)}</Text>
+                    </Text>
+                  </View>
+                </Card.Content>
+              </Card>
 
               <Card style={styles.txCard} mode="elevated">
                 <Card.Content>
@@ -1800,46 +1885,12 @@ export default function ContabilidadScreen() {
       {/* Nav buttons */}
       <View style={styles.navRow}>
         <Button
-          mode="outlined"
-          icon="wallet"
-          onPress={() => router.push('/(tabs)/contabilidad/gastos')}
-        >
-          Gastos
-        </Button>
-        <Button
-          mode="outlined"
-          icon="bank"
-          onPress={() => router.push('/(tabs)/contabilidad/bancos')}
-        >
-          Bancos
-        </Button>
-        <Button
-          mode="outlined"
-          icon="calendar-check"
-          onPress={() => router.push('/(tabs)/contabilidad/cierres')}
-        >
-          Cierres
-        </Button>
-        <Button
-          mode="outlined"
-          icon="cart"
-          onPress={() => router.push('/(tabs)/inventario/compras')}
-        >
-          Compras
-        </Button>
-        <Button
-          mode="outlined"
-          icon="scale-balance"
-          onPress={() => router.push('/(tabs)/contabilidad/balances')}
-        >
-          Balances
-        </Button>
-        <Button
           mode="contained"
           icon="file-excel"
           buttonColor="#2E7D32"
           textColor="#FFFFFF"
           onPress={handleExportExcel}
+          style={{ flex: 1 }}
         >
           Exportar Excel
         </Button>
