@@ -405,6 +405,7 @@ export default function VentasScreen() {
         amount: compraTurnoAmount,
         paymentMethod: PaymentMethod.EFECTIVO,
         workerId: salidaType === 'ADELANTO' ? salidaWorkerId : undefined,
+        isFixed: category === 'Adelanto',
       });
       setCompraTurnoVisible(false);
       setCompraTurnoDesc('');

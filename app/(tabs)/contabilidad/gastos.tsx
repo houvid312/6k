@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { TextInput, Button, Text, Card, Menu, Divider, Portal, Snackbar, useTheme } from 'react-native-paper';
+import { TextInput, Button, Text, Card, Menu, Divider, Portal, Snackbar, useTheme, Chip } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { PaymentMethodPicker } from '../../../src/components/ventas/PaymentMethodPicker';
@@ -26,6 +26,7 @@ export default function GastosScreen() {
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.EFECTIVO);
+  const [isFixed, setIsFixed] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   const loadExpenses = useCallback(async () => {
@@ -60,6 +61,7 @@ export default function GastosScreen() {
         description: description || category,
         amount,
         paymentMethod,
+        isFixed,
       });
       setCategory('');
       setDescription('');
@@ -71,7 +73,7 @@ export default function GastosScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [category, description, amount, paymentMethod, selectedStoreId, expenseRepo, loadExpenses, showSuccess, showError]);
+  }, [category, description, amount, paymentMethod, isFixed, selectedStoreId, expenseRepo, loadExpenses, showSuccess, showError]);
 
   return (
     <ScreenContainer>
@@ -100,6 +102,7 @@ export default function GastosScreen() {
             onPress={() => {
               setCategory(cat);
               setCategoryMenuVisible(false);
+              setIsFixed(['Arriendo', 'Servicios', 'Nomina'].includes(cat));
             }}
             title={cat}
           />
@@ -120,6 +123,30 @@ export default function GastosScreen() {
         label="Monto"
         style={styles.input}
       />
+
+      <Text variant="bodyMedium" style={{ fontWeight: '600', marginVertical: 8 }}>
+        Tipo de Gasto (Estructura de Costos)
+      </Text>
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+        <Chip
+          selected={isFixed}
+          onPress={() => setIsFixed(true)}
+          mode={isFixed ? 'flat' : 'outlined'}
+          icon="lock"
+          style={isFixed ? { backgroundColor: theme.colors.primaryContainer } : undefined}
+        >
+          Fijo
+        </Chip>
+        <Chip
+          selected={!isFixed}
+          onPress={() => setIsFixed(false)}
+          mode={!isFixed ? 'flat' : 'outlined'}
+          icon="chart-bell-curve-cumulative"
+          style={!isFixed ? { backgroundColor: theme.colors.primaryContainer } : undefined}
+        >
+          Variable
+        </Chip>
+      </View>
 
       <Text variant="bodyMedium" style={{ fontWeight: '600', marginVertical: 8 }}>
         Metodo de Pago

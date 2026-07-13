@@ -9,4 +9,5 @@ export interface Expense {
   amount: number;
   paymentMethod: PaymentMethod;
   workerId?: string;
+  isFixed: boolean;
 }

@@ -45,6 +45,7 @@ import {
   DemandEstimationService,
   AlertService,
   WriteoffService,
+  AccountingService,
 } from '../services';
 
 // Repositories (Supabase)
@@ -94,6 +95,7 @@ const demandEstimationService = new DemandEstimationService(demandEstimateRepo, 
 const alertService = new AlertService(dailyAlertRepo, validationService, physicalCountRepo, supplyRepo, transferRepo);
 const writeoffService = new WriteoffService(writeoffRepo, inventoryRepo, recipeRepo);
 const cashClosingService = new CashClosingService(cashClosingRepo, saleRepo, expenseRepo, alertService, cashOpeningRepo, scheduleRepo, attendanceRepo, workerRepo);
+const accountingService = new AccountingService(saleRepo, expenseRepo, purchaseRepo, supplyRepo, transferRepo, writeoffRepo);
 
 export const container = {
   // Repositories
@@ -143,4 +145,5 @@ export const container = {
   demandEstimationService,
   alertService,
   writeoffService,
+  accountingService,
 };

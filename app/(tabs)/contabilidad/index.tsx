@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Alert, Platform } from 'react-native';
+import { View, StyleSheet, Alert, Platform, ScrollView } from 'react-native';
 import { Card, Text, Button, Chip, Divider, IconButton, Portal, Modal, TextInput, useTheme } from 'react-native-paper';
 import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
@@ -157,13 +157,16 @@ export default function ContabilidadScreen() {
     writeoffRepo,
     productRepo,
   } = useDI();
-  const { selectedStoreId, stores } = useAppStore();
+  const { selectedStoreId, stores, userRole } = useAppStore();
   const selectedStore = stores.find((s) => s.id === selectedStoreId);
+  const isGerente = userRole === 'GERENTE';
 
   type ContaPeriod = 'hoy' | 'ayer' | 'semana' | 'mes' | 'rango';
   const [period, setPeriod] = useState<ContaPeriod>('rango');
   const [filterPeriod, setFilterPeriod] = useState<ContaPeriod>('rango');
-  const [appliedStoreId, setAppliedStoreId] = useState(selectedStoreId);
+  const [appliedStoreId, setAppliedStoreId] = useState(
+    userRole === 'GERENTE' ? 'consolidado' : selectedStoreId
+  );
   const appliedStore = stores.find((s) => s.id === appliedStoreId) ?? selectedStore;
   const isProductionCenter = appliedStore?.isProductionCenter ?? false;
   const initialRange = getMonthToDateRange();
@@ -176,6 +179,8 @@ export default function ContabilidadScreen() {
   const [ingresos, setIngresos] = useState(0);
   const [egresos, setEgresos] = useState(0);
   const [salesIncome, setSalesIncome] = useState(0);
+  const [fixedExpenses, setFixedExpenses] = useState(0);
+  const [variableExpenses, setVariableExpenses] = useState(0);
   const [internalTransferIncome, setInternalTransferIncome] = useState(0);
   const [operatingExpenses, setOperatingExpenses] = useState(0);
   const [purchaseExpenses, setPurchaseExpenses] = useState(0);
@@ -259,28 +264,72 @@ export default function ContabilidadScreen() {
       }
 
       const endDateTime = `${endDate}T23:59:59`;
-      const sales = await saleService.getSalesByDateRange(appliedStoreId, startDate, endDateTime);
+      let sales: Sale[] = [];
+      let allExpenses: Expense[] = [];
+      let purchases: Purchase[] = [];
+      let incomingTransfers: Transfer[] = [];
+      let outgoingTransfers: Transfer[] = [];
+      let storeInventory: any[] = [];
+      let approvedWriteoffs: any[] = [];
+
+      if (appliedStoreId === 'consolidado') {
+        const fetchPromises = stores.map(async (store) => {
+          const [s, e, p, inc, out, inv, wo] = await Promise.all([
+            saleService.getSalesByDateRange(store.id, startDate, endDateTime),
+            expenseRepo.getByDateRange(store.id, startDate, endDateTime),
+            purchaseRepo.getByDateRange(startDate, endDateTime, store.id),
+            transferRepo.getReceivedByDestination(store.id, startDate, endDate),
+            transferRepo.getReceivedByOrigin(store.id, startDate, endDate),
+            inventoryRepo.getByStore(store.id, InventoryLevel.STORE),
+            writeoffRepo.getApprovedByStoreAndDateRange(store.id, startDate, endDate),
+          ]);
+          return { s, e, p, inc, out, inv, wo, storeIsProd: store.isProductionCenter };
+        });
+
+        const results = await Promise.all(fetchPromises);
+        for (const res of results) {
+          sales = [...sales, ...res.s];
+          allExpenses = [...allExpenses, ...res.e];
+          purchases = [...purchases, ...res.p];
+          incomingTransfers = [...incomingTransfers, ...res.inc];
+          if (res.storeIsProd) {
+            outgoingTransfers = [...outgoingTransfers, ...res.out];
+          }
+          storeInventory = [...storeInventory, ...res.inv];
+          approvedWriteoffs = [...approvedWriteoffs, ...res.wo];
+        }
+      } else {
+        const [s, e, p, inc, out, inv, wo] = await Promise.all([
+          saleService.getSalesByDateRange(appliedStoreId, startDate, endDateTime),
+          expenseRepo.getByDateRange(appliedStoreId, startDate, endDateTime),
+          purchaseRepo.getByDateRange(startDate, endDateTime, appliedStoreId),
+          transferRepo.getReceivedByDestination(appliedStoreId, startDate, endDate),
+          transferRepo.getReceivedByOrigin(appliedStoreId, startDate, endDate),
+          inventoryRepo.getByStore(appliedStoreId, InventoryLevel.STORE),
+          writeoffRepo.getApprovedByStoreAndDateRange(appliedStoreId, startDate, endDate),
+        ]);
+        sales = s;
+        allExpenses = e;
+        purchases = p;
+        incomingTransfers = inc;
+        outgoingTransfers = out;
+        storeInventory = inv;
+        approvedWriteoffs = wo;
+      }
+
       const totalRevenue = sales.reduce((sum, s) => sum + s.totalAmount, 0);
-
-      const allExpenses = await expenseRepo.getByDateRange(appliedStoreId, startDate, endDateTime);
       const totalExpenses = allExpenses.reduce((sum, e) => sum + e.amount, 0);
-
-      const purchases = await purchaseRepo.getByDateRange(startDate, endDateTime, appliedStoreId);
       const totalPurchases = purchases.reduce((sum, p) => sum + p.priceCOP, 0);
-
-      const incomingTransfers = await transferRepo.getReceivedByDestination(appliedStoreId, startDate, endDate);
       const totalIncomingTransfers = incomingTransfers.reduce((sum, t) => sum + (t.totalPriceCop ?? 0), 0);
-
-      const outgoingTransfers = await transferRepo.getReceivedByOrigin(appliedStoreId, startDate, endDate);
-      const totalOutgoingTransfers = isProductionCenter
+      const totalOutgoingTransfers = isProductionCenter || appliedStoreId === 'consolidado'
         ? outgoingTransfers.reduce((sum, t) => sum + (t.totalPriceCop ?? 0), 0)
         : 0;
 
-      const [storeInventory, supplies, recipes, approvedWriteoffs, products] = await Promise.all([
-        inventoryRepo.getByStore(appliedStoreId, InventoryLevel.STORE),
+      const [, supplies, recipes,, products] = await Promise.all([
+        null,
         supplyRepo.getAll(false),
         recipeRepo.getAll(),
-        writeoffRepo.getApprovedByStoreAndDateRange(appliedStoreId, startDate, endDate),
+        null,
         productRepo.getAll(),
       ]);
       const suppliesById = new Map(supplies.map((supply) => [supply.id, supply]));
@@ -404,58 +453,68 @@ export default function ContabilidadScreen() {
       const periodExpenses = totalExpenses + totalPurchases + totalIncomingTransfers;
       const auditYear = String(new Date(`${endDate}T12:00:00`).getFullYear());
       const auditYearStart = `${auditYear}-01-01`;
-      const [yearClosings, yearAuditEntries] = await Promise.all([
-        cashClosingService.getClosingsByDateRange(appliedStoreId, auditYearStart, endDate),
-        cashAuditRepo.getByDateRange(appliedStoreId, auditYearStart, endDate),
-      ]);
-      const closingByDate = new Map(yearClosings.map((closing) => [closing.date, closing]));
-      const manualAuditByDate = new Map(yearAuditEntries.map((entry) => [entry.date, entry]));
-      const auditDates = Array.from(new Set([
-        ...yearClosings.map((closing) => closing.date),
-        ...yearAuditEntries.map((entry) => entry.date),
-      ])).sort((a, b) => a.localeCompare(b));
-      const openingsByDate = await Promise.all(
-        auditDates.map((date) =>
-          cashClosingService.getOpeningByDate(appliedStoreId, date).catch(() => null),
-        ),
-      );
-      const auditRows = auditDates.map((date, index): CashAuditRow | null => {
-        const manualAudit = manualAuditByDate.get(date);
-        if (manualAudit) {
+      let auditRows: CashAuditRow[] = [];
+      let cashAuditYearValue = auditYear;
+
+      if (appliedStoreId !== 'consolidado') {
+        const [yearClosings, yearAuditEntries] = await Promise.all([
+          cashClosingService.getClosingsByDateRange(appliedStoreId, auditYearStart, endDate),
+          cashAuditRepo.getByDateRange(appliedStoreId, auditYearStart, endDate),
+        ]);
+        const closingByDate = new Map(yearClosings.map((closing) => [closing.date, closing]));
+        const manualAuditByDate = new Map(yearAuditEntries.map((entry) => [entry.date, entry]));
+        const auditDates = Array.from(new Set([
+          ...yearClosings.map((closing) => closing.date),
+          ...yearAuditEntries.map((entry) => entry.date),
+        ])).sort((a, b) => a.localeCompare(b));
+        const openingsByDate = await Promise.all(
+          auditDates.map((date) =>
+            cashClosingService.getOpeningByDate(appliedStoreId, date).catch(() => null),
+          ),
+        );
+        auditRows = auditDates.map((date, index): CashAuditRow | null => {
+          const manualAudit = manualAuditByDate.get(date);
+          if (manualAudit) {
+            return {
+              date: manualAudit.date,
+              status: 'AUDIT',
+              source: 'MANUAL',
+              openingBase: manualAudit.openingBase,
+              expectedTotal: manualAudit.cashSales,
+              expenses: manualAudit.cashExpenses,
+              theoreticalTotal: manualAudit.theoreticalTotal,
+              actualTotal: manualAudit.actualTotal,
+              discrepancy: manualAudit.discrepancy,
+              notes: manualAudit.notes,
+            };
+          }
+
+          const closing = closingByDate.get(date);
+          if (!closing) return null;
+          const openingBaseValue = openingsByDate[index]?.total ?? 0;
+          const theoreticalTotal = openingBaseValue + closing.expectedTotal - closing.expenses;
+          const actualTotal = closing.actualTotal;
+          const discrepancy = actualTotal - theoreticalTotal;
+
           return {
-            date: manualAudit.date,
-            status: 'AUDIT',
-            source: 'MANUAL',
-            openingBase: manualAudit.openingBase,
-            expectedTotal: manualAudit.cashSales,
-            expenses: manualAudit.cashExpenses,
-            theoreticalTotal: manualAudit.theoreticalTotal,
-            actualTotal: manualAudit.actualTotal,
-            discrepancy: manualAudit.discrepancy,
-            notes: manualAudit.notes,
+            date: closing.date,
+            status: closing.status,
+            source: 'CLOSING',
+            openingBase: openingBaseValue,
+            expectedTotal: closing.expectedTotal,
+            expenses: closing.expenses,
+            theoreticalTotal,
+            actualTotal,
+            discrepancy,
+            notes: '',
           };
-        }
+        }).filter((row): row is CashAuditRow => !!row);
+      }
 
-        const closing = closingByDate.get(date);
-        if (!closing) return null;
-        const openingBaseValue = openingsByDate[index]?.total ?? 0;
-        const theoreticalTotal = openingBaseValue + closing.expectedTotal - closing.expenses;
-        const actualTotal = closing.actualTotal;
-        const discrepancy = actualTotal - theoreticalTotal;
-
-        return {
-          date: closing.date,
-          status: closing.status,
-          source: 'CLOSING',
-          openingBase: openingBaseValue,
-          expectedTotal: closing.expectedTotal,
-          expenses: closing.expenses,
-          theoreticalTotal,
-          actualTotal,
-          discrepancy,
-          notes: '',
-        };
-      }).filter((row): row is CashAuditRow => !!row);
+      const fixed = allExpenses.filter(e => e.isFixed).reduce((sum, e) => sum + e.amount, 0);
+      const variable = allExpenses.filter(e => !e.isFixed).reduce((sum, e) => sum + e.amount, 0);
+      setFixedExpenses(fixed);
+      setVariableExpenses(variable);
 
       setSalesIncome(totalRevenue);
       setInternalTransferIncome(totalOutgoingTransfers);
@@ -472,21 +531,21 @@ export default function ContabilidadScreen() {
       setReportExpenses(allExpenses);
       setReportPurchases(purchases);
       setReportIncomingTransfers(incomingTransfers);
-      setReportOutgoingTransfers(isProductionCenter ? outgoingTransfers : []);
+      setReportOutgoingTransfers(isProductionCenter || appliedStoreId === 'consolidado' ? outgoingTransfers : []);
       setInventoryValuationRows(currentInventoryRows);
       setWriteoffValuationRows(currentWriteoffRows);
       setCashAuditRows([...auditRows].reverse());
-      setCashAuditYear(auditYear);
+      setCashAuditYear(cashAuditYearValue);
 
       // Transacciones del periodo (últimas 10)
       setRecentSales(sales.slice(0, 10));
       setRecentExpenses(allExpenses.slice(0, 10));
       setRecentPurchases(purchases.slice(0, 10));
       setRecentIncomingTransfers(incomingTransfers.slice(0, 10));
-      setRecentOutgoingTransfers(isProductionCenter ? outgoingTransfers.slice(0, 10) : []);
+      setRecentOutgoingTransfers(isProductionCenter || appliedStoreId === 'consolidado' ? outgoingTransfers.slice(0, 10) : []);
 
       // C1: Daily audit data (solo para hoy)
-      if (period === 'hoy') {
+      if (period === 'hoy' && appliedStoreId !== 'consolidado') {
         try {
           const opening = await cashClosingService.getOpeningByDate(appliedStoreId, today);
           setOpeningBase(opening?.total ?? 0);
@@ -532,10 +591,20 @@ export default function ContabilidadScreen() {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    if (appliedStoreId === 'consolidado') {
+      setActiveView('resultado');
+    }
+  }, [appliedStoreId]);
+
   const utilidad = ingresos - egresos;
   const flujoConInventario = utilidad + inventoryAssetValue;
-  const margenBruto = salesIncome - soldInventoryCost;
-  const resultadoOperativo = margenBruto - operatingExpenses - writeoffInventoryCost;
+  
+  // Margen bruto: Ventas externas + Ventas internas (traslados del centro) - Consumo Recetas - Compras Directas locales
+  const margenBruto = salesIncome + internalTransferIncome - soldInventoryCost - purchaseExpenses;
+  
+  // Margen operativo / Resultado neto de operacion: margen bruto menos bajas/mermas menos gastos fijos/variables
+  const resultadoOperativo = margenBruto - writeoffInventoryCost - fixedExpenses - variableExpenses;
   const latestCashAudit = cashAuditRows[0];
   const latestCashAuditTheoretical = latestCashAudit?.theoreticalTotal ?? 0;
   const latestCashAuditActual = latestCashAudit?.actualTotal ?? 0;
@@ -735,7 +804,7 @@ export default function ContabilidadScreen() {
       return;
     }
 
-    const storeName = appliedStore?.name ?? 'Local';
+    const storeName = appliedStoreId === 'consolidado' ? 'Consolidado Global' : (appliedStore?.name ?? 'Local');
     const generatedAt = new Date().toISOString();
     const transferDescription = (transfer: Transfer) => {
       const itemCount = transfer.items.length;
@@ -753,19 +822,22 @@ export default function ContabilidadScreen() {
       ['Flujo neto', currencyCell(utilidad), 'Ingresos menos egresos. Es lectura de flujo, no margen.'],
       ['Inventario valorizado', currencyCell(inventoryAssetValue), 'Stock actual valorizado al precio de traslado.'],
       ['Flujo + inventario', currencyCell(flujoConInventario), 'Flujo neto mas inventario actual como activo.'],
-      ['Margen bruto', currencyCell(margenBruto), 'Ventas a clientes menos costo vendido por recetas.'],
-      ['Margen operativo', currencyCell(resultadoOperativo), 'Margen bruto menos mermas aprobadas y gastos operativos. Es lectura de rentabilidad, no se suma al flujo.'],
+      ['Margen bruto', currencyCell(margenBruto), 'Ventas totales menos costos variables de inventario y compras directas.'],
+      ['Margen operativo', currencyCell(resultadoOperativo), 'Margen bruto menos mermas aprobadas y gastos operativos. Es lectura de rentabilidad.'],
     ];
 
     const marginRows: ExcelCell[][] = [
       ['Concepto', 'Valor', 'Descripcion'],
       ['Ventas a clientes', currencyCell(salesIncome), 'Total vendido a clientes en el periodo seleccionado.'],
-      ['Costo vendido por recetas', currencyCell(-soldInventoryCost), 'Inventario consumido por ventas, recetas, adiciones y empaques a precio de traslado.'],
-      ['Margen bruto', currencyCell(margenBruto), 'Ventas menos costo vendido. Indica si la venta cubre el producto consumido.'],
+      ['Ventas internas (Centro Prod.)', currencyCell(internalTransferIncome), 'Facturacion interna al enviar insumos a locales.'],
+      ['Costo vendido por recetas', currencyCell(-soldInventoryCost), 'Inventario consumido por ventas a precio de traslado.'],
+      ['Compras directas insumos', currencyCell(-purchaseExpenses), 'Compras directas hechas a proveedores locales.'],
+      ['Margen bruto', currencyCell(margenBruto), 'Ventas totales menos costos de inventario consumido y compras directas.'],
       ['Bajas y mermas aprobadas', currencyCell(-writeoffInventoryCost), 'Inventario descontado por bajas aprobadas en el periodo.'],
-      ['Gastos operativos', currencyCell(-operatingExpenses), 'Gastos registrados por la tienda, sin costo vendido ni cargos internos.'],
-      ['Margen operativo', currencyCell(resultadoOperativo), 'Margen bruto menos mermas y gastos operativos. Es una lectura separada del flujo de caja.'],
-      ['Inventario actual como activo', currencyCell(inventoryAssetValue), 'Stock que queda en el local valorizado al precio de compra al centro de produccion.'],
+      ['Gastos variables operacionales', currencyCell(-variableExpenses), 'Gastos generales variables de la operacion.'],
+      ['Gastos fijos operacionales', currencyCell(-fixedExpenses), 'Gastos generales fijos (arriendo, nomina, servicios).'],
+      ['Margen operativo', currencyCell(resultadoOperativo), 'Margen bruto menos mermas y gastos fijos/variables.'],
+      ['Inventario actual como activo', currencyCell(inventoryAssetValue), 'Stock que queda en el local valorizado al precio de compra.'],
     ];
 
     const transactionRows: ExcelCell[][] = [
@@ -901,7 +973,43 @@ export default function ContabilidadScreen() {
   return (
     <ScreenContainer>
       <View style={styles.header}>
-        <StoreSelector />
+        {isGerente ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.tabsContainer}
+          >
+            <Chip
+              selected={appliedStoreId === 'consolidado'}
+              onPress={() => setAppliedStoreId('consolidado')}
+              mode={appliedStoreId === 'consolidado' ? 'flat' : 'outlined'}
+              icon="view-dashboard"
+              style={[
+                styles.tabChip,
+                appliedStoreId === 'consolidado' ? { backgroundColor: theme.colors.primaryContainer } : undefined,
+              ]}
+            >
+              Consolidado Global
+            </Chip>
+            {stores.map((store) => (
+              <Chip
+                key={store.id}
+                selected={appliedStoreId === store.id}
+                onPress={() => setAppliedStoreId(store.id)}
+                mode={appliedStoreId === store.id ? 'flat' : 'outlined'}
+                icon={store.isProductionCenter ? 'factory' : 'storefront'}
+                style={[
+                  styles.tabChip,
+                  appliedStoreId === store.id ? { backgroundColor: theme.colors.primaryContainer } : undefined,
+                ]}
+              >
+                {store.name}
+              </Chip>
+            ))}
+          </ScrollView>
+        ) : (
+          <StoreSelector />
+        )}
       </View>
 
       {/* Period filter */}
@@ -983,26 +1091,28 @@ export default function ContabilidadScreen() {
         </Card>
       ) : (
         <>
-          <View style={styles.viewTabs}>
-            <Chip
-              selected={activeView === 'resultado'}
-              onPress={() => setActiveView('resultado')}
-              mode={activeView === 'resultado' ? 'flat' : 'outlined'}
-              icon="chart-line"
-              style={activeView === 'resultado' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
-            >
-              Resultado
-            </Chip>
-            <Chip
-              selected={activeView === 'arqueo'}
-              onPress={() => setActiveView('arqueo')}
-              mode={activeView === 'arqueo' ? 'flat' : 'outlined'}
-              icon="cash-register"
-              style={activeView === 'arqueo' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
-            >
-              Arqueo caja
-            </Chip>
-          </View>
+          {appliedStoreId !== 'consolidado' && (
+            <View style={styles.viewTabs}>
+              <Chip
+                selected={activeView === 'resultado'}
+                onPress={() => setActiveView('resultado')}
+                mode={activeView === 'resultado' ? 'flat' : 'outlined'}
+                icon="chart-line"
+                style={activeView === 'resultado' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
+              >
+                Resultado
+              </Chip>
+              <Chip
+                selected={activeView === 'arqueo'}
+                onPress={() => setActiveView('arqueo')}
+                mode={activeView === 'arqueo' ? 'flat' : 'outlined'}
+                icon="cash-register"
+                style={activeView === 'arqueo' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
+              >
+                Arqueo caja
+              </Chip>
+            </View>
+          )}
 
           {activeView === 'arqueo' ? (
             <>
@@ -1358,13 +1468,22 @@ export default function ContabilidadScreen() {
             Inventario descontado por bajas aprobadas, como dano, vencimiento, derrame o contaminacion.
           </Text>
           <View style={styles.txRow}>
-            <Text variant="bodySmall">Gastos operativos</Text>
+            <Text variant="bodySmall">Gastos variables operacionales</Text>
             <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
-              -{formatCOP(operatingExpenses)}
+              -{formatCOP(variableExpenses)}
             </Text>
           </View>
           <Text variant="bodySmall" style={styles.txInfoText}>
-            Gastos registrados por la tienda. Tambien aparecen como egreso de caja, pero aqui se muestran dentro de rentabilidad para llegar al margen operativo.
+            Egresos generales variables del periodo (clasificados al registrar).
+          </Text>
+          <View style={styles.txRow}>
+            <Text variant="bodySmall">Gastos fijos operacionales</Text>
+            <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
+              -{formatCOP(fixedExpenses)}
+            </Text>
+          </View>
+          <Text variant="bodySmall" style={styles.txInfoText}>
+            Arriendos, nominas fijas y servicios basicos del centro de costos.
           </Text>
           <View style={[styles.txRow, styles.txSubtotalRow]}>
             <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Margen operativo</Text>
@@ -1823,6 +1942,15 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginBottom: 12,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginBottom: 4,
+  },
+  tabChip: {
+    marginRight: 8,
   },
   sectionTitle: {
     marginBottom: 12,

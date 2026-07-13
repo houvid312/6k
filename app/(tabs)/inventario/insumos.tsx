@@ -63,7 +63,7 @@ export default function InsumosScreen() {
   const userRole = useAppStore((s) => s.userRole);
   const { supplies: cachedSupplies, refreshMasterData } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
-  const isAdmin = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
+  const isGerente = userRole === UserRole.GERENTE;
 
   const [supplies, setSupplies] = useState<Supply[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,15 +109,15 @@ export default function InsumosScreen() {
       return;
     }
     const productionCost = parseDecimal(form.productionCostCop);
-    if (isAdmin && productionCost < 0) {
+    if (isGerente && productionCost < 0) {
       showError('Ingresa un costo de produccion valido');
       return;
     }
-    if (isAdmin && form.commercialPriceCop < 0) {
+    if (isGerente && form.commercialPriceCop < 0) {
       showError('Ingresa un precio comercial valido');
       return;
     }
-    if (isAdmin && form.salePriceCop < 0) {
+    if (isGerente && form.salePriceCop < 0) {
       showError('Ingresa un precio de venta valido');
       return;
     }
@@ -130,7 +130,7 @@ export default function InsumosScreen() {
           unit: form.unit,
           gramsPerBag: gpb,
         };
-        if (isAdmin) {
+        if (isGerente) {
           updates.productionCostCop = productionCost;
           updates.commercialPriceCop = form.commercialPriceCop;
           updates.salePriceCop = form.salePriceCop;
@@ -143,10 +143,10 @@ export default function InsumosScreen() {
           name: form.name.trim(),
           unit: form.unit,
           gramsPerBag: gpb,
-          productionCostCop: isAdmin ? productionCost : 0,
-          commercialPriceCop: isAdmin ? form.commercialPriceCop : 0,
-          salePriceCop: isAdmin ? form.salePriceCop : 0,
-          isBillableToStore: isAdmin ? form.isBillableToStore : true,
+          productionCostCop: isGerente ? productionCost : 0,
+          commercialPriceCop: isGerente ? form.commercialPriceCop : 0,
+          salePriceCop: isGerente ? form.salePriceCop : 0,
+          isBillableToStore: isGerente ? form.isBillableToStore : true,
         });
         showSuccess(`${form.name.trim()} creado`);
       }
@@ -176,15 +176,17 @@ export default function InsumosScreen() {
         {supplies.length} insumos registrados
       </Text>
 
-      <Button
-        mode="contained"
-        icon="plus"
-        onPress={handleNew}
-        style={styles.addBtn}
-        buttonColor="#E63946"
-      >
-        Nuevo Insumo
-      </Button>
+      {isGerente && (
+        <Button
+          mode="contained"
+          icon="plus"
+          onPress={handleNew}
+          style={styles.addBtn}
+          buttonColor="#E63946"
+        >
+          Nuevo Insumo
+        </Button>
+      )}
 
       <TextInput
         placeholder="Buscar insumo..."
@@ -204,7 +206,7 @@ export default function InsumosScreen() {
           <Card
             key={supply.id}
             style={[styles.card, { backgroundColor: '#1E1E1E' }]}
-            onPress={() => handleEdit(supply)}
+            onPress={isGerente ? () => handleEdit(supply) : undefined}
           >
             <Card.Content style={styles.cardContent}>
               <View style={{ flex: 1 }}>
@@ -220,18 +222,20 @@ export default function InsumosScreen() {
                 <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
                   Precio venta cliente: {formatCOP(supply.salePriceCop)}
                 </Text>
-                {isAdmin && (
+                {isGerente && (
                   <Text variant="bodySmall" style={{ color: '#777', marginTop: 2 }}>
                     Costo produccion: {formatCOPDecimal(supply.productionCostCop)}
                   </Text>
                 )}
               </View>
-              <IconButton
-                icon="pencil"
-                size={18}
-                iconColor="#E63946"
-                onPress={() => handleEdit(supply)}
-              />
+              {isGerente && (
+                <IconButton
+                  icon="pencil"
+                  size={18}
+                  iconColor="#E63946"
+                  onPress={() => handleEdit(supply)}
+                />
+              )}
             </Card.Content>
           </Card>
         ))
@@ -280,7 +284,7 @@ export default function InsumosScreen() {
             right={<TextInput.Affix text="g" textStyle={{ color: '#999' }} />}
           />
 
-          {isAdmin && (
+          {isGerente && (
             <>
               <TextInput
                 label="Costo de produccion"
