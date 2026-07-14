@@ -91,7 +91,7 @@ function buildDebtorSummaries(credits: CreditEntry[]): DebtorSummary[] {
 export default function CarteraScreen() {
   const theme = useTheme();
   const { creditService } = useDI();
-  const { selectedStoreId } = useAppStore();
+  const { selectedStoreId, stores } = useAppStore();
 
   const [allCredits, setAllCredits] = useState<CreditEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,8 +115,14 @@ export default function CarteraScreen() {
 
   const storeCredits = useMemo(() => {
     if (!selectedStoreId) return allCredits;
-    return allCredits.filter((c) => c.storeId === selectedStoreId);
-  }, [allCredits, selectedStoreId]);
+    const currentStore = stores.find(s => s.id === selectedStoreId);
+    const isProd = currentStore?.isProductionCenter ?? false;
+    if (isProd) {
+      return allCredits.filter((c) => c.debtorType === 'LOCAL');
+    } else {
+      return allCredits.filter((c) => c.storeId === selectedStoreId && c.debtorType !== 'LOCAL');
+    }
+  }, [allCredits, selectedStoreId, stores]);
 
   const activeDebtors = useMemo(
     () => buildDebtorSummaries(storeCredits.filter((c) => !c.isPaid)),

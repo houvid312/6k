@@ -221,6 +221,64 @@ export default function InventarioScreen() {
           ]}
           style={styles.segmentedButtons}
         />
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ marginTop: 8, maxHeight: 38 }}
+          contentContainerStyle={{ paddingHorizontal: 4 }}
+        >
+          <Button
+            mode="outlined"
+            compact
+            icon="silverware-fork-knife"
+            style={{ marginRight: 8, height: 32 }}
+            labelStyle={{ fontSize: 11, marginVertical: 4 }}
+            onPress={() => router.push('/(tabs)/inventario/recetas')}
+          >
+            Recetas Ventas
+          </Button>
+          <Button
+            mode="outlined"
+            compact
+            icon="pizza"
+            style={{ marginRight: 8, height: 32 }}
+            labelStyle={{ fontSize: 11, marginVertical: 4 }}
+            onPress={() => router.push('/(tabs)/inventario/productos')}
+          >
+            Productos
+          </Button>
+          <Button
+            mode="outlined"
+            compact
+            icon="package-variant-closed"
+            style={{ marginRight: 8, height: 32 }}
+            labelStyle={{ fontSize: 11, marginVertical: 4 }}
+            onPress={() => router.push('/(tabs)/inventario/insumos')}
+          >
+            Insumos
+          </Button>
+          <Button
+            mode="outlined"
+            compact
+            icon="chart-areaspline"
+            style={{ marginRight: 8, height: 32 }}
+            labelStyle={{ fontSize: 11, marginVertical: 4 }}
+            onPress={() => router.push('/(tabs)/inventario/demanda')}
+          >
+            Demanda
+          </Button>
+          <Button
+            mode="outlined"
+            compact
+            icon="minus-circle-outline"
+            style={{ marginRight: 8, height: 32 }}
+            labelStyle={{ fontSize: 11, marginVertical: 4 }}
+            onPress={() => router.push('/(tabs)/inventario/bajas')}
+          >
+            Bajas/Mermas
+          </Button>
+        </ScrollView>
       </View>
 
       {activeTab === 'workflow' ? (
