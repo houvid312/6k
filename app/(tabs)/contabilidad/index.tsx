@@ -688,9 +688,16 @@ export default function ContabilidadScreen() {
           const cpOutflowPayToday = cpOutflowPaymentsByDate.get(date) ?? 0;
           const newCreditsToday = creditsByDate.get(date) ?? 0;
 
+          // Gross shift calculations (Google Sheets style)
+          const discrepancyLoss = isApproved && closing.discrepancy < 0 ? -closing.discrepancy : 0;
+          const discrepancyGain = isApproved && closing.discrepancy > 0 ? closing.discrepancy : 0;
+
+          const grossInflowToday = (isApproved ? (closing.expectedTotal + openingBaseVal + discrepancyGain) : 0) + cashPayToday + bankPayToday;
+          const grossOutflowToday = (isApproved ? (closing.expenses + discrepancyLoss + openingBaseVal) : 0) + generalCashExp + generalBankExp + cpOutflowPayToday;
+
           if (date >= startDate) {
-            sumIngresosGral += salesTransferCash + salesTransferBank + cashPayToday + bankPayToday;
-            sumEgresosGral += generalCashExp + generalBankExp + cpOutflowPayToday;
+            sumIngresosGral += grossInflowToday;
+            sumEgresosGral += grossOutflowToday;
           }
 
           const theoreticalCashToday = runningCash + salesTransferCash - generalCashExp + cashPayToday;
@@ -715,8 +722,8 @@ export default function ContabilidadScreen() {
                 status: 'AUDIT',
                 source: 'MANUAL',
                 openingBase: theoreticalToday - (salesTransferCash + salesTransferBank) + generalCashExp + generalBankExp - (cashPayToday + bankPayToday) + cpOutflowPayToday - newCreditsToday + totalPayToday,
-                expectedTotal: salesTransferCash + salesTransferBank + cashPayToday + bankPayToday,
-                expenses: generalCashExp + generalBankExp + cpOutflowPayToday,
+                expectedTotal: grossInflowToday,
+                expenses: grossOutflowToday,
                 theoreticalTotal: theoreticalToday,
                 actualTotal: audit.actualTotal,
                 discrepancy: audit.actualTotal - theoreticalToday,
@@ -742,8 +749,8 @@ export default function ContabilidadScreen() {
                 status: 'DRAFT',
                 source: 'MANUAL',
                 openingBase: theoreticalToday - (salesTransferCash + salesTransferBank) + generalCashExp + generalBankExp - (cashPayToday + bankPayToday) + cpOutflowPayToday - newCreditsToday + totalPayToday,
-                expectedTotal: salesTransferCash + salesTransferBank + cashPayToday + bankPayToday,
-                expenses: generalCashExp + generalBankExp + cpOutflowPayToday,
+                expectedTotal: grossInflowToday,
+                expenses: grossOutflowToday,
                 theoreticalTotal: theoreticalToday,
                 actualTotal: theoreticalToday,
                 discrepancy: 0,
