@@ -524,17 +524,21 @@ export default function ContabilidadScreen() {
       let cashAuditYearValue = auditYear;
 
       if (appliedStoreId !== 'consolidado') {
-        const [lastAudit, credits, closings, audits, openingsRes] = await Promise.all([
-          cashAuditRepo.getLastAuditBeforeDate(appliedStoreId, startDate),
+        const lastAudit = await cashAuditRepo.getLastAuditBeforeDate(appliedStoreId, startDate);
+        const anchorDate = lastAudit ? lastAudit.date : '2020-01-01';
+
+        const [credits, closings, audits, openingsRes, ledgerExpenses, ledgerPurchases] = await Promise.all([
           creditRepo.getAll(),
-          cashClosingService.getClosingsByDateRange(appliedStoreId, startDate, endDate),
-          cashAuditRepo.getByDateRange(appliedStoreId, startDate, endDate),
+          cashClosingService.getClosingsByDateRange(appliedStoreId, anchorDate, endDate),
+          cashAuditRepo.getByDateRange(appliedStoreId, anchorDate, endDate),
           supabase
             .from('cash_openings')
             .select('date,total')
             .eq('store_id', appliedStoreId)
-            .gte('date', startDate)
+            .gte('date', anchorDate)
             .lte('date', endDate),
+          expenseRepo.getByDateRange(appliedStoreId, anchorDate, endDateTime),
+          purchaseRepo.getByDateRange(anchorDate, endDateTime, appliedStoreId),
         ]);
 
         const openingsByDate = new Map<string, number>(
@@ -544,14 +548,14 @@ export default function ContabilidadScreen() {
         const activeStoreCredits = credits.filter(c => c.storeId === appliedStoreId && c.balance > 0);
         const totalCartera = activeStoreCredits.reduce((sum, c) => sum + c.balance, 0);
         setDbCartera(totalCartera);
-        setReportClosings(closings);
+        setReportClosings(closings.filter(c => c.date >= startDate));
 
         const initialBase = lastAudit ? lastAudit.actualTotal : 0;
         const initialBank = lastAudit ? lastAudit.bankTotal : 0;
         const initialCartera = lastAudit ? lastAudit.cartera : totalCartera;
         const initialCash = initialBase - initialBank - initialCartera;
 
-        const dates = getDatesInRange(startDate, endDate);
+        const dates = getDatesInRange(anchorDate, endDate);
         let runningCash = initialCash;
         let runningBank = initialBank;
         let runningCartera = initialCartera;
@@ -561,7 +565,7 @@ export default function ContabilidadScreen() {
 
         // Segment expenses and purchases by date
         const expensesByDate = new Map<string, number>();
-        for (const exp of allExpenses) {
+        for (const exp of ledgerExpenses) {
           const isRegister = exp.category === 'Compra Turno' || exp.category === 'Adelanto';
           if (!isRegister) {
             const expDate = exp.date.split('T')[0];
@@ -570,7 +574,7 @@ export default function ContabilidadScreen() {
         }
 
         const purchasesByDate = new Map<string, number>();
-        for (const pur of purchases) {
+        for (const pur of ledgerPurchases) {
           const purDate = pur.timestamp.split('T')[0];
           purchasesByDate.set(purDate, (purchasesByDate.get(purDate) ?? 0) + pur.priceCOP);
         }
@@ -583,7 +587,6 @@ export default function ContabilidadScreen() {
           const closing = closingsByDate.get(date);
           const audit = auditsByDate.get(date);
 
-          // Sales deposit transferred to Caja General (only if closing status is APPROVED)
           const openingBaseVal = openingsByDate.get(date) ?? 100000;
           const isApproved = closing && closing.status === ClosingStatus.APPROVED;
           const salesTransferCash = isApproved ? (closing.actualTotal - closing.bankTotal - openingBaseVal) : 0;
@@ -592,8 +595,10 @@ export default function ContabilidadScreen() {
           const generalExp = expensesByDate.get(date) ?? 0;
           const generalPur = purchasesByDate.get(date) ?? 0;
 
-          sumIngresosGral += salesTransferCash + salesTransferBank;
-          sumEgresosGral += generalExp + generalPur;
+          if (date >= startDate) {
+            sumIngresosGral += salesTransferCash + salesTransferBank;
+            sumEgresosGral += generalExp + generalPur;
+          }
 
           const theoreticalCashToday = runningCash + salesTransferCash;
           const theoreticalBankToday = runningBank + salesTransferBank - generalExp - generalPur;
@@ -603,51 +608,55 @@ export default function ContabilidadScreen() {
             runningBank = audit.bankTotal;
             runningCartera = audit.cartera;
             runningCash = audit.actualTotal - audit.bankTotal - audit.cartera;
-            calculatedAudits.push({
-              date,
-              status: 'AUDIT',
-              source: 'MANUAL',
-              openingBase: theoreticalToday - (salesTransferCash + salesTransferBank) + generalExp + generalPur,
-              expectedTotal: salesTransferCash + salesTransferBank,
-              expenses: generalExp + generalPur,
-              theoreticalTotal: theoreticalToday,
-              actualTotal: audit.actualTotal,
-              discrepancy: audit.actualTotal - theoreticalToday,
-              notes: audit.notes,
-              bills100k: audit.bills100k,
-              bills50k: audit.bills50k,
-              bills20k: audit.bills20k,
-              bills10k: audit.bills10k,
-              bills5k: audit.bills5k,
-              bills2k: audit.bills2k,
-              coins: audit.coins,
-              bankTotal: audit.bankTotal,
-              cartera: audit.cartera,
-            });
+            if (date >= startDate) {
+              calculatedAudits.push({
+                date,
+                status: 'AUDIT',
+                source: 'MANUAL',
+                openingBase: theoreticalToday - (salesTransferCash + salesTransferBank) + generalExp + generalPur,
+                expectedTotal: salesTransferCash + salesTransferBank,
+                expenses: generalExp + generalPur,
+                theoreticalTotal: theoreticalToday,
+                actualTotal: audit.actualTotal,
+                discrepancy: audit.actualTotal - theoreticalToday,
+                notes: audit.notes,
+                bills100k: audit.bills100k,
+                bills50k: audit.bills50k,
+                bills20k: audit.bills20k,
+                bills10k: audit.bills10k,
+                bills5k: audit.bills5k,
+                bills2k: audit.bills2k,
+                coins: audit.coins,
+                bankTotal: audit.bankTotal,
+                cartera: audit.cartera,
+              });
+            }
           } else {
             runningCash = theoreticalCashToday;
             runningBank = theoreticalBankToday;
-            calculatedAudits.push({
-              date,
-              status: 'DRAFT',
-              source: 'MANUAL',
-              openingBase: theoreticalToday - (salesTransferCash + salesTransferBank) + generalExp + generalPur,
-              expectedTotal: salesTransferCash + salesTransferBank,
-              expenses: generalExp + generalPur,
-              theoreticalTotal: theoreticalToday,
-              actualTotal: theoreticalToday,
-              discrepancy: 0,
-              notes: '',
-              bills100k: 0,
-              bills50k: 0,
-              bills20k: 0,
-              bills10k: 0,
-              bills5k: 0,
-              bills2k: 0,
-              coins: 0,
-              bankTotal: runningBank,
-              cartera: runningCartera,
-            });
+            if (date >= startDate) {
+              calculatedAudits.push({
+                date,
+                status: 'DRAFT',
+                source: 'MANUAL',
+                openingBase: theoreticalToday - (salesTransferCash + salesTransferBank) + generalExp + generalPur,
+                expectedTotal: salesTransferCash + salesTransferBank,
+                expenses: generalExp + generalPur,
+                theoreticalTotal: theoreticalToday,
+                actualTotal: theoreticalToday,
+                discrepancy: 0,
+                notes: '',
+                bills100k: 0,
+                bills50k: 0,
+                bills20k: 0,
+                bills10k: 0,
+                bills5k: 0,
+                bills2k: 0,
+                coins: 0,
+                bankTotal: runningBank,
+                cartera: runningCartera,
+              });
+            }
           }
         }
 
