@@ -260,6 +260,8 @@ export default function ContabilidadScreen() {
   const [latestTheoreticalCash, setLatestTheoreticalCash] = useState(0);
   const [latestTheoreticalBank, setLatestTheoreticalBank] = useState(0);
   const [latestTheoreticalCartera, setLatestTheoreticalCartera] = useState(0);
+  const [latestTheoreticalBase, setLatestTheoreticalBase] = useState(0);
+  const [auditBase, setAuditBase] = useState(0);
 
   // States for verification and approval modal
   const [approvingClosing, setApprovingClosing] = useState<CashClosing | null>(null);
@@ -569,12 +571,14 @@ export default function ContabilidadScreen() {
         const initialBase = lastAudit ? lastAudit.actualTotal : 0;
         const initialBank = lastAudit ? lastAudit.bankTotal : 0;
         const initialCartera = lastAudit ? lastAudit.cartera : 0;
-        const initialCash = initialBase - initialBank - initialCartera;
+        const initialBaseLocal = lastAudit ? lastAudit.openingBase : 0;
+        const initialCash = initialBase - initialBank - initialCartera - initialBaseLocal;
 
         const dates = getDatesInRange(anchorDate, endDate);
         let runningCash = initialCash;
         let runningBank = initialBank;
         let runningCartera = initialCartera;
+        let runningBaseLocal = initialBaseLocal;
 
         const closingsByDate = new Map(closings.map(c => [c.date, c]));
         const auditsByDate = new Map(audits.map(a => [a.date, a]));
@@ -630,7 +634,6 @@ export default function ContabilidadScreen() {
                 // Outflow payment made to CP
                 const isCash = p.notes?.toLowerCase().includes('efectivo') ?? false;
                 if (isCash) {
-                  // Wait, local could pay CP in cash too (per user note: "pueden ser en efectivo, por transferencia o mixtos")
                   cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
                 } else {
                   cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
@@ -688,12 +691,11 @@ export default function ContabilidadScreen() {
           const cpOutflowPayToday = cpOutflowPaymentsByDate.get(date) ?? 0;
           const newCreditsToday = creditsByDate.get(date) ?? 0;
 
-          // Gross shift calculations (Google Sheets style)
-          const discrepancyLoss = isApproved && closing.discrepancy < 0 ? -closing.discrepancy : 0;
-          const discrepancyGain = isApproved && closing.discrepancy > 0 ? closing.discrepancy : 0;
+          // Variable base en local does not go in/out as expense. It is a separate ledger asset.
+          const theoreticalBaseToday = isApproved ? openingBaseVal : runningBaseLocal;
 
-          const grossInflowToday = (isApproved ? (closing.expectedTotal + openingBaseVal + discrepancyGain) : 0) + cashPayToday + bankPayToday;
-          const grossOutflowToday = (isApproved ? (closing.expenses + discrepancyLoss + openingBaseVal) : 0) + generalCashExp + generalBankExp + cpOutflowPayToday;
+          const grossInflowToday = (isApproved ? closing.expectedTotal : 0) + cashPayToday + bankPayToday;
+          const grossOutflowToday = (isApproved ? closing.expenses : 0) + generalCashExp + generalBankExp + cpOutflowPayToday;
 
           if (date >= startDate) {
             sumIngresosGral += grossInflowToday;
@@ -701,27 +703,28 @@ export default function ContabilidadScreen() {
           }
 
           const theoreticalCashToday = runningCash + salesTransferCash - generalCashExp + cashPayToday;
-          // Payments to CP are subtracted from bank (or cash if note says cash)
           const theoreticalBankToday = runningBank + salesTransferBank - generalBankExp + bankPayToday - cpOutflowPayToday;
           const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
-          const theoreticalToday = theoreticalCashToday + theoreticalBankToday + theoreticalCarteraToday;
+          const theoreticalToday = theoreticalCashToday + theoreticalBankToday + theoreticalCarteraToday + theoreticalBaseToday;
 
           if (date === dates[dates.length - 1]) {
             setLatestTheoreticalCash(theoreticalCashToday);
             setLatestTheoreticalBank(theoreticalBankToday);
             setLatestTheoreticalCartera(theoreticalCarteraToday);
+            setLatestTheoreticalBase(theoreticalBaseToday);
           }
 
           if (audit) {
             runningBank = audit.bankTotal;
             runningCartera = audit.cartera;
-            runningCash = audit.actualTotal - audit.bankTotal - audit.cartera;
+            runningBaseLocal = audit.openingBase;
+            runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - audit.openingBase;
             if (date >= startDate) {
               calculatedAudits.push({
                 date,
                 status: 'AUDIT',
                 source: 'MANUAL',
-                openingBase: theoreticalToday - (salesTransferCash + salesTransferBank) + generalCashExp + generalBankExp - (cashPayToday + bankPayToday) + cpOutflowPayToday - newCreditsToday + totalPayToday,
+                openingBase: theoreticalBaseToday,
                 expectedTotal: grossInflowToday,
                 expenses: grossOutflowToday,
                 theoreticalTotal: theoreticalToday,
@@ -743,12 +746,13 @@ export default function ContabilidadScreen() {
             runningCash = theoreticalCashToday;
             runningBank = theoreticalBankToday;
             runningCartera = theoreticalCarteraToday;
+            runningBaseLocal = theoreticalBaseToday;
             if (date >= startDate) {
               calculatedAudits.push({
                 date,
                 status: 'DRAFT',
                 source: 'MANUAL',
-                openingBase: theoreticalToday - (salesTransferCash + salesTransferBank) + generalCashExp + generalBankExp - (cashPayToday + bankPayToday) + cpOutflowPayToday - newCreditsToday + totalPayToday,
+                openingBase: theoreticalBaseToday,
                 expectedTotal: grossInflowToday,
                 expenses: grossOutflowToday,
                 theoreticalTotal: theoreticalToday,
@@ -775,6 +779,7 @@ export default function ContabilidadScreen() {
           setLatestTheoreticalCash(initialCash);
           setLatestTheoreticalBank(initialBank);
           setLatestTheoreticalCartera(initialCartera);
+          setLatestTheoreticalBase(initialBaseLocal);
         }
         auditRows = calculatedAudits;
       }
@@ -979,9 +984,10 @@ export default function ContabilidadScreen() {
     });
     setAuditBankTotal(existingAudit?.bankTotal ?? 0);
     setAuditCartera(existingAudit?.cartera ?? dbCartera);
+    setAuditBase(existingAudit?.openingBase ?? latestTheoreticalBase);
     setAuditError('');
     setAuditModalVisible(true);
-  }, [cashAuditRows, dbCartera]);
+  }, [cashAuditRows, dbCartera, latestTheoreticalBase]);
 
   const handleSaveCashAudit = useCallback(async () => {
     if (!appliedStoreId) return;
@@ -1005,7 +1011,6 @@ export default function ContabilidadScreen() {
         + dayPurchases
           .filter((purchase) => purchase.paymentMethod === PaymentMethod.EFECTIVO)
           .reduce((sum, purchase) => sum + purchase.priceCOP, 0);
-      const theoreticalTotal = openingBaseValue + cashSales - cashExpenses;
 
       const cashTotal =
         (auditDenominations.bills100k * 100000) +
@@ -1015,17 +1020,21 @@ export default function ContabilidadScreen() {
         (auditDenominations.bills5k * 5000) +
         (auditDenominations.bills2k * 2000) +
         auditDenominations.coins;
-      const actualTotalComputed = cashTotal + auditBankTotal + auditCartera;
+      const actualTotalComputed = cashTotal + auditBankTotal + auditCartera + auditBase;
+
+      const matchingRow = cashAuditRows.find(r => r.date === auditDate);
+      const expectedTheoretical = matchingRow ? matchingRow.theoreticalTotal : (openingBaseValue + cashSales - cashExpenses + auditBankTotal + auditCartera + auditBase);
+      const discrepancyComputed = actualTotalComputed - expectedTheoretical;
 
       const entry: Omit<CashAuditEntry, 'id' | 'createdAt' | 'updatedAt'> = {
         storeId: appliedStoreId,
         date: auditDate,
-        openingBase: openingBaseValue,
+        openingBase: auditBase,
         cashSales,
         cashExpenses,
-        theoreticalTotal,
+        theoreticalTotal: expectedTheoretical,
         actualTotal: actualTotalComputed,
-        discrepancy: actualTotalComputed - theoreticalTotal,
+        discrepancy: discrepancyComputed,
         notes: auditNotes.trim(),
         bills100k: auditDenominations.bills100k,
         bills50k: auditDenominations.bills50k,
@@ -1593,6 +1602,11 @@ export default function ContabilidadScreen() {
                     <Text variant="bodySmall" style={{ color: '#aaa', marginRight: 8 }}>
                       Cartera: <Text style={{ color: '#1976D2', fontWeight: 'bold' }}>{formatCOP(latestTheoreticalCartera)}</Text>
                     </Text>
+                    {!isProductionCenter && (
+                      <Text variant="bodySmall" style={{ color: '#aaa', marginRight: 8 }}>
+                        Base Local: <Text style={{ color: '#E2B13C', fontWeight: 'bold' }}>{formatCOP(latestTheoreticalBase)}</Text>
+                      </Text>
+                    )}
                     {!isProductionCenter && (
                       <Text variant="bodySmall" style={{ color: '#aaa' }}>
                         Cuentas por Pagar (CP): <Text style={{ color: '#D32F2F', fontWeight: 'bold' }}>{formatCOP(dbCuentasPorPagar)}</Text>
@@ -2221,11 +2235,19 @@ export default function ContabilidadScreen() {
               />
             </View>
 
-            <View style={{ marginVertical: 12 }}>
+             <View style={{ marginVertical: 12 }}>
               <CurrencyInput
                 value={auditCartera}
                 onChangeValue={(val) => setAuditCartera(val ?? 0)}
                 label="Valor de Cartera (Cuentas por Cobrar)"
+              />
+            </View>
+
+            <View style={{ marginVertical: 12 }}>
+              <CurrencyInput
+                value={auditBase}
+                onChangeValue={(val) => setAuditBase(val ?? 0)}
+                label="Base en Local (Dinero en caja de ventas)"
               />
             </View>
 
@@ -2243,7 +2265,8 @@ export default function ContabilidadScreen() {
                   (auditDenominations.bills2k * 2000) +
                   auditDenominations.coins +
                   auditBankTotal +
-                  auditCartera
+                  auditCartera +
+                  auditBase
                 )}
               </Text>
             </View>
