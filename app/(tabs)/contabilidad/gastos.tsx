@@ -12,7 +12,7 @@ import { Expense } from '../../../src/domain/entities';
 import { PaymentMethod } from '../../../src/domain/enums';
 import { EXPENSE_CATEGORIES } from '../../../src/utils/constants';
 import { formatCOP } from '../../../src/utils/currency';
-import { formatDate } from '../../../src/utils/dates';
+import { formatDate, todayColombia } from '../../../src/utils/dates';
 
 export default function GastosScreen() {
   const theme = useTheme();
@@ -55,7 +55,7 @@ export default function GastosScreen() {
     setSubmitting(true);
     try {
       await expenseRepo.create({
-        date: new Date().toISOString(),
+        date: todayColombia(),
         storeId: selectedStoreId,
         category,
         description: description || category,

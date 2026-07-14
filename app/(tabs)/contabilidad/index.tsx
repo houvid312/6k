@@ -540,8 +540,8 @@ export default function ContabilidadScreen() {
             .eq('store_id', appliedStoreId)
             .gte('date', anchorDate)
             .lte('date', endDate),
-          expenseRepo.getByDateRange(appliedStoreId, anchorDate, endDateTime),
-          purchaseRepo.getByDateRange(anchorDate, endDateTime, appliedStoreId),
+          expenseRepo.getByDateRange(appliedStoreId, anchorDate, endDate),
+          purchaseRepo.getByDateRange(anchorDate, endDate, appliedStoreId),
           supabase
             .from('credit_payments')
             .select('*, credit_entries(debtor_type, store_id)')

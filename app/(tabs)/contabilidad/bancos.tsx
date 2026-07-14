@@ -56,8 +56,8 @@ export default function BancosScreen() {
       const [closings, audits, ledgerExpenses, ledgerPurchases, creditPaymentsRes, credits] = await Promise.all([
         cashClosingService.getClosingsByDateRange(selectedStoreId, anchorDate, today),
         cashAuditRepo.getByDateRange(selectedStoreId, anchorDate, today),
-        expenseRepo.getByDateRange(selectedStoreId, anchorDate, endDateTime),
-        purchaseRepo.getByDateRange(anchorDate, endDateTime, selectedStoreId),
+        expenseRepo.getByDateRange(selectedStoreId, anchorDate, today),
+        purchaseRepo.getByDateRange(anchorDate, today, selectedStoreId),
         supabase
           .from('credit_payments')
           .select('*, credit_entries(debtor_type, store_id, debtor_name)')
