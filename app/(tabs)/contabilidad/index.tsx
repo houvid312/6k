@@ -604,6 +604,12 @@ export default function ContabilidadScreen() {
           const theoreticalBankToday = runningBank + salesTransferBank - generalExp - generalPur;
           const theoreticalToday = theoreticalCashToday + theoreticalBankToday + runningCartera;
 
+          if (date === dates[dates.length - 1]) {
+            setLatestTheoreticalCash(theoreticalCashToday);
+            setLatestTheoreticalBank(theoreticalBankToday);
+            setLatestTheoreticalCartera(runningCartera);
+          }
+
           if (audit) {
             runningBank = audit.bankTotal;
             runningCartera = audit.cartera;
@@ -662,9 +668,11 @@ export default function ContabilidadScreen() {
 
         setGeneralIngresos(sumIngresosGral);
         setGeneralEgresos(sumEgresosGral);
-        setLatestTheoreticalCash(runningCash);
-        setLatestTheoreticalBank(runningBank);
-        setLatestTheoreticalCartera(runningCartera);
+        if (dates.length === 0) {
+          setLatestTheoreticalCash(initialCash);
+          setLatestTheoreticalBank(initialBank);
+          setLatestTheoreticalCartera(initialCartera);
+        }
         auditRows = calculatedAudits;
       }
 
