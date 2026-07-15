@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, Alert, Platform, ScrollView } from 'react-native';
 import { Card, Text, Button, Chip, Divider, IconButton, Portal, Modal, TextInput, useTheme } from 'react-native-paper';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { KpiCard } from '../../../src/components/common/KpiCard';
@@ -278,6 +278,8 @@ export default function ContabilidadScreen() {
   const [closingExpenses, setClosingExpenses] = useState(0);
   const [closingDate, setClosingDate] = useState('');
   const [closingExpected, setClosingExpected] = useState(0);
+  const [closingOpeningBase, setClosingOpeningBase] = useState(0);
+  const [closingCreditSales, setClosingCreditSales] = useState(0);
 
   // Helper date function for chronological lists
   const getDatesInRange = (startStr: string, endStr: string) => {
@@ -860,9 +862,11 @@ export default function ContabilidadScreen() {
     rangeEndDate,
   ]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   useEffect(() => {
     if (appliedStoreId === 'consolidado') {
@@ -1074,14 +1078,30 @@ export default function ContabilidadScreen() {
     loadData,
   ]);
 
-  const handleOpenApproveModal = useCallback((closing: CashClosing) => {
+  const handleOpenApproveModal = useCallback(async (closing: CashClosing) => {
     setApprovingClosing(closing);
     setClosingDenoms(closing.denominations);
     setClosingBankTotal(closing.bankTotal);
     setClosingExpenses(closing.expenses);
     setClosingDate(closing.date);
     setClosingExpected(closing.expectedTotal);
-  }, []);
+    setClosingOpeningBase(100000);
+    setClosingCreditSales(0);
+    try {
+      const [opening, dailySales] = await Promise.all([
+        cashClosingService.getOpeningByDate(closing.storeId, closing.date),
+        saleService.getDailySummary(closing.storeId, closing.date),
+      ]);
+      if (opening) {
+        setClosingOpeningBase(opening.total);
+      }
+      if (dailySales) {
+        setClosingCreditSales(dailySales.totalCreditAmount ?? 0);
+      }
+    } catch (err) {
+      console.warn('Error fetching opening base/credits for closing approval:', err);
+    }
+  }, [cashClosingService, saleService]);
 
   const handleSaveAndApproveClosing = useCallback(async () => {
     if (!approvingClosing) return;
@@ -2365,6 +2385,20 @@ export default function ContabilidadScreen() {
             </View>
 
             <View style={styles.txRow}>
+              <Text variant="bodyMedium">(-) Ventas a Crédito:</Text>
+              <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#1976D2' }}>
+                {formatCOP(closingCreditSales)}
+              </Text>
+            </View>
+
+            <View style={styles.txRow}>
+              <Text variant="bodyMedium">(+) Base de Apertura:</Text>
+              <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#E2B13C' }}>
+                {formatCOP(closingOpeningBase)}
+              </Text>
+            </View>
+
+            <View style={styles.txRow}>
               <Text variant="bodyMedium">Total reportado (Hay):</Text>
               <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
                 {formatCOP(
@@ -2394,7 +2428,7 @@ export default function ContabilidadScreen() {
                   (closingDenoms.bills2k * 2000) +
                   closingDenoms.coins +
                   closingBankTotal;
-                const disc = totalContado - 100000 - (closingExpected - closingExpenses);
+                const disc = totalContado - closingOpeningBase - (closingExpected - closingCreditSales - closingExpenses);
                 return (
                   <Text
                     variant="titleMedium"
