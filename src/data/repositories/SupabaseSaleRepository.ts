@@ -224,9 +224,25 @@ export class SupabaseSaleRepository implements ISaleRepository {
   }
 
   async updatePaymentMethod(saleId: string, paymentMethod: string): Promise<void> {
+    const { data: sale, error: fetchError } = await supabase
+      .from('sales')
+      .select('total_amount, is_credit')
+      .eq('id', saleId)
+      .single();
+    if (fetchError || !sale) throw fetchError || new Error('Venta no encontrada');
+
+    const totalAmount = sale.total_amount;
+    const isCredit = sale.is_credit;
+    const cashAmount = (paymentMethod === 'EFECTIVO' && !isCredit) ? totalAmount : 0;
+    const bankAmount = (paymentMethod === 'TRANSFERENCIA' && !isCredit) ? totalAmount : 0;
+
     const { error } = await supabase
       .from('sales')
-      .update({ payment_method: paymentMethod })
+      .update({ 
+        payment_method: paymentMethod,
+        cash_amount: cashAmount,
+        bank_amount: bankAmount
+      })
       .eq('id', saleId);
     if (error) throw error;
   }

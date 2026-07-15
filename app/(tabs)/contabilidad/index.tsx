@@ -145,6 +145,15 @@ function getMonthToDateRange() {
   };
 }
 
+function getYearToDateRange() {
+  const today = todayColombia();
+  const currentDate = new Date(`${today}T12:00:00`);
+  return {
+    start: `${currentDate.getFullYear()}-01-01`,
+    end: today,
+  };
+}
+
 function getClosingStatusLabel(status: CashClosing['status'] | 'AUDIT' | 'DRAFT'): string {
   if (status === 'AUDIT') return 'Conteo manual';
   if (status === 'APPROVED') return 'Aprobado';
@@ -173,15 +182,15 @@ export default function ContabilidadScreen() {
   const selectedStore = stores.find((s) => s.id === selectedStoreId);
   const isGerente = userRole === 'GERENTE';
 
-  type ContaPeriod = 'hoy' | 'ayer' | 'semana' | 'mes' | 'rango';
-  const [period, setPeriod] = useState<ContaPeriod>('rango');
-  const [filterPeriod, setFilterPeriod] = useState<ContaPeriod>('rango');
+  type ContaPeriod = 'hoy' | 'ayer' | 'semana' | 'mes' | 'año' | 'rango';
+  const [period, setPeriod] = useState<ContaPeriod>('año');
+  const [filterPeriod, setFilterPeriod] = useState<ContaPeriod>('año');
   const [appliedStoreId, setAppliedStoreId] = useState(
     userRole === 'GERENTE' ? 'consolidado' : selectedStoreId
   );
   const appliedStore = stores.find((s) => s.id === appliedStoreId) ?? selectedStore;
   const isProductionCenter = appliedStore?.isProductionCenter ?? false;
-  const initialRange = getMonthToDateRange();
+  const initialRange = getYearToDateRange();
   const [rangeStartDraft, setRangeStartDraft] = useState(initialRange.start);
   const [rangeEndDraft, setRangeEndDraft] = useState(initialRange.end);
   const [rangeStartDate, setRangeStartDate] = useState(initialRange.start);
@@ -255,6 +264,7 @@ export default function ContabilidadScreen() {
   const [dbCartera, setDbCartera] = useState(0);
   const [dbCuentasPorPagar, setDbCuentasPorPagar] = useState(0);
   const [reportClosings, setReportClosings] = useState<CashClosing[]>([]);
+  const [openingsMap, setOpeningsMap] = useState<Record<string, number>>({});
 
   // States for general cash breakdown
   const [latestTheoreticalCash, setLatestTheoreticalCash] = useState(0);
@@ -325,6 +335,10 @@ export default function ContabilidadScreen() {
       } else if (period === 'mes') {
         const d = new Date(today + 'T12:00:00');
         startDate = toISODate(new Date(d.getFullYear(), d.getMonth(), 1));
+        endDate = today;
+      } else if (period === 'año') {
+        const d = new Date(today + 'T12:00:00');
+        startDate = `${d.getFullYear()}-01-01`;
         endDate = today;
       } else {
         startDate = rangeStartDate;
@@ -550,6 +564,11 @@ export default function ContabilidadScreen() {
             .gte('date', anchorDate)
             .lte('date', endDate),
         ]);
+
+        const openingsObj = Object.fromEntries(
+          (openingsRes.data || []).map((o: any) => [o.date, o.total])
+        );
+        setOpeningsMap(openingsObj);
 
         const openingsByDate = new Map<string, number>(
           (openingsRes.data || []).map((o: any) => [o.date, o.total])
@@ -1453,7 +1472,7 @@ export default function ContabilidadScreen() {
 
       {/* Period filter */}
       <View style={styles.periodRow}>
-        {(['hoy', 'ayer', 'semana', 'mes', 'rango'] as const).map((p) => (
+        {(['hoy', 'ayer', 'semana', 'mes', 'año', 'rango'] as const).map((p) => (
           <Chip
             key={p}
             selected={filterPeriod === p}
@@ -1461,7 +1480,7 @@ export default function ContabilidadScreen() {
             mode={filterPeriod === p ? 'flat' : 'outlined'}
             style={filterPeriod === p ? { backgroundColor: theme.colors.primaryContainer } : undefined}
           >
-            {p === 'hoy' ? 'Hoy' : p === 'ayer' ? 'Ayer' : p === 'semana' ? 'Semana' : p === 'mes' ? 'Mes' : 'Rango'}
+            {p === 'hoy' ? 'Hoy' : p === 'ayer' ? 'Ayer' : p === 'semana' ? 'Semana' : p === 'mes' ? 'Mes' : p === 'año' ? 'Año' : 'Rango'}
           </Chip>
         ))}
       </View>
@@ -1770,7 +1789,7 @@ export default function ContabilidadScreen() {
               ) : reportClosings.map((closing) => {
                 const statusColor = closing.status === ClosingStatus.APPROVED ? '#388E3C' : (closing.status === ClosingStatus.CONFIRMED ? '#1976D2' : '#F57C00');
                 const statusText = closing.status === ClosingStatus.APPROVED ? 'Aprobado' : (closing.status === ClosingStatus.CONFIRMED ? 'Pendiente' : 'Borrador');
-                const closingOpeningBase = closing.actualTotal - closing.discrepancy - closing.expectedTotal + closing.expenses;
+                const closingOpeningBase = openingsMap[closing.date] ?? 100000;
                 return (
                   <Card key={closing.id} style={styles.txCard} mode="elevated">
                     <Card.Content>

@@ -230,62 +230,7 @@ export default function CierreCajaScreen() {
         </Card>
       )}
 
-      {/* Expected & Breakdown */}
-      <Card style={styles.card} mode="elevated">
-        <Card.Content>
-          <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 12 }}>
-            Resumen Financiero del Día
-          </Text>
 
-          <View style={styles.summaryRow}>
-            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>Total Ventas (Bruto):</Text>
-            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>
-              {formatCOP(expectedTotal)}
-            </Text>
-          </View>
-
-          <View style={styles.summaryRow}>
-            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>Ventas por Transferencia:</Text>
-            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#E63946' }}>
-              -{formatCOP(bankTotal)}
-            </Text>
-          </View>
-
-          <View style={styles.summaryRow}>
-            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>Ventas Fiadas (A Cartera):</Text>
-            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#E63946' }}>
-              -{formatCOP(totalCredit)}
-            </Text>
-          </View>
-
-          <View style={styles.summaryRow}>
-            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>Egresos Totales (Gastos):</Text>
-            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#E63946' }}>
-              -{formatCOP(expenses)}
-            </Text>
-          </View>
-
-          {totalAdvances > 0 && (
-            <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
-              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>└ De los cuales Adelantos:</Text>
-              <Text variant="bodySmall" style={{ fontWeight: '600', color: theme.colors.onSurfaceVariant }}>
-                {formatCOP(totalAdvances)}
-              </Text>
-            </View>
-          )}
-
-          <Divider style={{ marginVertical: 8 }} />
-
-          <View style={styles.summaryRow}>
-            <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
-              Efectivo Esperado en Caja:
-            </Text>
-            <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
-              {formatCOP(expectedTotal - bankTotal - totalCredit - expenses)}
-            </Text>
-          </View>
-        </Card.Content>
-      </Card>
 
       {/* Denominations */}
       <Card style={styles.card} mode="elevated">
@@ -328,47 +273,98 @@ export default function CierreCajaScreen() {
         </Card.Content>
       </Card>
 
-      {/* Summary */}
+      {/* Unified Summary Card */}
       <Card style={styles.card} mode="elevated">
         <Card.Content>
-          <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 12 }}>
-            Resumen
+          <Text variant="titleMedium" style={{ fontWeight: 'bold', marginBottom: 12, color: theme.colors.primary }}>
+            Resumen de Jornada
           </Text>
+
+          {/* Base */}
           <View style={styles.summaryRow}>
-            <Text variant="bodyMedium">Base de apertura</Text>
-            <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurfaceVariant }}>
+            <Text variant="bodyMedium">Base del día (Apertura)</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#E2B13C' }}>
               {formatCOP(cashBase)}
             </Text>
           </View>
+
+          <Divider style={{ marginVertical: 8 }} />
+
+          {/* Ventas desglosadas */}
           <View style={styles.summaryRow}>
-            <Text variant="bodyMedium">Efectivo contado</Text>
-            <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
-              {formatCOP(cashTotal)}
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Total Ventas</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>
+              {formatCOP(expectedTotal)}
             </Text>
           </View>
-          <View style={styles.summaryRow}>
-            <Text variant="bodyMedium">Transferencias</Text>
-            <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
+          <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Efectivo Esperado (Ventas)</Text>
+            <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
+              {formatCOP(expectedTotal - bankTotal - totalCredit)}
+            </Text>
+          </View>
+          <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Transferencias (Bancos)</Text>
+            <Text variant="bodySmall" style={{ color: '#388E3C' }}>
               {formatCOP(bankTotal)}
             </Text>
           </View>
-          <View style={styles.summaryRow}>
-            <Text variant="bodyMedium">Total real (- base)</Text>
-            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>
-              {formatCOP(actualTotal - cashBase)}
+          <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Fiados (Cartera)</Text>
+            <Text variant="bodySmall" style={{ color: '#1976D2' }}>
+              {formatCOP(totalCredit)}
             </Text>
           </View>
+
           <Divider style={{ marginVertical: 8 }} />
+
+          {/* Egresos desglosados */}
           <View style={styles.summaryRow}>
-            <Text variant="bodyMedium">Esperado neto (- fiados, - gastos)</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Total Egresos</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#D32F2F' }}>
+              -{formatCOP(expenses)}
+            </Text>
+          </View>
+          <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Adelantos Colaboradores</Text>
+            <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
+              {formatCOP(totalAdvances)}
+            </Text>
+          </View>
+          <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Compras / Gastos de Turno</Text>
+            <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
+              {formatCOP(expenses - totalAdvances)}
+            </Text>
+          </View>
+
+          <Divider style={{ marginVertical: 8 }} />
+
+          {/* Efectivo con y sin base */}
+          <View style={styles.summaryRow}>
+            <Text variant="bodyMedium">Efectivo esperado (Sin Base)</Text>
             <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
-              {formatCOP(expectedTotal - totalCredit - expenses)}
+              {formatCOP(expectedTotal - bankTotal - totalCredit - expenses)}
             </Text>
           </View>
           <View style={styles.summaryRow}>
-            <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>
-              Discrepancia
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Efectivo esperado (Con Base)</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+              {formatCOP(cashBase + expectedTotal - bankTotal - totalCredit - expenses)}
             </Text>
+          </View>
+
+          <Divider style={{ marginVertical: 8 }} />
+
+          {/* Físico contado vs discrepancia */}
+          <View style={styles.summaryRow}>
+            <Text variant="bodyMedium">Efectivo Contado (Físico en Caja)</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#FFF' }}>
+              {formatCOP(cashTotal)}
+            </Text>
+          </View>
+          <View style={[styles.summaryRow, { marginTop: 4 }]}>
+            <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>Discrepancia (Diferencia)</Text>
             <Text
               variant="titleMedium"
               style={{
