@@ -403,6 +403,8 @@ export default function ContabilidadScreen() {
         approvedWriteoffs = wo;
       }
 
+      allExpenses = allExpenses.filter((exp) => exp.category !== 'Adelanto');
+
       const totalRevenue = sales.reduce((sum, s) => sum + s.totalAmount, 0);
       const totalExpenses = allExpenses.reduce((sum, e) => sum + e.amount, 0);
       const totalPurchases = purchases.reduce((sum, p) => sum + p.priceCOP, 0);
@@ -996,7 +998,7 @@ export default function ContabilidadScreen() {
     }
   }, [editingExpense, editDescription, editAmount, expenseRepo, loadData]);
 
-  const handleOpenAuditModal = useCallback(() => {
+  const handleOpenAuditModal = useCallback(async () => {
     const defaultDate = todayColombia();
     const existingAudit = cashAuditRows.find((row) => row.date === defaultDate);
     setAuditDate(defaultDate);
@@ -1011,11 +1013,23 @@ export default function ContabilidadScreen() {
       coins: existingAudit?.coins ?? 0,
     });
     setAuditBankTotal(existingAudit?.bankTotal ?? 0);
-    setAuditCartera(existingAudit?.cartera ?? dbCartera);
     setAuditBase(existingAudit?.openingBase ?? latestTheoreticalBase);
     setAuditError('');
+    setAuditCartera(existingAudit?.cartera ?? dbCartera);
     setAuditModalVisible(true);
-  }, [cashAuditRows, dbCartera, latestTheoreticalBase]);
+
+    try {
+      const freshCredits = await creditRepo.getAll();
+      const appliedStore = stores.find((s) => s.id === appliedStoreId);
+      const isProd = appliedStore?.isProductionCenter ?? false;
+      const freshTotal = isProd
+        ? freshCredits.filter(c => c.debtorType === 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0)
+        : freshCredits.filter(c => c.storeId === appliedStoreId && c.debtorType !== 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0);
+      setAuditCartera(existingAudit?.cartera ?? freshTotal);
+    } catch (err) {
+      console.warn('Error reloading fresh cartera for audit:', err);
+    }
+  }, [cashAuditRows, dbCartera, latestTheoreticalBase, creditRepo, appliedStoreId, stores]);
 
   const handleSaveCashAudit = useCallback(async () => {
     if (!appliedStoreId) return;
