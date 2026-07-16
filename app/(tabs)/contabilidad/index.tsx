@@ -715,8 +715,8 @@ export default function ContabilidadScreen() {
           // Variable base en local does not go in/out as expense. It is a separate ledger asset.
           const theoreticalBaseToday = isApproved ? openingBaseVal : runningBaseLocal;
 
-          const grossInflowToday = (isApproved ? closing.expectedTotal : 0) + cashPayToday + bankPayToday;
-          const grossOutflowToday = (isApproved ? closing.expenses : 0) + generalCashExp + generalBankExp + cpOutflowPayToday;
+          const grossInflowToday = (isApproved ? closing.expectedTotal : 0);
+          const grossOutflowToday = (isApproved ? closing.expenses : 0) + generalCashExp + generalBankExp;
 
           if (date >= startDate) {
             sumIngresosGral += grossInflowToday;
