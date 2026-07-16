@@ -413,7 +413,7 @@ export default function VentasScreen() {
         ? `Adelanto a ${selectedWorker ? selectedWorker.name : 'trabajador'}: ${compraTurnoDesc.trim()}`
         : compraTurnoDesc.trim();
 
-      await expenseRepo.create({
+      const createdExpense = await expenseRepo.create({
         date: todayColombia(),
         storeId: selectedStoreId,
         category,
@@ -423,6 +423,20 @@ export default function VentasScreen() {
         workerId: salidaType === 'ADELANTO' ? salidaWorkerId : undefined,
         isFixed: category === 'Adelanto',
       });
+
+      if (salidaType === 'ADELANTO' && selectedWorker) {
+        await creditService.createCredit(
+          selectedWorker.name,
+          'TRABAJADOR',
+          `Adelanto de nómina en turno: ${compraTurnoDesc.trim()}`,
+          compraTurnoAmount,
+          todayColombia(),
+          salidaWorkerId,
+          undefined,
+          createdExpense.id,
+          selectedStoreId,
+        );
+      }
       setCompraTurnoVisible(false);
       setCompraTurnoDesc('');
       setCompraTurnoAmount(0);

@@ -607,10 +607,14 @@ export default function ContabilidadScreen() {
         // Segment expenses and purchases by date and payment method
         const cashExpensesByDate = new Map<string, number>();
         const bankExpensesByDate = new Map<string, number>();
+        const shiftAdvancesByDate = new Map<string, number>();
         for (const exp of ledgerExpenses) {
+          const expDate = exp.date.split('T')[0];
+          if (exp.category === 'Adelanto') {
+            shiftAdvancesByDate.set(expDate, (shiftAdvancesByDate.get(expDate) ?? 0) + exp.amount);
+          }
           const isRegister = exp.category === 'Compra Turno' || exp.category === 'Adelanto';
           if (!isRegister) {
-            const expDate = exp.date.split('T')[0];
             if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
               cashExpensesByDate.set(expDate, (cashExpensesByDate.get(expDate) ?? 0) + exp.amount);
             } else {
@@ -715,8 +719,9 @@ export default function ContabilidadScreen() {
           // Variable base en local does not go in/out as expense. It is a separate ledger asset.
           const theoreticalBaseToday = isApproved ? openingBaseVal : runningBaseLocal;
 
+          const shiftAdvancesToday = shiftAdvancesByDate.get(date) ?? 0;
           const grossInflowToday = (isApproved ? closing.expectedTotal : 0);
-          const grossOutflowToday = (isApproved ? closing.expenses : 0) + generalCashExp + generalBankExp;
+          const grossOutflowToday = (isApproved ? Math.max(0, closing.expenses - shiftAdvancesToday) : 0) + generalCashExp + generalBankExp;
 
           if (date >= startDate) {
             sumIngresosGral += grossInflowToday;
