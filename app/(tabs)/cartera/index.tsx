@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { FlatList, View, StyleSheet } from 'react-native';
 import { Card, Text, FAB, Chip, Divider, Button, useTheme } from 'react-native-paper';
-import { Link, router } from 'expo-router';
+import { Link, router, useFocusEffect } from 'expo-router';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
@@ -109,9 +109,11 @@ export default function CarteraScreen() {
     }
   }, [creditService]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   const storeCredits = useMemo(() => {
     if (!selectedStoreId) return allCredits;

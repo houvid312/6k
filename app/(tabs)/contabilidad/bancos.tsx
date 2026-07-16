@@ -252,12 +252,14 @@ export default function BancosScreen() {
         <StoreSelector />
       </View>
 
-      <KpiCard
-        icon="bank"
-        label="Total en Banco"
-        value={formatCOP(totalBank)}
-        color="#1976D2"
-      />
+      <View style={{ flexDirection: 'row', marginBottom: 8 }}>
+        <KpiCard
+          icon="bank"
+          label="Total en Banco"
+          value={formatCOP(totalBank)}
+          color="#1976D2"
+        />
+      </View>
 
       <Divider style={styles.divider} />
 

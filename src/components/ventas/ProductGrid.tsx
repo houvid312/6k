@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { StyleSheet, View, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 import { Product } from '../../domain/entities';
+import { formatCOP } from '../../utils/currency';
 
 const GRID_PADDING = 12;
 const GRID_GAP = 8;
@@ -37,6 +38,7 @@ interface Props {
   selectedId?: string;
   availablePortions?: Record<string, number>;
   soldPortions?: Record<string, number>;
+  totalSalesToday?: number;
 }
 
 function getPortionColor(count: number): string {
@@ -46,7 +48,7 @@ function getPortionColor(count: number): string {
   return '#388E3C';
 }
 
-export function ProductGrid({ products, onSelect, selectedId, availablePortions, soldPortions }: Props) {
+export function ProductGrid({ products, onSelect, selectedId, availablePortions, soldPortions, totalSalesToday }: Props) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const [gridWidth, setGridWidth] = useState(0);
@@ -130,10 +132,15 @@ export function ProductGrid({ products, onSelect, selectedId, availablePortions,
 
       {/* Total sold portions */}
       {soldPortions && totalSoldPortions > 0 && (
-        <View style={[styles.totalSoldRow, { backgroundColor: theme.colors.surfaceVariant }]}>
+        <View style={[styles.totalSoldRow, { backgroundColor: theme.colors.surfaceVariant, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
           <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
             Total vendidas: {totalSoldPortions} porciones
           </Text>
+          {totalSalesToday !== undefined && totalSalesToday > 0 && (
+            <Text style={[styles.totalSoldText, { color: theme.colors.primary, fontWeight: 'bold' }]}>
+              Ventas: {formatCOP(totalSalesToday)}
+            </Text>
+          )}
         </View>
       )}
 

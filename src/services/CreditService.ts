@@ -1,4 +1,4 @@
-import { CreditEntry, DebtorType } from '../domain/entities';
+import { CreditEntry, CreditPayment, DebtorType } from '../domain/entities';
 import { ICreditRepository } from '../domain/interfaces/repositories';
 import { todayColombia } from '../utils/dates';
 
@@ -18,12 +18,14 @@ export class CreditService {
     saleId?: string,
     expenseId?: string,
     storeId?: string,
+    customerId?: string,
   ): Promise<CreditEntry> {
     return this.creditRepo.create({
       date,
       debtorName,
       debtorType,
       workerId,
+      customerId,
       storeId,
       saleId,
       expenseId,
@@ -37,7 +39,7 @@ export class CreditService {
   /**
    * Registers a payment against a credit, reducing the balance.
    */
-  async registerPayment(creditId: string, paymentAmount: number): Promise<CreditEntry> {
+  async registerPayment(creditId: string, paymentAmount: number, notes: string = 'Abono manual'): Promise<CreditEntry> {
     const all = await this.creditRepo.getAll();
     const credit = all.find((c) => c.id === creditId);
     if (!credit) {
@@ -51,7 +53,7 @@ export class CreditService {
       amount: paymentAmount,
       date: todayColombia(),
       source: 'MANUAL',
-      notes: 'Abono manual',
+      notes,
     });
 
     const updated = (await this.creditRepo.getAll()).find((c) => c.id === creditId);
@@ -88,5 +90,12 @@ export class CreditService {
    */
   async getAllCredits(): Promise<CreditEntry[]> {
     return this.creditRepo.getAll();
+  }
+
+  /**
+   * Gets all payments for a specific credit.
+   */
+  async getPaymentsByCredit(creditId: string): Promise<CreditPayment[]> {
+    return this.creditRepo.getPaymentsByCredit(creditId);
   }
 }

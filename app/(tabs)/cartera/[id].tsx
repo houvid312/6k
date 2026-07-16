@@ -53,6 +53,10 @@ export default function DebtorDetailScreen() {
   const [credit, setCredit] = useState<CreditEntry | null>(null);
   const [relatedCredits, setRelatedCredits] = useState<CreditEntry[]>([]);
   const [paymentAmount, setPaymentAmount] = useState(0);
+  const [paymentMethod, setPaymentMethod] = useState<'EFECTIVO' | 'TRANSFERENCIA' | 'MIXTO'>('TRANSFERENCIA');
+  const [cashPart, setCashPart] = useState(0);
+  const [bankPart, setBankPart] = useState(0);
+  const [creditPayments, setCreditPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -66,6 +70,9 @@ export default function DebtorDetailScreen() {
       if (found) {
         const related = await creditService.getCreditsByDebtor(found.debtorName);
         setRelatedCredits(related);
+
+        const payments = await creditService.getPaymentsByCredit(found.id);
+        setCreditPayments(payments);
       }
     } catch {
       setCredit(null);
@@ -79,23 +86,56 @@ export default function DebtorDetailScreen() {
   }, [loadData]);
 
   const handlePayment = useCallback(async () => {
-    if (!credit || paymentAmount <= 0) {
-      showError('Ingresa un monto valido');
-      return;
+    if (!credit) return;
+
+    if (paymentMethod === 'MIXTO') {
+      if (cashPart <= 0 && bankPart <= 0) {
+        showError('Por favor ingresa montos válidos para pago mixto.');
+        return;
+      }
+      if (cashPart + bankPart > credit.balance) {
+        showError(`El total del abono (${formatCOP(cashPart + bankPart)}) supera el saldo pendiente del crédito (${formatCOP(credit.balance)})`);
+        return;
+      }
+    } else {
+      if (paymentAmount <= 0) {
+        showError('Ingresa un monto válido');
+        return;
+      }
+      if (paymentAmount > credit.balance) {
+        showError(`El abono (${formatCOP(paymentAmount)}) supera el saldo pendiente del crédito (${formatCOP(credit.balance)})`);
+        return;
+      }
     }
 
     setSubmitting(true);
     try {
-      await creditService.registerPayment(credit.id, paymentAmount);
-      showSuccess(`${formatCOP(paymentAmount)} aplicado a ${credit.debtorName}`);
+      if (paymentMethod === 'EFECTIVO') {
+        await creditService.registerPayment(credit.id, paymentAmount, 'Abono manual en Efectivo');
+        showSuccess(`${formatCOP(paymentAmount)} en Efectivo aplicado a ${credit.debtorName}`);
+      } else if (paymentMethod === 'TRANSFERENCIA') {
+        await creditService.registerPayment(credit.id, paymentAmount, 'Abono manual por Transferencia');
+        showSuccess(`${formatCOP(paymentAmount)} por Transferencia aplicado a ${credit.debtorName}`);
+      } else {
+        if (cashPart > 0) {
+          await creditService.registerPayment(credit.id, cashPart, 'Abono manual en Efectivo (Parte de pago Mixto)');
+        }
+        if (bankPart > 0) {
+          await creditService.registerPayment(credit.id, bankPart, 'Abono manual por Transferencia (Parte de pago Mixto)');
+        }
+        showSuccess(`Abono mixto de ${formatCOP(cashPart + bankPart)} aplicado a ${credit.debtorName}`);
+      }
+
       setPaymentAmount(0);
+      setCashPart(0);
+      setBankPart(0);
       loadData();
-    } catch {
-      showError('No se pudo registrar el pago');
+    } catch (err: any) {
+      showError(err instanceof Error ? err.message : 'No se pudo registrar el pago');
     } finally {
       setSubmitting(false);
     }
-  }, [credit, paymentAmount, creditService, loadData, showSuccess, showError]);
+  }, [credit, paymentAmount, paymentMethod, cashPart, bankPart, creditService, loadData, showSuccess, showError]);
 
   if (loading) {
     return <LoadingIndicator message="Cargando deuda..." />;
@@ -144,11 +184,48 @@ export default function DebtorDetailScreen() {
             <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 12 }}>
               Registrar Pago
             </Text>
-            <CurrencyInput
-              value={paymentAmount}
-              onChangeValue={setPaymentAmount}
-              label="Monto del pago"
-            />
+
+            {/* Medio de Pago Selector */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginBottom: 16 }}>
+              {(['TRANSFERENCIA', 'EFECTIVO', 'MIXTO'] as const).map((method) => (
+                <Chip
+                  key={method}
+                  selected={paymentMethod === method}
+                  onPress={() => setPaymentMethod(method)}
+                  style={{ 
+                    backgroundColor: paymentMethod === method ? '#E63946' : '#2A2A2A',
+                    borderRadius: 8
+                  }}
+                  textStyle={{ color: '#FFF', fontSize: 11 }}
+                  showSelectedOverlay={false}
+                >
+                  {method === 'TRANSFERENCIA' ? 'Bancos' : method === 'EFECTIVO' ? 'Efectivo' : 'Mixto'}
+                </Chip>
+              ))}
+            </View>
+
+            {paymentMethod === 'MIXTO' ? (
+              <View>
+                <CurrencyInput
+                  value={cashPart}
+                  onChangeValue={setCashPart}
+                  label="Monto en Efectivo"
+                />
+                <View style={{ height: 12 }} />
+                <CurrencyInput
+                  value={bankPart}
+                  onChangeValue={setBankPart}
+                  label="Monto por Transferencia"
+                />
+              </View>
+            ) : (
+              <CurrencyInput
+                value={paymentAmount}
+                onChangeValue={setPaymentAmount}
+                label={paymentMethod === 'EFECTIVO' ? "Monto en Efectivo" : "Monto por Transferencia"}
+              />
+            )}
+
             <Button
               mode="contained"
               onPress={handlePayment}
@@ -162,6 +239,36 @@ export default function DebtorDetailScreen() {
           </Card.Content>
         </Card>
       )}
+
+      {/* Extracto de Abonos (Credit extract) */}
+      <Card style={styles.card} mode="elevated">
+        <Card.Content>
+          <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 12 }}>
+            Extracto de Abonos a este Crédito
+          </Text>
+          {creditPayments.length === 0 ? (
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontStyle: 'italic' }}>
+              No se han registrado abonos para este crédito aún.
+            </Text>
+          ) : (
+            creditPayments.map((p) => (
+              <View key={p.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#222' }}>
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodyMedium" style={{ fontWeight: '500', color: '#F5F0EB' }}>
+                    {p.notes || 'Abono manual'}
+                  </Text>
+                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontSize: 11 }}>
+                    Fecha: {formatDate(p.date)}
+                  </Text>
+                </View>
+                <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#4CAF50', marginLeft: 8 }}>
+                  +{formatCOP(p.amount)}
+                </Text>
+              </View>
+            ))
+          )}
+        </Card.Content>
+      </Card>
 
       {/* Credit history */}
       <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600' }]}>

@@ -2396,71 +2396,108 @@ export default function ContabilidadScreen() {
 
             <Divider style={{ marginVertical: 12 }} />
 
-            <View style={styles.txRow}>
-              <Text variant="bodyMedium">Ventas esperadas:</Text>
-              <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
-                {formatCOP(closingExpected)}
-              </Text>
-            </View>
+            <Text variant="titleSmall" style={{ fontWeight: 'bold', marginBottom: 8, color: theme.colors.primary }}>
+              Resumen de Jornada (Verificación)
+            </Text>
 
+            {/* Base */}
             <View style={styles.txRow}>
-              <Text variant="bodyMedium">(-) Ventas a Crédito:</Text>
-              <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#1976D2' }}>
-                {formatCOP(closingCreditSales)}
-              </Text>
-            </View>
-
-            <View style={styles.txRow}>
-              <Text variant="bodyMedium">(+) Base de Apertura:</Text>
-              <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#E2B13C' }}>
+              <Text variant="bodySmall">Base del día (Apertura)</Text>
+              <Text variant="bodySmall" style={{ fontWeight: '600', color: '#E2B13C' }}>
                 {formatCOP(closingOpeningBase)}
               </Text>
             </View>
 
+            <Divider style={{ marginVertical: 6 }} />
+
+            {/* Ventas */}
             <View style={styles.txRow}>
-              <Text variant="bodyMedium">Total reportado (Hay):</Text>
-              <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
-                {formatCOP(
-                  (closingDenoms.bills100k * 100000) +
-                  (closingDenoms.bills50k * 50000) +
-                  (closingDenoms.bills20k * 20000) +
-                  (closingDenoms.bills10k * 10000) +
-                  (closingDenoms.bills5k * 5000) +
-                  (closingDenoms.bills2k * 2000) +
-                  closingDenoms.coins +
-                  closingBankTotal
-                )}
+              <Text variant="bodySmall" style={{ fontWeight: 'bold' }}>Total Ventas</Text>
+              <Text variant="bodySmall" style={{ fontWeight: 'bold' }}>
+                {formatCOP(closingExpected)}
+              </Text>
+            </View>
+            <View style={[styles.txRow, { paddingLeft: 12 }]}>
+              <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Efectivo Esperado (Ventas)</Text>
+              <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
+                {formatCOP(closingExpected - closingBankTotal - closingCreditSales)}
+              </Text>
+            </View>
+            <View style={[styles.txRow, { paddingLeft: 12 }]}>
+              <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Transferencias (Bancos)</Text>
+              <Text variant="bodySmall" style={{ color: '#388E3C' }}>
+                {formatCOP(closingBankTotal)}
+              </Text>
+            </View>
+            <View style={[styles.txRow, { paddingLeft: 12 }]}>
+              <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Fiados (Cartera)</Text>
+              <Text variant="bodySmall" style={{ color: '#1976D2' }}>
+                {formatCOP(closingCreditSales)}
               </Text>
             </View>
 
-            <View style={[styles.txRow, { marginTop: 8 }]}>
-              <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>
-                Descuadre estimado:
+            <Divider style={{ marginVertical: 6 }} />
+
+            {/* Egresos */}
+            <View style={styles.txRow}>
+              <Text variant="bodySmall" style={{ fontWeight: 'bold' }}>Total Egresos (Gastos)</Text>
+              <Text variant="bodySmall" style={{ fontWeight: 'bold', color: '#D32F2F' }}>
+                -{formatCOP(closingExpenses)}
               </Text>
-              {(() => {
-                const totalContado =
-                  (closingDenoms.bills100k * 100000) +
-                  (closingDenoms.bills50k * 50000) +
-                  (closingDenoms.bills20k * 20000) +
-                  (closingDenoms.bills10k * 10000) +
-                  (closingDenoms.bills5k * 5000) +
-                  (closingDenoms.bills2k * 2000) +
-                  closingDenoms.coins +
-                  closingBankTotal;
-                const disc = totalContado - closingOpeningBase - (closingExpected - closingCreditSales - closingExpenses);
-                return (
-                  <Text
-                    variant="titleMedium"
-                    style={{
-                      fontWeight: 'bold',
-                      color: disc >= 0 ? '#388E3C' : '#D32F2F',
-                    }}
-                  >
-                    {formatCOP(disc)}
-                  </Text>
-                );
-              })()}
             </View>
+
+            <Divider style={{ marginVertical: 6 }} />
+
+            {/* Efectivo con y sin base */}
+            <View style={styles.txRow}>
+              <Text variant="bodySmall">Efectivo esperado (Sin Base)</Text>
+              <Text variant="bodySmall" style={{ fontWeight: '600' }}>
+                {formatCOP(closingExpected - closingBankTotal - closingCreditSales - closingExpenses)}
+              </Text>
+            </View>
+            <View style={styles.txRow}>
+              <Text variant="bodySmall" style={{ fontWeight: 'bold' }}>Efectivo esperado (Con Base)</Text>
+              <Text variant="bodySmall" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+                {formatCOP(closingOpeningBase + closingExpected - closingBankTotal - closingCreditSales - closingExpenses)}
+              </Text>
+            </View>
+
+            <Divider style={{ marginVertical: 6 }} />
+
+            {/* Físico contado vs discrepancia */}
+            {(() => {
+              const cashCounted = 
+                (closingDenoms.bills100k * 100000) +
+                (closingDenoms.bills50k * 50000) +
+                (closingDenoms.bills20k * 20000) +
+                (closingDenoms.bills10k * 10000) +
+                (closingDenoms.bills5k * 5000) +
+                (closingDenoms.bills2k * 2000) +
+                closingDenoms.coins;
+              const disc = cashCounted - closingOpeningBase - (closingExpected - closingBankTotal - closingCreditSales - closingExpenses);
+              return (
+                <>
+                  <View style={styles.txRow}>
+                    <Text variant="bodySmall">Efectivo Contado (Físico en Caja)</Text>
+                    <Text variant="bodySmall" style={{ fontWeight: 'bold', color: '#FFF' }}>
+                      {formatCOP(cashCounted)}
+                    </Text>
+                  </View>
+                  <View style={[styles.txRow, { marginTop: 4 }]}>
+                    <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Discrepancia (Diferencia)</Text>
+                    <Text
+                      variant="bodyMedium"
+                      style={{
+                        fontWeight: 'bold',
+                        color: Math.abs(disc) < 1000 ? '#388E3C' : '#D32F2F',
+                      }}
+                    >
+                      {formatCOP(disc)}
+                    </Text>
+                  </View>
+                </>
+              );
+            })()}
           </ScrollView>
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 }}>

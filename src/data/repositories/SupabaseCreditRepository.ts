@@ -214,4 +214,14 @@ export class SupabaseCreditRepository implements ICreditRepository {
     if (error) throw error;
     return (data as CreditPaymentRow[]).map(paymentToEntity);
   }
+
+  async getPaymentsByCredit(creditId: string): Promise<CreditPayment[]> {
+    const { data, error } = await supabase
+      .from('credit_payments')
+      .select('*')
+      .eq('credit_entry_id', creditId)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return (data as CreditPaymentRow[]).map(paymentToEntity);
+  }
 }

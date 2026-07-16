@@ -152,6 +152,7 @@ export default function VentasScreen() {
 
   // Porciones vendidas hoy por producto
   const [soldPortions, setSoldPortions] = useState<Record<string, number>>({});
+  const [totalSalesToday, setTotalSalesToday] = useState(0);
 
   // Cargar porciones del día desde BD
   useEffect(() => {
@@ -171,24 +172,39 @@ export default function VentasScreen() {
     })();
   }, [selectedStoreId]);
 
-  // Cargar porciones vendidas hoy
+  // Cargar porciones vendidas hoy y total en dinero
   const loadSoldPortions = useCallback(async () => {
     if (!selectedStoreId) return;
     const today = todayColombia();
     const { fromUtc: startOfDay, toUtc: endOfDay } = colombiaDateRangeToUtc(today, today);
-    const { data } = await supabase
+
+    // 1. Porciones
+    const { data: itemData } = await supabase
       .from('sale_items')
       .select('product_id, portions, sales!inner(store_id, created_at)')
       .eq('sales.store_id', selectedStoreId)
       .gte('sales.created_at', startOfDay)
       .lte('sales.created_at', endOfDay);
 
-    if (data) {
+    if (itemData) {
       const map: Record<string, number> = {};
-      for (const row of data) {
+      for (const row of itemData) {
         map[row.product_id] = (map[row.product_id] ?? 0) + row.portions;
       }
       setSoldPortions(map);
+    }
+
+    // 2. Ventas totales en dinero
+    const { data: salesData } = await supabase
+      .from('sales')
+      .select('total_amount')
+      .eq('store_id', selectedStoreId)
+      .gte('created_at', startOfDay)
+      .lte('created_at', endOfDay);
+
+    if (salesData) {
+      const totalAmountToday = salesData.reduce((sum, s) => sum + s.total_amount, 0);
+      setTotalSalesToday(totalAmountToday);
     }
   }, [selectedStoreId]);
 
@@ -933,6 +949,7 @@ export default function VentasScreen() {
       applyPortionDelta(previousSale, submittedCart);
 
       loadPendingSales();
+      loadSoldPortions();
     } catch (error) {
       console.error('Error registrando venta:', error);
       setSnackbar({
@@ -943,7 +960,7 @@ export default function VentasScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [applyPortionDelta, cart, cartPackagingSupplyId, clearCart, editingSale, isPaid, isCredit, debtorType, debtorWorkerId, debtorCustomerId, debtorName, loadPendingSales, normalizeMixedPayment, observations, paymentMethod, saleService, selectedStoreId, totalAmount]);
+  }, [applyPortionDelta, cart, cartPackagingSupplyId, clearCart, editingSale, isPaid, isCredit, debtorType, debtorWorkerId, debtorCustomerId, debtorName, loadPendingSales, loadSoldPortions, normalizeMixedPayment, observations, paymentMethod, saleService, selectedStoreId, totalAmount]);
 
   const handleFabPress = useCallback(() => {
     if (cart.length === 0) {
@@ -1547,6 +1564,7 @@ export default function VentasScreen() {
             selectedId={selectedProductId ?? undefined}
             availablePortions={portionsSet ? availablePortions : undefined}
             soldPortions={Object.keys(soldPortions).length > 0 ? soldPortions : undefined}
+            totalSalesToday={totalSalesToday}
           />
         </View>
 
