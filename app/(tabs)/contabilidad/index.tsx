@@ -612,11 +612,11 @@ export default function ContabilidadScreen() {
         const shiftAdvancesByDate = new Map<string, number>();
         for (const exp of ledgerExpenses) {
           const expDate = exp.date.split('T')[0];
-          if (exp.category === 'Adelanto') {
+          if (exp.category === 'Adelanto' && exp.paymentMethod === PaymentMethod.EFECTIVO) {
             shiftAdvancesByDate.set(expDate, (shiftAdvancesByDate.get(expDate) ?? 0) + exp.amount);
           }
-          const isRegister = exp.category === 'Compra Turno' || exp.category === 'Adelanto';
-          if (!isRegister) {
+          const isShiftDrawerExp = exp.category === 'Compra Turno' || (exp.category === 'Adelanto' && exp.paymentMethod === PaymentMethod.EFECTIVO);
+          if (!isShiftDrawerExp) {
             if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
               cashExpensesByDate.set(expDate, (cashExpensesByDate.get(expDate) ?? 0) + exp.amount);
             } else {
@@ -706,8 +706,6 @@ export default function ContabilidadScreen() {
 
           const openingBaseVal = openingsByDate.get(date) ?? 100000;
           const isApproved = closing && closing.status === ClosingStatus.APPROVED;
-          const salesTransferCash = isApproved ? (closing.actualTotal - closing.bankTotal - openingBaseVal) : 0;
-          const salesTransferBank = isApproved ? closing.bankTotal : 0;
 
           const generalCashExp = (cashExpensesByDate.get(date) ?? 0) + (cashPurchasesByDate.get(date) ?? 0);
           const generalBankExp = (bankExpensesByDate.get(date) ?? 0) + (bankPurchasesByDate.get(date) ?? 0);
@@ -717,6 +715,9 @@ export default function ContabilidadScreen() {
           const totalPayToday = totalPaymentsByDate.get(date) ?? 0;
           const cpOutflowPayToday = cpOutflowPaymentsByDate.get(date) ?? 0;
           const newCreditsToday = creditsByDate.get(date) ?? 0;
+
+          const salesTransferCash = isApproved ? (closing.expectedTotal - closing.bankTotal - newCreditsToday - closing.expenses) : 0;
+          const salesTransferBank = isApproved ? closing.bankTotal : 0;
 
           // Variable base en local does not go in/out as expense. It is a separate ledger asset.
           const theoreticalBaseToday = isApproved ? openingBaseVal : runningBaseLocal;
@@ -1031,6 +1032,156 @@ export default function ContabilidadScreen() {
     }
   }, [cashAuditRows, dbCartera, latestTheoreticalBase, creditRepo, appliedStoreId, stores]);
 
+  const calculateLiveTheoreticalTotal = useCallback(async (storeId: string, targetDate: string): Promise<number> => {
+    try {
+      const lastAudit = await cashAuditRepo.getLastAuditBeforeDate(storeId, targetDate);
+      const anchorDate = lastAudit ? lastAudit.date : '2020-01-01';
+
+      const [credits, closings, audits, openingsRes, ledgerExpenses, ledgerPurchases, creditPaymentsRes] = await Promise.all([
+        creditRepo.getAll(),
+        cashClosingService.getClosingsByDateRange(storeId, anchorDate, targetDate),
+        cashAuditRepo.getByDateRange(storeId, anchorDate, targetDate),
+        supabase
+          .from('cash_openings')
+          .select('date,total')
+          .eq('store_id', storeId)
+          .gte('date', anchorDate)
+          .lte('date', targetDate),
+        expenseRepo.getByDateRange(storeId, anchorDate, targetDate),
+        purchaseRepo.getByDateRange(anchorDate, targetDate, storeId),
+        supabase
+          .from('credit_payments')
+          .select('*, credit_entries(debtor_type, store_id)')
+          .gte('date', anchorDate)
+          .lte('date', targetDate),
+      ]);
+
+      const openingsByDate = new Map<string, number>(
+        (openingsRes.data || []).map((o: any) => [o.date, o.total])
+      );
+
+      const closingsByDate = new Map(closings.map(c => [c.date, c]));
+      const auditsByDate = new Map(audits.map(a => [a.date, a]));
+
+      const cashExpensesByDate = new Map<string, number>();
+      const bankExpensesByDate = new Map<string, number>();
+      const shiftAdvancesByDate = new Map<string, number>();
+      for (const exp of ledgerExpenses) {
+        const expDate = exp.date.split('T')[0];
+        if (exp.category === 'Adelanto' && exp.paymentMethod === PaymentMethod.EFECTIVO) {
+          shiftAdvancesByDate.set(expDate, (shiftAdvancesByDate.get(expDate) ?? 0) + exp.amount);
+        }
+        const isShiftDrawerExp = exp.category === 'Compra Turno' || (exp.category === 'Adelanto' && exp.paymentMethod === PaymentMethod.EFECTIVO);
+        if (!isShiftDrawerExp) {
+          if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
+            cashExpensesByDate.set(expDate, (cashExpensesByDate.get(expDate) ?? 0) + exp.amount);
+          } else {
+            bankExpensesByDate.set(expDate, (bankExpensesByDate.get(expDate) ?? 0) + exp.amount);
+          }
+        }
+      }
+
+      const cashPurchasesByDate = new Map<string, number>();
+      const bankPurchasesByDate = new Map<string, number>();
+      for (const pur of ledgerPurchases) {
+        const purDate = pur.timestamp.split('T')[0];
+        if (pur.paymentMethod === PaymentMethod.EFECTIVO) {
+          cashPurchasesByDate.set(purDate, (cashPurchasesByDate.get(purDate) ?? 0) + pur.priceCOP);
+        } else {
+          bankPurchasesByDate.set(purDate, (bankPurchasesByDate.get(purDate) ?? 0) + pur.priceCOP);
+        }
+      }
+
+      const cashPaymentsByDate = new Map<string, number>();
+      const bankPaymentsByDate = new Map<string, number>();
+      const totalPaymentsByDate = new Map<string, number>();
+      const cpOutflowPaymentsByDate = new Map<string, number>();
+
+      for (const p of (creditPaymentsRes.data || [])) {
+        const pDate = p.date.split('T')[0];
+        const entryStoreId = p.credit_entries?.store_id;
+        const debtorType = p.credit_entries?.debtor_type;
+
+        if (entryStoreId === storeId) {
+          if (debtorType === 'LOCAL') {
+            cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
+          } else {
+            totalPaymentsByDate.set(pDate, (totalPaymentsByDate.get(pDate) ?? 0) + p.amount);
+            const isCash = p.notes && String(p.notes).toLowerCase().includes('efectivo');
+            if (isCash) {
+              cashPaymentsByDate.set(pDate, (cashPaymentsByDate.get(pDate) ?? 0) + p.amount);
+            } else {
+              bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
+            }
+          }
+        }
+      }
+
+      const creditsByDate = new Map<string, number>();
+      for (const c of credits) {
+        if (c.storeId === storeId && c.debtorType !== 'LOCAL') {
+          const cDate = c.date.split('T')[0];
+          creditsByDate.set(cDate, (creditsByDate.get(cDate) ?? 0) + c.amount);
+        }
+      }
+
+      const initialBase = lastAudit ? lastAudit.actualTotal : 0;
+      const initialBank = lastAudit ? lastAudit.bankTotal : 0;
+      const initialCartera = lastAudit ? lastAudit.cartera : 0;
+      const initialBaseLocal = lastAudit ? lastAudit.openingBase : 0;
+      const initialCash = initialBase - initialBank - initialCartera - initialBaseLocal;
+
+      const dates = getDatesInRange(anchorDate, targetDate);
+      let runningCash = initialCash;
+      let runningBank = initialBank;
+      let runningCartera = initialCartera;
+      let runningBaseLocal = initialBaseLocal;
+
+      for (const date of dates) {
+        const audit = auditsByDate.get(date);
+        const closing = closingsByDate.get(date);
+
+        const openingBaseVal = openingsByDate.get(date) ?? 100000;
+        const isApproved = closing && closing.status === ClosingStatus.APPROVED;
+
+        const generalCashExp = (cashExpensesByDate.get(date) ?? 0) + (cashPurchasesByDate.get(date) ?? 0);
+        const generalBankExp = (bankExpensesByDate.get(date) ?? 0) + (bankPurchasesByDate.get(date) ?? 0);
+
+        const cashPayToday = cashPaymentsByDate.get(date) ?? 0;
+        const bankPayToday = bankPaymentsByDate.get(date) ?? 0;
+        const totalPayToday = totalPaymentsByDate.get(date) ?? 0;
+        const cpOutflowPayToday = cpOutflowPaymentsByDate.get(date) ?? 0;
+        const newCreditsToday = creditsByDate.get(date) ?? 0;
+
+        const salesTransferCash = isApproved ? (closing.expectedTotal - closing.bankTotal - newCreditsToday - closing.expenses) : 0;
+        const salesTransferBank = isApproved ? closing.bankTotal : 0;
+
+        const theoreticalBaseToday = isApproved ? openingBaseVal : runningBaseLocal;
+
+        const theoreticalCashToday = runningCash + salesTransferCash - generalCashExp + cashPayToday;
+        const theoreticalBankToday = runningBank + salesTransferBank - generalBankExp + bankPayToday - cpOutflowPayToday;
+        const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
+
+        if (audit) {
+          runningBank = audit.bankTotal;
+          runningCartera = audit.cartera;
+          runningBaseLocal = audit.openingBase;
+          runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - audit.openingBase;
+        } else {
+          runningCash = theoreticalCashToday;
+          runningBank = theoreticalBankToday;
+          runningCartera = theoreticalCarteraToday;
+          runningBaseLocal = theoreticalBaseToday;
+        }
+      }
+
+      return runningCash + runningBank + runningCartera + runningBaseLocal;
+    } catch (err) {
+      console.error('Error calculating live theoretical total:', err);
+      return 0;
+    }
+  }, [creditRepo, cashClosingService, cashAuditRepo, expenseRepo, purchaseRepo]);
+
   const handleSaveCashAudit = useCallback(async () => {
     if (!appliedStoreId) return;
     if (!isValidISODate(auditDate)) {
@@ -1064,8 +1215,7 @@ export default function ContabilidadScreen() {
         auditDenominations.coins;
       const actualTotalComputed = cashTotal + auditBankTotal + auditCartera + auditBase;
 
-      const matchingRow = cashAuditRows.find(r => r.date === auditDate);
-      const expectedTheoretical = matchingRow ? matchingRow.theoreticalTotal : (openingBaseValue + cashSales - cashExpenses + auditBankTotal + auditCartera + auditBase);
+      const expectedTheoretical = await calculateLiveTheoreticalTotal(appliedStoreId, auditDate);
       const discrepancyComputed = actualTotalComputed - expectedTheoretical;
 
       const entry: Omit<CashAuditEntry, 'id' | 'createdAt' | 'updatedAt'> = {

@@ -13,7 +13,7 @@ import { useCashClosingStore } from '../../../src/stores/useCashClosingStore';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate, todayColombia } from '../../../src/utils/dates';
 import { CashClosing } from '../../../src/domain/entities';
-import { ClosingStatus, UserRole } from '../../../src/domain/enums';
+import { ClosingStatus, UserRole, PaymentMethod } from '../../../src/domain/enums';
 
 const STATUS_CONFIG: Record<ClosingStatus, { label: string; color: string; icon: string }> = {
   [ClosingStatus.DRAFT]: { label: 'Borrador', color: '#F57C00', icon: 'pencil' },
@@ -67,8 +67,9 @@ export default function CierreCajaScreen() {
         let advances = 0;
         try {
           const dayExpenses = await expenseRepo.getByDateRange(selectedStoreId, today, today + 'T23:59:59');
-          totalExpenses = dayExpenses.reduce((sum, e) => sum + e.amount, 0);
-          advances = dayExpenses
+          const cashExpenses = dayExpenses.filter(e => e.paymentMethod === PaymentMethod.EFECTIVO);
+          totalExpenses = cashExpenses.reduce((sum, e) => sum + e.amount, 0);
+          advances = cashExpenses
             .filter((e) => e.category === 'Adelanto')
             .reduce((sum, e) => sum + e.amount, 0);
           setTotalAdvances(advances);

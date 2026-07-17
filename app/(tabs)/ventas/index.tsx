@@ -127,6 +127,7 @@ export default function VentasScreen() {
   const [compraTurnoSubmitting, setCompraTurnoSubmitting] = useState(false);
   const [salidaType, setSalidaType] = useState<string>('COMPRA');
   const [salidaWorkerId, setSalidaWorkerId] = useState<string>('');
+  const [salidaPaymentMethod, setSalidaPaymentMethod] = useState<PaymentMethod>(PaymentMethod.EFECTIVO);
 
   // Estados deudor para fiados (isPaid = false)
   const [isCredit, setIsCredit] = useState<boolean>(false);
@@ -401,8 +402,12 @@ export default function VentasScreen() {
       Alert.alert('Error', 'Por favor selecciona el trabajador para el adelanto');
       return;
     }
-    if (!compraTurnoDesc.trim() || compraTurnoAmount <= 0) {
-      Alert.alert('Error', 'Ingresa una descripcion y un monto valido');
+    if (salidaType === 'COMPRA' && !compraTurnoDesc.trim()) {
+      Alert.alert('Error', 'Por favor ingresa una descripción para la compra');
+      return;
+    }
+    if (compraTurnoAmount <= 0) {
+      Alert.alert('Error', 'Ingresa un monto válido');
       return;
     }
     setCompraTurnoSubmitting(true);
@@ -410,8 +415,10 @@ export default function VentasScreen() {
       const selectedWorker = workers.find((w) => w.id === salidaWorkerId);
       const category = salidaType === 'ADELANTO' ? 'Adelanto' : 'Compra Turno';
       const desc = salidaType === 'ADELANTO'
-        ? `Adelanto a ${selectedWorker ? selectedWorker.name : 'trabajador'}: ${compraTurnoDesc.trim()}`
+        ? `Adelanto a ${selectedWorker ? selectedWorker.name : 'trabajador'}${compraTurnoDesc.trim() ? `: ${compraTurnoDesc.trim()}` : ''}`
         : compraTurnoDesc.trim();
+
+      const payMethod = salidaType === 'ADELANTO' ? salidaPaymentMethod : PaymentMethod.EFECTIVO;
 
       await expenseRepo.create({
         date: todayColombia(),
@@ -419,7 +426,7 @@ export default function VentasScreen() {
         category,
         description: desc,
         amount: compraTurnoAmount,
-        paymentMethod: PaymentMethod.EFECTIVO,
+        paymentMethod: payMethod,
         workerId: salidaType === 'ADELANTO' ? salidaWorkerId : undefined,
         isFixed: category === 'Adelanto',
       });
@@ -428,6 +435,7 @@ export default function VentasScreen() {
       setCompraTurnoAmount(0);
       setSalidaType('COMPRA');
       setSalidaWorkerId('');
+      setSalidaPaymentMethod(PaymentMethod.EFECTIVO);
       setSnackbar({
         visible: true,
         success: true,
@@ -444,7 +452,7 @@ export default function VentasScreen() {
     } finally {
       setCompraTurnoSubmitting(false);
     }
-  }, [compraTurnoDesc, compraTurnoAmount, selectedStoreId, expenseRepo, salidaType, salidaWorkerId, workers]);
+  }, [compraTurnoDesc, compraTurnoAmount, selectedStoreId, expenseRepo, salidaType, salidaWorkerId, salidaPaymentMethod, workers]);
 
   const selectedProduct = products.find((p) => p.id === selectedProductId);
   const getPackagingSalePrice = useCallback((packagingSupplyId?: string) => {
@@ -1985,17 +1993,32 @@ export default function VentasScreen() {
           />
 
           {salidaType === 'ADELANTO' && (
-            <View style={{ marginBottom: 12 }}>
-              <SearchableSelect
-                options={workers
-                  .filter((w) => w.isActive)
-                  .map((w) => ({ value: w.id, label: w.name, subtitle: w.role }))}
-                selectedValue={salidaWorkerId}
-                placeholder="Seleccionar Trabajador"
-                icon="account"
-                onSelect={setSalidaWorkerId}
+            <>
+              <View style={{ marginBottom: 12 }}>
+                <SearchableSelect
+                  options={workers
+                    .filter((w) => w.isActive)
+                    .map((w) => ({ value: w.id, label: w.name, subtitle: w.role }))}
+                  selectedValue={salidaWorkerId}
+                  placeholder="Seleccionar Trabajador"
+                  icon="account"
+                  onSelect={setSalidaWorkerId}
+                />
+              </View>
+              <Text variant="bodyMedium" style={{ fontWeight: '600', marginBottom: 8, marginTop: 4 }}>
+                Medio de Pago
+              </Text>
+              <SegmentedButtons
+                value={salidaPaymentMethod}
+                onValueChange={(val) => setSalidaPaymentMethod(val as PaymentMethod)}
+                buttons={[
+                  { value: PaymentMethod.EFECTIVO, label: 'Efectivo' },
+                  { value: PaymentMethod.TRANSFERENCIA, label: 'Banco' },
+                ]}
+                style={{ marginBottom: 12 }}
+                density="small"
               />
-            </View>
+            </>
           )}
 
           <TextInput
@@ -2005,6 +2028,7 @@ export default function VentasScreen() {
             mode="outlined"
             dense
             style={{ marginBottom: 12 }}
+            placeholder={salidaType === 'ADELANTO' ? 'Opcional (Ej. Primera quincena)' : 'Obligatorio (Ej. Gaseosas)'}
           />
           <CurrencyInput
             value={compraTurnoAmount}
@@ -2018,9 +2042,9 @@ export default function VentasScreen() {
               onPress={handleCompraTurnoSubmit}
               loading={compraTurnoSubmitting}
               disabled={
-                !compraTurnoDesc.trim() ||
                 compraTurnoAmount <= 0 ||
                 compraTurnoSubmitting ||
+                (salidaType === 'COMPRA' && !compraTurnoDesc.trim()) ||
                 (salidaType === 'ADELANTO' && !salidaWorkerId)
               }
               buttonColor="#E63946"
