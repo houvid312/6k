@@ -12,7 +12,7 @@ import { useSnackbar } from '../../../src/hooks';
 import { useCashClosingStore } from '../../../src/stores/useCashClosingStore';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate, todayColombia } from '../../../src/utils/dates';
-import { CashClosing } from '../../../src/domain/entities';
+import { CashClosing, Expense } from '../../../src/domain/entities';
 import { ClosingStatus, UserRole, PaymentMethod } from '../../../src/domain/enums';
 
 const STATUS_CONFIG: Record<ClosingStatus, { label: string; color: string; icon: string }> = {
@@ -42,7 +42,7 @@ export default function CierreCajaScreen() {
 
   const [expectedTotal, setExpectedTotal] = useState(0);
   const [totalCredit, setTotalCredit] = useState(0);
-  const [totalAdvances, setTotalAdvances] = useState(0);
+  const [dayExpenses, setDayExpenses] = useState<Expense[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [existingClosing, setExistingClosing] = useState<CashClosing | null>(null);
 
@@ -64,15 +64,11 @@ export default function CierreCajaScreen() {
 
         // Auto-load expenses from today (Compra Turno, etc.)
         let totalExpenses = 0;
-        let advances = 0;
         try {
-          const dayExpenses = await expenseRepo.getByDateRange(selectedStoreId, today, today + 'T23:59:59');
-          const cashExpenses = dayExpenses.filter(e => e.paymentMethod === PaymentMethod.EFECTIVO);
+          const dbExpenses = await expenseRepo.getByDateRange(selectedStoreId, today, today + 'T23:59:59');
+          setDayExpenses(dbExpenses);
+          const cashExpenses = dbExpenses.filter(e => e.paymentMethod === PaymentMethod.EFECTIVO);
           totalExpenses = cashExpenses.reduce((sum, e) => sum + e.amount, 0);
-          advances = cashExpenses
-            .filter((e) => e.category === 'Adelanto')
-            .reduce((sum, e) => sum + e.amount, 0);
-          setTotalAdvances(advances);
         } catch { /* ignore */ }
 
         // Auto-load opening base
@@ -98,7 +94,6 @@ export default function CierreCajaScreen() {
       } catch {
         setExpectedTotal(0);
         setTotalCredit(0);
-        setTotalAdvances(0);
       }
     })();
   }, [selectedStoreId, today, cashClosingService, expenseRepo, setBankTotal, setCashBase, setDenomination, setExpenses, setCurrentStore]);
@@ -189,6 +184,22 @@ export default function CierreCajaScreen() {
     : existingClosing?.status === ClosingStatus.CONFIRMED
       ? 'Cierre del dia confirmado'
       : 'Cierre del dia aprobado';
+
+  const cashAdvances = dayExpenses
+    .filter((e) => e.category === 'Adelanto' && e.paymentMethod === PaymentMethod.EFECTIVO)
+    .reduce((sum, e) => sum + e.amount, 0);
+
+  const bankAdvances = dayExpenses
+    .filter((e) => e.category === 'Adelanto' && e.paymentMethod === PaymentMethod.TRANSFERENCIA)
+    .reduce((sum, e) => sum + e.amount, 0);
+
+  const cashPurchases = dayExpenses
+    .filter((e) => e.category !== 'Adelanto' && e.paymentMethod === PaymentMethod.EFECTIVO)
+    .reduce((sum, e) => sum + e.amount, 0);
+
+  const bankPurchases = dayExpenses
+    .filter((e) => e.category !== 'Adelanto' && e.paymentMethod === PaymentMethod.TRANSFERENCIA)
+    .reduce((sum, e) => sum + e.amount, 0);
 
   return (
     <ScreenContainer>
@@ -321,21 +332,43 @@ export default function CierreCajaScreen() {
 
           {/* Egresos desglosados */}
           <View style={styles.summaryRow}>
-            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Total Egresos</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Total Egresos (Compras/Gastos)</Text>
             <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#D32F2F' }}>
-              -{formatCOP(expenses)}
+              -{formatCOP(cashPurchases + bankPurchases)}
             </Text>
           </View>
           <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
-            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Adelantos Colaboradores</Text>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Compras en Efectivo (Salida de Caja)</Text>
             <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
-              {formatCOP(totalAdvances)}
+              {formatCOP(cashPurchases)}
             </Text>
           </View>
           <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
-            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Compras / Gastos de Turno</Text>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Compras por Banco (Transferencia)</Text>
             <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
-              {formatCOP(expenses - totalAdvances)}
+              {formatCOP(bankPurchases)}
+            </Text>
+          </View>
+
+          <Divider style={{ marginVertical: 8 }} />
+
+          {/* Adelantos desglosados */}
+          <View style={styles.summaryRow}>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Adelantos a Colaboradores (Cartera)</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#1976D2' }}>
+              {formatCOP(cashAdvances + bankAdvances)}
+            </Text>
+          </View>
+          <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Adelantos en Efectivo (Salida de Caja)</Text>
+            <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
+              {formatCOP(cashAdvances)}
+            </Text>
+          </View>
+          <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Adelantos por Banco (Transferencia)</Text>
+            <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
+              {formatCOP(bankAdvances)}
             </Text>
           </View>
 

@@ -609,14 +609,19 @@ export default function ContabilidadScreen() {
         // Segment expenses and purchases by date and payment method
         const cashExpensesByDate = new Map<string, number>();
         const bankExpensesByDate = new Map<string, number>();
-        const shiftAdvancesByDate = new Map<string, number>();
+        const cashAdvancesByDate = new Map<string, number>();
+        const bankAdvancesByDate = new Map<string, number>();
         for (const exp of ledgerExpenses) {
           const expDate = exp.date.split('T')[0];
-          if (exp.category === 'Adelanto' && exp.paymentMethod === PaymentMethod.EFECTIVO) {
-            shiftAdvancesByDate.set(expDate, (shiftAdvancesByDate.get(expDate) ?? 0) + exp.amount);
-          }
-          const isShiftDrawerExp = exp.category === 'Compra Turno' || (exp.category === 'Adelanto' && exp.paymentMethod === PaymentMethod.EFECTIVO);
-          if (!isShiftDrawerExp) {
+          if (exp.category === 'Adelanto') {
+            if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
+              cashAdvancesByDate.set(expDate, (cashAdvancesByDate.get(expDate) ?? 0) + exp.amount);
+            } else {
+              bankAdvancesByDate.set(expDate, (bankAdvancesByDate.get(expDate) ?? 0) + exp.amount);
+            }
+          } else if (exp.category === 'Compra Turno') {
+            // Exclude Compra Turno as it is already included in closing.expenses
+          } else {
             if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
               cashExpensesByDate.set(expDate, (cashExpensesByDate.get(expDate) ?? 0) + exp.amount);
             } else {
@@ -681,6 +686,7 @@ export default function ContabilidadScreen() {
 
         // Segment newly created credits by date
         const creditsByDate = new Map<string, number>();
+        const creditSalesByDate = new Map<string, number>();
         for (const c of credits) {
           const cDate = c.date.split('T')[0];
           const isCpCredit = c.debtorType === 'LOCAL';
@@ -692,6 +698,9 @@ export default function ContabilidadScreen() {
           } else {
             if (c.storeId === appliedStoreId && !isCpCredit) {
               creditsByDate.set(cDate, (creditsByDate.get(cDate) ?? 0) + c.amount);
+              if (c.saleId) {
+                creditSalesByDate.set(cDate, (creditSalesByDate.get(cDate) ?? 0) + c.amount);
+              }
             }
           }
         }
@@ -715,16 +724,18 @@ export default function ContabilidadScreen() {
           const totalPayToday = totalPaymentsByDate.get(date) ?? 0;
           const cpOutflowPayToday = cpOutflowPaymentsByDate.get(date) ?? 0;
           const newCreditsToday = creditsByDate.get(date) ?? 0;
+          const creditSalesToday = creditSalesByDate.get(date) ?? 0;
 
-          const salesTransferCash = isApproved ? (closing.expectedTotal - closing.bankTotal - newCreditsToday - closing.expenses) : 0;
+          const salesTransferCash = isApproved ? (closing.expectedTotal - closing.bankTotal - creditSalesToday - closing.expenses) : 0;
           const salesTransferBank = isApproved ? closing.bankTotal : 0;
 
           // Variable base en local does not go in/out as expense. It is a separate ledger asset.
           const theoreticalBaseToday = isApproved ? openingBaseVal : runningBaseLocal;
 
-          const shiftAdvancesToday = shiftAdvancesByDate.get(date) ?? 0;
+          const cashAdvancesToday = cashAdvancesByDate.get(date) ?? 0;
+          const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
           const grossInflowToday = (isApproved ? closing.expectedTotal : 0);
-          const grossOutflowToday = (isApproved ? Math.max(0, closing.expenses - shiftAdvancesToday) : 0) + generalCashExp + generalBankExp;
+          const grossOutflowToday = (isApproved ? Math.max(0, closing.expenses - cashAdvancesToday) : 0) + generalCashExp + generalBankExp;
 
           if (date >= startDate) {
             sumIngresosGral += grossInflowToday;
@@ -732,7 +743,7 @@ export default function ContabilidadScreen() {
           }
 
           const theoreticalCashToday = runningCash + salesTransferCash - generalCashExp + cashPayToday;
-          const theoreticalBankToday = runningBank + salesTransferBank - generalBankExp + bankPayToday - cpOutflowPayToday;
+          const theoreticalBankToday = runningBank + salesTransferBank - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
           const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
           const theoreticalToday = theoreticalCashToday + theoreticalBankToday + theoreticalCarteraToday + theoreticalBaseToday;
 
@@ -1065,14 +1076,19 @@ export default function ContabilidadScreen() {
 
       const cashExpensesByDate = new Map<string, number>();
       const bankExpensesByDate = new Map<string, number>();
-      const shiftAdvancesByDate = new Map<string, number>();
+      const cashAdvancesByDate = new Map<string, number>();
+      const bankAdvancesByDate = new Map<string, number>();
       for (const exp of ledgerExpenses) {
         const expDate = exp.date.split('T')[0];
-        if (exp.category === 'Adelanto' && exp.paymentMethod === PaymentMethod.EFECTIVO) {
-          shiftAdvancesByDate.set(expDate, (shiftAdvancesByDate.get(expDate) ?? 0) + exp.amount);
-        }
-        const isShiftDrawerExp = exp.category === 'Compra Turno' || (exp.category === 'Adelanto' && exp.paymentMethod === PaymentMethod.EFECTIVO);
-        if (!isShiftDrawerExp) {
+        if (exp.category === 'Adelanto') {
+          if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
+            cashAdvancesByDate.set(expDate, (cashAdvancesByDate.get(expDate) ?? 0) + exp.amount);
+          } else {
+            bankAdvancesByDate.set(expDate, (bankAdvancesByDate.get(expDate) ?? 0) + exp.amount);
+          }
+        } else if (exp.category === 'Compra Turno') {
+          // Exclude Compra Turno as it is already included in closing.expenses
+        } else {
           if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
             cashExpensesByDate.set(expDate, (cashExpensesByDate.get(expDate) ?? 0) + exp.amount);
           } else {
@@ -1118,10 +1134,14 @@ export default function ContabilidadScreen() {
       }
 
       const creditsByDate = new Map<string, number>();
+      const creditSalesByDate = new Map<string, number>();
       for (const c of credits) {
         if (c.storeId === storeId && c.debtorType !== 'LOCAL') {
           const cDate = c.date.split('T')[0];
           creditsByDate.set(cDate, (creditsByDate.get(cDate) ?? 0) + c.amount);
+          if (c.saleId) {
+            creditSalesByDate.set(cDate, (creditSalesByDate.get(cDate) ?? 0) + c.amount);
+          }
         }
       }
 
@@ -1152,14 +1172,17 @@ export default function ContabilidadScreen() {
         const totalPayToday = totalPaymentsByDate.get(date) ?? 0;
         const cpOutflowPayToday = cpOutflowPaymentsByDate.get(date) ?? 0;
         const newCreditsToday = creditsByDate.get(date) ?? 0;
+        const creditSalesToday = creditSalesByDate.get(date) ?? 0;
 
-        const salesTransferCash = isApproved ? (closing.expectedTotal - closing.bankTotal - newCreditsToday - closing.expenses) : 0;
+        const salesTransferCash = isApproved ? (closing.expectedTotal - closing.bankTotal - creditSalesToday - closing.expenses) : 0;
         const salesTransferBank = isApproved ? closing.bankTotal : 0;
 
         const theoreticalBaseToday = isApproved ? openingBaseVal : runningBaseLocal;
 
+        const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
+
         const theoreticalCashToday = runningCash + salesTransferCash - generalCashExp + cashPayToday;
-        const theoreticalBankToday = runningBank + salesTransferBank - generalBankExp + bankPayToday - cpOutflowPayToday;
+        const theoreticalBankToday = runningBank + salesTransferBank - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
         const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
 
         if (audit) {

@@ -7,7 +7,7 @@ import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { useDI } from '../../../src/di/providers';
 import { useSnackbar } from '../../../src/hooks';
-import { CreditEntry } from '../../../src/domain/entities';
+import { CreditEntry, Expense } from '../../../src/domain/entities';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate } from '../../../src/utils/dates';
 
@@ -47,7 +47,7 @@ function getNextFollowUp(dateStr: string): { daysUntil: number; label: string } 
 export default function DebtorDetailScreen() {
   const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { creditService } = useDI();
+  const { creditService, expenseRepo } = useDI();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [credit, setCredit] = useState<CreditEntry | null>(null);
@@ -57,6 +57,7 @@ export default function DebtorDetailScreen() {
   const [cashPart, setCashPart] = useState(0);
   const [bankPart, setBankPart] = useState(0);
   const [creditPayments, setCreditPayments] = useState<any[]>([]);
+  const [creditMethods, setCreditMethods] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -73,13 +74,37 @@ export default function DebtorDetailScreen() {
 
         const payments = await creditService.getPaymentsByCredit(found.id);
         setCreditPayments(payments);
+
+        // Fetch payment methods for related credits
+        const methods: Record<string, string> = {};
+        await Promise.all(
+          related.map(async (c) => {
+            if (c.expenseId) {
+              try {
+                const exp = await expenseRepo.getById(c.expenseId);
+                if (exp) {
+                  methods[c.id] = exp.paymentMethod;
+                }
+              } catch (e) {
+                console.error('Error fetching associated expense:', e);
+              }
+            } else if (c.saleId) {
+              methods[c.id] = 'VENTA';
+            } else if (c.transferId) {
+              methods[c.id] = 'TRASLADO';
+            } else {
+              methods[c.id] = 'MANUAL';
+            }
+          })
+        );
+        setCreditMethods(methods);
       }
     } catch {
       setCredit(null);
     } finally {
       setLoading(false);
     }
-  }, [id, creditService]);
+  }, [id, creditService, expenseRepo]);
 
   useEffect(() => {
     loadData();
@@ -281,6 +306,26 @@ export default function DebtorDetailScreen() {
         const daysBgColor = getDaysBgColor(days);
         const followUp = !c.isPaid ? getNextFollowUp(c.date) : null;
 
+        const method = creditMethods[c.id];
+        let mediumLabel = '';
+        let mediumColor = '#555';
+        if (method === 'EFECTIVO') {
+          mediumLabel = 'Efectivo';
+          mediumColor = '#E2B13C';
+        } else if (method === 'TRANSFERENCIA') {
+          mediumLabel = 'Transferencia';
+          mediumColor = '#1976D2';
+        } else if (method === 'VENTA') {
+          mediumLabel = 'Venta';
+          mediumColor = '#E63946';
+        } else if (method === 'TRASLADO') {
+          mediumLabel = 'Traslado';
+          mediumColor = '#8E24AA';
+        } else if (method === 'MANUAL') {
+          mediumLabel = 'Manual';
+          mediumColor = '#757575';
+        }
+
         return (
           <Card key={c.id} style={styles.historyCard} mode="elevated">
             <Card.Content>
@@ -300,6 +345,16 @@ export default function DebtorDetailScreen() {
 
                   {/* Days pending indicator */}
                   <View style={styles.indicatorRow}>
+                    {mediumLabel && (
+                      <Chip
+                        compact
+                        textStyle={{ fontSize: 10, color: '#FFF' }}
+                        style={{ backgroundColor: mediumColor }}
+                      >
+                        {mediumLabel}
+                      </Chip>
+                    )}
+
                     <Chip
                       compact
                       textStyle={{ fontSize: 10, color: c.isPaid ? '#388E3C' : daysColor }}

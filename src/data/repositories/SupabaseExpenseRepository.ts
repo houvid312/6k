@@ -116,4 +116,14 @@ export class SupabaseExpenseRepository implements IExpenseRepository {
     if (error) throw error;
     return (data as ExpenseRow[]).map(toEntity);
   }
+
+  async getById(id: string): Promise<Expense | null> {
+    const { data, error } = await supabase
+      .from('expenses')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? toEntity(data as ExpenseRow) : null;
+  }
 }
