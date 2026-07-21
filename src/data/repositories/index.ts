@@ -28,4 +28,5 @@ export { SupabaseAdditionCatalogRepository } from './SupabaseAdditionCatalogRepo
 export { SupabaseCashOpeningRepository } from './SupabaseCashOpeningRepository';
 export { SupabaseChecklistRepository } from './SupabaseChecklistRepository';
 export { SupabaseCustomerRepository } from './SupabaseCustomerRepository';
+export { SupabaseIncomeRepository } from './SupabaseIncomeRepository';
 

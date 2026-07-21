@@ -9,7 +9,7 @@ import { LoadingIndicator } from '../../../src/components/common/LoadingIndicato
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
-import { Sale, Expense, Purchase, Transfer, CashClosing, CashAuditEntry, DenominationCount } from '../../../src/domain/entities';
+import { Sale, Expense, Purchase, Transfer, CashClosing, CashAuditEntry, DenominationCount, Income } from '../../../src/domain/entities';
 import { DenominationCounter } from '../../../src/components/ventas/DenominationCounter';
 import { InventoryLevel, PaymentMethod, ClosingStatus } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
@@ -177,6 +177,7 @@ export default function ContabilidadScreen() {
     writeoffRepo,
     productRepo,
     creditRepo,
+    incomeRepo,
   } = useDI();
   const { selectedStoreId, stores, userRole, setSelectedStore } = useAppStore();
   const selectedStore = stores.find((s) => s.id === selectedStoreId);
@@ -219,6 +220,7 @@ export default function ContabilidadScreen() {
   const [periodLabel, setPeriodLabel] = useState('');
   const [reportSales, setReportSales] = useState<Sale[]>([]);
   const [reportExpenses, setReportExpenses] = useState<Expense[]>([]);
+  const [reportIncomes, setReportIncomes] = useState<Income[]>([]);
   const [reportPurchases, setReportPurchases] = useState<Purchase[]>([]);
   const [reportIncomingTransfers, setReportIncomingTransfers] = useState<Transfer[]>([]);
   const [reportOutgoingTransfers, setReportOutgoingTransfers] = useState<Transfer[]>([]);
@@ -348,6 +350,7 @@ export default function ContabilidadScreen() {
       const endDateTime = `${endDate}T23:59:59`;
       let sales: Sale[] = [];
       let allExpenses: Expense[] = [];
+      let allIncomes: Income[] = [];
       let purchases: Purchase[] = [];
       let incomingTransfers: Transfer[] = [];
       let outgoingTransfers: Transfer[] = [];
@@ -356,7 +359,7 @@ export default function ContabilidadScreen() {
 
       if (appliedStoreId === 'consolidado') {
         const fetchPromises = stores.map(async (store) => {
-          const [s, e, p, inc, out, inv, wo, closings, audits] = await Promise.all([
+          const [s, e, p, inc, out, inv, wo, closings, audits, inco] = await Promise.all([
             saleService.getSalesByDateRange(store.id, startDate, endDateTime),
             expenseRepo.getByDateRange(store.id, startDate, endDateTime),
             purchaseRepo.getByDateRange(startDate, endDateTime, store.id),
@@ -366,8 +369,9 @@ export default function ContabilidadScreen() {
             writeoffRepo.getApprovedByStoreAndDateRange(store.id, startDate, endDate),
             cashClosingService.getClosingsByDateRange(store.id, startDate, endDate),
             cashAuditRepo.getByDateRange(store.id, startDate, endDate),
+            incomeRepo.getByDateRange(store.id, startDate, endDate),
           ]);
-          return { s, e, p, inc, out, inv, wo, closings, audits, storeIsProd: store.isProductionCenter };
+          return { s, e, p, inc, out, inv, wo, closings, audits, inco, storeIsProd: store.isProductionCenter };
         });
 
         const results = await Promise.all(fetchPromises);
@@ -381,9 +385,10 @@ export default function ContabilidadScreen() {
           }
           storeInventory = [...storeInventory, ...res.inv];
           approvedWriteoffs = [...approvedWriteoffs, ...res.wo];
+          allIncomes = [...allIncomes, ...res.inco];
         }
       } else {
-        const [s, e, p, inc, out, inv, wo, closings, audits] = await Promise.all([
+        const [s, e, p, inc, out, inv, wo, closings, audits, inco] = await Promise.all([
           saleService.getSalesByDateRange(appliedStoreId, startDate, endDateTime),
           expenseRepo.getByDateRange(appliedStoreId, startDate, endDateTime),
           purchaseRepo.getByDateRange(startDate, endDateTime, appliedStoreId),
@@ -393,6 +398,7 @@ export default function ContabilidadScreen() {
           writeoffRepo.getApprovedByStoreAndDateRange(appliedStoreId, startDate, endDate),
           cashClosingService.getClosingsByDateRange(appliedStoreId, startDate, endDate),
           cashAuditRepo.getByDateRange(appliedStoreId, startDate, endDate),
+          incomeRepo.getByDateRange(appliedStoreId, startDate, endDate),
         ]);
         sales = s;
         allExpenses = e;
@@ -401,6 +407,7 @@ export default function ContabilidadScreen() {
         outgoingTransfers = out;
         storeInventory = inv;
         approvedWriteoffs = wo;
+        allIncomes = inco;
       }
 
       allExpenses = allExpenses.filter((exp) => exp.category !== 'Adelanto');
@@ -548,7 +555,7 @@ export default function ContabilidadScreen() {
         const lastAudit = await cashAuditRepo.getLastAuditBeforeDate(appliedStoreId, startDate);
         const anchorDate = lastAudit ? lastAudit.date : '2020-01-01';
 
-        const [credits, closings, audits, openingsRes, ledgerExpenses, ledgerPurchases, creditPaymentsRes] = await Promise.all([
+        const [credits, closings, audits, openingsRes, ledgerExpenses, ledgerPurchases, creditPaymentsRes, ledgerIncomes] = await Promise.all([
           creditRepo.getAll(),
           cashClosingService.getClosingsByDateRange(appliedStoreId, anchorDate, endDate),
           cashAuditRepo.getByDateRange(appliedStoreId, anchorDate, endDate),
@@ -565,6 +572,7 @@ export default function ContabilidadScreen() {
             .select('*, credit_entries(debtor_type, store_id)')
             .gte('date', anchorDate)
             .lte('date', endDate),
+          incomeRepo.getByDateRange(appliedStoreId, anchorDate, endDate),
         ]);
 
         const openingsObj = Object.fromEntries(
@@ -638,6 +646,18 @@ export default function ContabilidadScreen() {
             cashPurchasesByDate.set(purDate, (cashPurchasesByDate.get(purDate) ?? 0) + pur.priceCOP);
           } else {
             bankPurchasesByDate.set(purDate, (bankPurchasesByDate.get(purDate) ?? 0) + pur.priceCOP);
+          }
+        }
+
+        // Segment incomes by date and payment method
+        const cashIncomesByDate = new Map<string, number>();
+        const bankIncomesByDate = new Map<string, number>();
+        for (const inc of ledgerIncomes) {
+          const incDate = inc.date.split('T')[0];
+          if (inc.paymentMethod === PaymentMethod.EFECTIVO) {
+            cashIncomesByDate.set(incDate, (cashIncomesByDate.get(incDate) ?? 0) + inc.amount);
+          } else {
+            bankIncomesByDate.set(incDate, (bankIncomesByDate.get(incDate) ?? 0) + inc.amount);
           }
         }
 
@@ -734,7 +754,10 @@ export default function ContabilidadScreen() {
 
           const cashAdvancesToday = cashAdvancesByDate.get(date) ?? 0;
           const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
-          const grossInflowToday = (isApproved ? closing.expectedTotal : 0);
+          const generalCashIncomeToday = cashIncomesByDate.get(date) ?? 0;
+          const generalBankIncomeToday = bankIncomesByDate.get(date) ?? 0;
+
+          const grossInflowToday = (isApproved ? closing.expectedTotal : 0) + generalCashIncomeToday + generalBankIncomeToday;
           const grossOutflowToday = (isApproved ? Math.max(0, closing.expenses - cashAdvancesToday) : 0) + generalCashExp + generalBankExp;
 
           if (date >= startDate) {
@@ -742,8 +765,8 @@ export default function ContabilidadScreen() {
             sumEgresosGral += grossOutflowToday;
           }
 
-          const theoreticalCashToday = runningCash + salesTransferCash - generalCashExp + cashPayToday;
-          const theoreticalBankToday = runningBank + salesTransferBank - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
+          const theoreticalCashToday = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday;
+          const theoreticalBankToday = runningBank + salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
           const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
           const theoreticalToday = theoreticalCashToday + theoreticalBankToday + theoreticalCarteraToday + theoreticalBaseToday;
 
@@ -842,6 +865,7 @@ export default function ContabilidadScreen() {
       setPeriodLabel(startDate === endDate ? startDate : `${startDate} a ${endDate}`);
       setReportSales(sales);
       setReportExpenses(allExpenses);
+      setReportIncomes(allIncomes);
       setReportPurchases(purchases);
       setReportIncomingTransfers(incomingTransfers);
       setReportOutgoingTransfers(isProductionCenter || appliedStoreId === 'consolidado' ? outgoingTransfers : []);
@@ -1048,7 +1072,7 @@ export default function ContabilidadScreen() {
       const lastAudit = await cashAuditRepo.getLastAuditBeforeDate(storeId, targetDate);
       const anchorDate = lastAudit ? lastAudit.date : '2020-01-01';
 
-      const [credits, closings, audits, openingsRes, ledgerExpenses, ledgerPurchases, creditPaymentsRes] = await Promise.all([
+      const [credits, closings, audits, openingsRes, ledgerExpenses, ledgerPurchases, creditPaymentsRes, ledgerIncomes] = await Promise.all([
         creditRepo.getAll(),
         cashClosingService.getClosingsByDateRange(storeId, anchorDate, targetDate),
         cashAuditRepo.getByDateRange(storeId, anchorDate, targetDate),
@@ -1065,6 +1089,7 @@ export default function ContabilidadScreen() {
           .select('*, credit_entries(debtor_type, store_id)')
           .gte('date', anchorDate)
           .lte('date', targetDate),
+        incomeRepo.getByDateRange(storeId, anchorDate, targetDate),
       ]);
 
       const openingsByDate = new Map<string, number>(
@@ -1105,6 +1130,18 @@ export default function ContabilidadScreen() {
           cashPurchasesByDate.set(purDate, (cashPurchasesByDate.get(purDate) ?? 0) + pur.priceCOP);
         } else {
           bankPurchasesByDate.set(purDate, (bankPurchasesByDate.get(purDate) ?? 0) + pur.priceCOP);
+        }
+      }
+
+      // Segment incomes by date and payment method
+      const cashIncomesByDate = new Map<string, number>();
+      const bankIncomesByDate = new Map<string, number>();
+      for (const inc of ledgerIncomes) {
+        const incDate = inc.date.split('T')[0];
+        if (inc.paymentMethod === PaymentMethod.EFECTIVO) {
+          cashIncomesByDate.set(incDate, (cashIncomesByDate.get(incDate) ?? 0) + inc.amount);
+        } else {
+          bankIncomesByDate.set(incDate, (bankIncomesByDate.get(incDate) ?? 0) + inc.amount);
         }
       }
 
@@ -1180,9 +1217,11 @@ export default function ContabilidadScreen() {
         const theoreticalBaseToday = isApproved ? openingBaseVal : runningBaseLocal;
 
         const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
+        const generalCashIncomeToday = cashIncomesByDate.get(date) ?? 0;
+        const generalBankIncomeToday = bankIncomesByDate.get(date) ?? 0;
 
-        const theoreticalCashToday = runningCash + salesTransferCash - generalCashExp + cashPayToday;
-        const theoreticalBankToday = runningBank + salesTransferBank - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
+        const theoreticalCashToday = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday;
+        const theoreticalBankToday = runningBank + salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
         const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
 
         if (audit && date !== targetDate) {
@@ -1619,6 +1658,16 @@ export default function ContabilidadScreen() {
           onPress={() => router.push('/(tabs)/contabilidad/gastos')}
         >
           Gastos
+        </Button>
+        <Button
+          mode="outlined"
+          compact
+          icon="wallet-giftcard"
+          style={{ marginRight: 8, height: 32 }}
+          labelStyle={{ fontSize: 12, marginVertical: 4 }}
+          onPress={() => router.push('/(tabs)/contabilidad/ingresos')}
+        >
+          Ingresos
         </Button>
         <Button
           mode="outlined"
