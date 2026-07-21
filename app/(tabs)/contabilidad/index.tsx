@@ -1024,10 +1024,10 @@ export default function ContabilidadScreen() {
       bills2k: existingAudit?.bills2k ?? 0,
       coins: existingAudit?.coins ?? 0,
     });
-    setAuditBankTotal(existingAudit?.bankTotal ?? 0);
+    setAuditBankTotal(existingAudit?.bankTotal ?? latestTheoreticalBank);
     setAuditBase(existingAudit?.openingBase ?? latestTheoreticalBase);
     setAuditError('');
-    setAuditCartera(existingAudit?.cartera ?? dbCartera);
+    setAuditCartera(existingAudit?.cartera ?? latestTheoreticalCartera);
     setAuditModalVisible(true);
 
     try {
@@ -1041,7 +1041,7 @@ export default function ContabilidadScreen() {
     } catch (err) {
       console.warn('Error reloading fresh cartera for audit:', err);
     }
-  }, [cashAuditRows, dbCartera, latestTheoreticalBase, creditRepo, appliedStoreId, stores]);
+  }, [cashAuditRows, latestTheoreticalBank, latestTheoreticalCartera, latestTheoreticalBase, creditRepo, appliedStoreId, stores]);
 
   const calculateLiveTheoreticalTotal = useCallback(async (storeId: string, targetDate: string): Promise<number> => {
     try {
@@ -1185,7 +1185,7 @@ export default function ContabilidadScreen() {
         const theoreticalBankToday = runningBank + salesTransferBank - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
         const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
 
-        if (audit) {
+        if (audit && date !== targetDate) {
           runningBank = audit.bankTotal;
           runningCartera = audit.cartera;
           runningBaseLocal = audit.openingBase;
