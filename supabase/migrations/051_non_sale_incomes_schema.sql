@@ -15,11 +15,10 @@ CREATE TABLE public.incomes (
 ALTER TABLE public.incomes ENABLE ROW LEVEL SECURITY;
 
 -- Políticas de RLS
-CREATE POLICY "Authenticated read incomes" ON public.incomes
-  FOR SELECT TO authenticated USING (true);
-
-CREATE POLICY "Admin manage incomes" ON public.incomes
-  FOR ALL TO authenticated USING (public.get_user_role() = 'ADMIN') WITH CHECK (public.get_user_role() = 'ADMIN');
+CREATE POLICY "incomes_policy" ON public.incomes
+  FOR ALL TO authenticated
+  USING (public.is_admin_or_assigned_local(store_id))
+  WITH CHECK (public.is_admin_or_assigned_local(store_id));
 
 -- Índice
 CREATE INDEX idx_incomes_store_date ON public.incomes(store_id, date);
