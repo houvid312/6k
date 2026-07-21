@@ -1024,10 +1024,10 @@ export default function ContabilidadScreen() {
       bills2k: existingAudit?.bills2k ?? 0,
       coins: existingAudit?.coins ?? 0,
     });
-    setAuditBankTotal(existingAudit?.bankTotal ?? latestTheoreticalBank);
-    setAuditBase(existingAudit?.openingBase ?? latestTheoreticalBase);
+    setAuditBankTotal(latestTheoreticalBank);
+    setAuditBase(latestTheoreticalBase);
     setAuditError('');
-    setAuditCartera(existingAudit?.cartera ?? latestTheoreticalCartera);
+    setAuditCartera(latestTheoreticalCartera);
     setAuditModalVisible(true);
 
     try {
@@ -1037,7 +1037,7 @@ export default function ContabilidadScreen() {
       const freshTotal = isProd
         ? freshCredits.filter(c => c.debtorType === 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0)
         : freshCredits.filter(c => c.storeId === appliedStoreId && c.debtorType !== 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0);
-      setAuditCartera(existingAudit?.cartera ?? freshTotal);
+      setAuditCartera(freshTotal);
     } catch (err) {
       console.warn('Error reloading fresh cartera for audit:', err);
     }
