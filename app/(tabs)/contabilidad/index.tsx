@@ -672,23 +672,33 @@ export default function ContabilidadScreen() {
           const entry = p.credit_entries;
           if (!entry) continue;
 
+          // Skip non-confirmed payments (pending/rejected)
+          const isConfirmed = p.status === 'CONFIRMED';
+          if (!isConfirmed) continue;
+
           const pDate = p.date;
           const isCpCredit = entry.debtor_type === 'LOCAL';
 
           if (isProd) {
             if (isCpCredit) {
-              bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
+              // ONLY add to bank/total payments if this payment does NOT have an associated income record
+              if (!p.income_id) {
+                bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
+              }
               totalPaymentsByDate.set(pDate, (totalPaymentsByDate.get(pDate) ?? 0) + p.amount);
             }
           } else {
             if (entry.store_id === appliedStoreId) {
               if (isCpCredit) {
                 // Outflow payment made to CP
-                const isCash = p.notes?.toLowerCase().includes('efectivo') ?? false;
-                if (isCash) {
-                  cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
-                } else {
-                  cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
+                // ONLY subtract from outflow if this payment does NOT have an associated expense record
+                if (!p.expense_id) {
+                  const isCash = p.notes?.toLowerCase().includes('efectivo') ?? false;
+                  if (isCash) {
+                    cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
+                  } else {
+                    cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
+                  }
                 }
               } else {
                 // Inflow abono received
@@ -1150,21 +1160,42 @@ export default function ContabilidadScreen() {
       const totalPaymentsByDate = new Map<string, number>();
       const cpOutflowPaymentsByDate = new Map<string, number>();
 
+      const isProd = stores.find((s) => s.id === storeId)?.isProductionCenter ?? false;
+
       for (const p of (creditPaymentsRes.data || [])) {
         const pDate = p.date.split('T')[0];
         const entryStoreId = p.credit_entries?.store_id;
         const debtorType = p.credit_entries?.debtor_type;
+        const isCpCredit = debtorType === 'LOCAL';
 
-        if (entryStoreId === storeId) {
-          if (debtorType === 'LOCAL') {
-            cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
-          } else {
-            totalPaymentsByDate.set(pDate, (totalPaymentsByDate.get(pDate) ?? 0) + p.amount);
-            const isCash = p.notes && String(p.notes).toLowerCase().includes('efectivo');
-            if (isCash) {
-              cashPaymentsByDate.set(pDate, (cashPaymentsByDate.get(pDate) ?? 0) + p.amount);
-            } else {
+        // Skip non-confirmed payments (pending/rejected)
+        const isConfirmed = p.status === 'CONFIRMED';
+        if (!isConfirmed) continue;
+
+        if (isProd) {
+          if (isCpCredit) {
+            // ONLY add to bank/total payments if this payment does NOT have an associated income record
+            if (!p.income_id) {
               bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
+            }
+            totalPaymentsByDate.set(pDate, (totalPaymentsByDate.get(pDate) ?? 0) + p.amount);
+          }
+        } else {
+          if (entryStoreId === storeId) {
+            if (isCpCredit) {
+              // Outflow payment made to CP
+              // ONLY subtract from outflow if this payment does NOT have an associated expense record
+              if (!p.expense_id) {
+                cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
+              }
+            } else {
+              totalPaymentsByDate.set(pDate, (totalPaymentsByDate.get(pDate) ?? 0) + p.amount);
+              const isCash = p.notes && String(p.notes).toLowerCase().includes('efectivo');
+              if (isCash) {
+                cashPaymentsByDate.set(pDate, (cashPaymentsByDate.get(pDate) ?? 0) + p.amount);
+              } else {
+                bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
+              }
             }
           }
         }
@@ -1173,11 +1204,19 @@ export default function ContabilidadScreen() {
       const creditsByDate = new Map<string, number>();
       const creditSalesByDate = new Map<string, number>();
       for (const c of credits) {
-        if (c.storeId === storeId && c.debtorType !== 'LOCAL') {
-          const cDate = c.date.split('T')[0];
-          creditsByDate.set(cDate, (creditsByDate.get(cDate) ?? 0) + c.amount);
-          if (c.saleId) {
-            creditSalesByDate.set(cDate, (creditSalesByDate.get(cDate) ?? 0) + c.amount);
+        const isCpCredit = c.debtorType === 'LOCAL';
+        if (isProd) {
+          if (isCpCredit) {
+            const cDate = c.date.split('T')[0];
+            creditsByDate.set(cDate, (creditsByDate.get(cDate) ?? 0) + c.amount);
+          }
+        } else {
+          if (c.storeId === storeId && !isCpCredit) {
+            const cDate = c.date.split('T')[0];
+            creditsByDate.set(cDate, (creditsByDate.get(cDate) ?? 0) + c.amount);
+            if (c.saleId) {
+              creditSalesByDate.set(cDate, (creditSalesByDate.get(cDate) ?? 0) + c.amount);
+            }
           }
         }
       }

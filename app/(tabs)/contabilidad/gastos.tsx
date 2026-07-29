@@ -16,7 +16,7 @@ import { formatDate, todayColombia } from '../../../src/utils/dates';
 
 export default function GastosScreen() {
   const theme = useTheme();
-  const { expenseRepo } = useDI();
+  const { expenseRepo, purchaseRepo, supplyRepo } = useDI();
   const { selectedStoreId } = useAppStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
@@ -28,15 +28,45 @@ export default function GastosScreen() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.EFECTIVO);
   const [isFixed, setIsFixed] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [suppliesMap, setSuppliesMap] = useState<Record<string, string>>({});
 
   const loadExpenses = useCallback(async () => {
     try {
-      const all = await expenseRepo.getAll(selectedStoreId);
-      setExpenses(all.reverse());
-    } catch {
+      const [allExpenses, allPurchases, allSupplies] = await Promise.all([
+        expenseRepo.getAll(selectedStoreId),
+        purchaseRepo.getAll(selectedStoreId),
+        supplyRepo.getAll(),
+      ]);
+
+      const supMap: Record<string, string> = {};
+      allSupplies.forEach(s => {
+        supMap[s.id] = s.name;
+      });
+      setSuppliesMap(supMap);
+
+      // Map purchases to look like Expense items for display
+      const mappedPurchases: Expense[] = allPurchases.map(p => ({
+        id: p.id,
+        storeId: p.storeId,
+        date: p.timestamp ? p.timestamp.split('T')[0] : todayColombia(),
+        category: 'Compra Insumo',
+        description: `${supMap[p.supplyId] || 'Insumo'} (${p.quantityGrams}g) - Prov: ${p.supplier}`,
+        amount: p.priceCOP,
+        paymentMethod: p.paymentMethod,
+        isFixed: false,
+        createdAt: p.timestamp || todayColombia(),
+      }));
+
+      // Combine both lists and sort by date descending
+      const combined = [...allExpenses, ...mappedPurchases];
+      combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      
+      setExpenses(combined);
+    } catch (err) {
+      console.error('Error loading expenses and purchases:', err);
       setExpenses([]);
     }
-  }, [selectedStoreId, expenseRepo]);
+  }, [selectedStoreId, expenseRepo, purchaseRepo, supplyRepo]);
 
   useEffect(() => {
     loadExpenses();

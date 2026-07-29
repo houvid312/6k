@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Card, Text, Button, Divider, Chip, Portal, Snackbar, useTheme } from 'react-native-paper';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -7,7 +7,9 @@ import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { useDI } from '../../../src/di/providers';
 import { useSnackbar } from '../../../src/hooks';
+import { useAppStore } from '../../../src/stores/useAppStore';
 import { CreditEntry, Expense } from '../../../src/domain/entities';
+import { PaymentMethod } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate } from '../../../src/utils/dates';
 
@@ -49,6 +51,7 @@ export default function DebtorDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { creditService, expenseRepo } = useDI();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
+  const { selectedStoreId, stores } = useAppStore();
 
   const [credit, setCredit] = useState<CreditEntry | null>(null);
   const [relatedCredits, setRelatedCredits] = useState<CreditEntry[]>([]);
@@ -60,6 +63,12 @@ export default function DebtorDetailScreen() {
   const [creditMethods, setCreditMethods] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+
+  const isProduction = useMemo(() => {
+    if (!selectedStoreId) return false;
+    const currentStore = stores.find(s => s.id === selectedStoreId);
+    return currentStore?.isProductionCenter ?? false;
+  }, [selectedStoreId, stores]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -113,6 +122,8 @@ export default function DebtorDetailScreen() {
   const handlePayment = useCallback(async () => {
     if (!credit) return;
 
+    const isLocal = credit.debtorType === 'LOCAL';
+
     if (paymentMethod === 'MIXTO') {
       if (cashPart <= 0 && bankPart <= 0) {
         showError('Por favor ingresa montos válidos para pago mixto.');
@@ -135,20 +146,40 @@ export default function DebtorDetailScreen() {
 
     setSubmitting(true);
     try {
-      if (paymentMethod === 'EFECTIVO') {
-        await creditService.registerPayment(credit.id, paymentAmount, 'Abono manual en Efectivo');
-        showSuccess(`${formatCOP(paymentAmount)} en Efectivo aplicado a ${credit.debtorName}`);
-      } else if (paymentMethod === 'TRANSFERENCIA') {
-        await creditService.registerPayment(credit.id, paymentAmount, 'Abono manual por Transferencia');
-        showSuccess(`${formatCOP(paymentAmount)} por Transferencia aplicado a ${credit.debtorName}`);
+      if (isLocal) {
+        // Local transfer billing payment flow (Generates pending payment & local expense)
+        if (paymentMethod === 'EFECTIVO') {
+          await creditService.registerLocalPayment(credit.id, paymentAmount, PaymentMethod.EFECTIVO, 'Abono de traslado en Efectivo (Pendiente)');
+          showSuccess(`Pago de ${formatCOP(paymentAmount)} en Efectivo registrado. Pendiente de confirmación.`);
+        } else if (paymentMethod === 'TRANSFERENCIA') {
+          await creditService.registerLocalPayment(credit.id, paymentAmount, PaymentMethod.TRANSFERENCIA, 'Abono de traslado por Transferencia (Pendiente)');
+          showSuccess(`Pago de ${formatCOP(paymentAmount)} por Transferencia registrado. Pendiente de confirmación.`);
+        } else {
+          if (cashPart > 0) {
+            await creditService.registerLocalPayment(credit.id, cashPart, PaymentMethod.EFECTIVO, 'Abono de traslado en Efectivo (Parte de pago Mixto, Pendiente)');
+          }
+          if (bankPart > 0) {
+            await creditService.registerLocalPayment(credit.id, bankPart, PaymentMethod.TRANSFERENCIA, 'Abono de traslado por Transferencia (Parte de pago Mixto, Pendiente)');
+          }
+          showSuccess(`Pago mixto de ${formatCOP(cashPart + bankPart)} registrado. Pendiente de confirmación.`);
+        }
       } else {
-        if (cashPart > 0) {
-          await creditService.registerPayment(credit.id, cashPart, 'Abono manual en Efectivo (Parte de pago Mixto)');
+        // Standard credit payment flow (Directly applies and updates balance)
+        if (paymentMethod === 'EFECTIVO') {
+          await creditService.registerPayment(credit.id, paymentAmount, 'Abono manual en Efectivo');
+          showSuccess(`${formatCOP(paymentAmount)} en Efectivo aplicado a ${credit.debtorName}`);
+        } else if (paymentMethod === 'TRANSFERENCIA') {
+          await creditService.registerPayment(credit.id, paymentAmount, 'Abono manual por Transferencia');
+          showSuccess(`${formatCOP(paymentAmount)} por Transferencia aplicado a ${credit.debtorName}`);
+        } else {
+          if (cashPart > 0) {
+            await creditService.registerPayment(credit.id, cashPart, 'Abono manual en Efectivo (Parte de pago Mixto)');
+          }
+          if (bankPart > 0) {
+            await creditService.registerPayment(credit.id, bankPart, 'Abono manual por Transferencia (Parte de pago Mixto)');
+          }
+          showSuccess(`Abono mixto de ${formatCOP(cashPart + bankPart)} aplicado a ${credit.debtorName}`);
         }
-        if (bankPart > 0) {
-          await creditService.registerPayment(credit.id, bankPart, 'Abono manual por Transferencia (Parte de pago Mixto)');
-        }
-        showSuccess(`Abono mixto de ${formatCOP(cashPart + bankPart)} aplicado a ${credit.debtorName}`);
       }
 
       setPaymentAmount(0);
@@ -161,6 +192,32 @@ export default function DebtorDetailScreen() {
       setSubmitting(false);
     }
   }, [credit, paymentAmount, paymentMethod, cashPart, bankPart, creditService, loadData, showSuccess, showError]);
+
+  const handleConfirmPayment = useCallback(async (paymentId: string) => {
+    setSubmitting(true);
+    try {
+      await creditService.confirmLocalPayment(paymentId);
+      showSuccess('Abono confirmado y registrado como ingreso.');
+      loadData();
+    } catch (err: any) {
+      showError(err instanceof Error ? err.message : 'No se pudo confirmar el abono');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [creditService, loadData, showSuccess, showError]);
+
+  const handleRejectPayment = useCallback(async (paymentId: string) => {
+    setSubmitting(true);
+    try {
+      await creditService.rejectLocalPayment(paymentId);
+      showSuccess('Abono rechazado y egreso del local revertido.');
+      loadData();
+    } catch (err: any) {
+      showError(err instanceof Error ? err.message : 'No se pudo rechazar el abono');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [creditService, loadData, showSuccess, showError]);
 
   if (loading) {
     return <LoadingIndicator message="Cargando deuda..." />;
@@ -179,16 +236,23 @@ export default function DebtorDetailScreen() {
     .filter((c) => !c.isPaid)
     .reduce((sum, c) => sum + c.balance, 0);
 
+  const isLocalDebt = credit.debtorType === 'LOCAL';
+  const displayName = isLocalDebt && !isProduction 
+    ? 'Centro de Producción' 
+    : credit.debtorName;
+
   return (
     <ScreenContainer>
       {/* Debtor info */}
       <Card style={styles.card} mode="elevated">
         <Card.Content>
           <Text variant="headlineSmall" style={{ fontWeight: 'bold' }}>
-            {credit.debtorName}
+            {displayName}
           </Text>
           <View style={styles.chipRow}>
-            <Chip compact>{credit.debtorType}</Chip>
+            <Chip compact style={isLocalDebt && { backgroundColor: 'rgba(230, 57, 70, 0.15)' }}>
+              {isLocalDebt && !isProduction ? 'CUENTA POR PAGAR' : credit.debtorType}
+            </Chip>
           </View>
           <Divider style={styles.divider} />
           <View style={styles.balanceRow}>
@@ -203,11 +267,11 @@ export default function DebtorDetailScreen() {
       </Card>
 
       {/* Register payment */}
-      {!credit.isPaid && (
+      {!credit.isPaid && (!isLocalDebt || !isProduction) && (
         <Card style={styles.card} mode="elevated">
           <Card.Content>
             <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 12 }}>
-              Registrar Pago
+              {isLocalDebt ? 'Registrar Pago al Centro de Producción' : 'Registrar Pago'}
             </Text>
 
             {/* Medio de Pago Selector */}
@@ -259,7 +323,7 @@ export default function DebtorDetailScreen() {
               style={styles.payBtn}
               icon="cash"
             >
-              Registrar Pago
+              {isLocalDebt ? 'Enviar Pago para Confirmación' : 'Registrar Pago'}
             </Button>
           </Card.Content>
         </Card>
@@ -276,21 +340,88 @@ export default function DebtorDetailScreen() {
               No se han registrado abonos para este crédito aún.
             </Text>
           ) : (
-            creditPayments.map((p) => (
-              <View key={p.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#222' }}>
-                <View style={{ flex: 1 }}>
-                  <Text variant="bodyMedium" style={{ fontWeight: '500', color: '#F5F0EB' }}>
-                    {p.notes || 'Abono manual'}
-                  </Text>
-                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontSize: 11 }}>
-                    Fecha: {formatDate(p.date)}
-                  </Text>
+            creditPayments.map((p) => {
+              const isLocal = credit.debtorType === 'LOCAL';
+              const isPending = p.status === 'PENDING';
+              const isConfirmed = p.status === 'CONFIRMED';
+              const isRejected = p.status === 'REJECTED';
+
+              let statusColor = '#E63946';
+              let statusLabel = '';
+              if (isPending) {
+                statusColor = '#F57C00';
+                statusLabel = 'Pendiente';
+              } else if (isConfirmed) {
+                statusColor = '#4CAF50';
+                statusLabel = 'Confirmado';
+              } else if (isRejected) {
+                statusColor = '#D32F2F';
+                statusLabel = 'Rechazado';
+              }
+
+              return (
+                <View key={p.id} style={{ borderBottomWidth: 1, borderBottomColor: '#222', paddingVertical: 12 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text variant="bodyMedium" style={{ fontWeight: '500', color: '#F5F0EB' }}>
+                        {p.notes || 'Abono manual'}
+                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontSize: 11 }}>
+                          Fecha: {formatDate(p.date)}
+                        </Text>
+                        {p.paymentMethod && (
+                          <View style={{ backgroundColor: '#333', borderRadius: 4, paddingHorizontal: 6, height: 18, justifyContent: 'center', alignItems: 'center' }}>
+                            <Text style={{ fontSize: 9, color: '#FFF', fontWeight: '600', lineHeight: 11 }}>
+                              {p.paymentMethod}
+                            </Text>
+                          </View>
+                        )}
+                        {isLocal && (
+                          <View style={{ backgroundColor: statusColor, borderRadius: 4, paddingHorizontal: 6, height: 18, justifyContent: 'center', alignItems: 'center' }}>
+                            <Text style={{ fontSize: 9, color: '#FFF', fontWeight: '600', lineHeight: 11 }}>
+                              {statusLabel}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                    <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: isConfirmed || !isLocal ? '#4CAF50' : '#888', marginLeft: 8 }}>
+                      +{formatCOP(p.amount)}
+                    </Text>
+                  </View>
+                  
+                  {/* Actions for CP when status is PENDING */}
+                  {isLocal && isPending && isProduction && (
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                      <Button
+                        mode="contained"
+                        compact
+                        icon="check"
+                        buttonColor="#388E3C"
+                        textColor="#FFF"
+                        onPress={() => handleConfirmPayment(p.id)}
+                        disabled={submitting}
+                        style={{ borderRadius: 6 }}
+                      >
+                        Confirmar Recibo
+                      </Button>
+                      <Button
+                        mode="outlined"
+                        compact
+                        icon="close"
+                        textColor="#D32F2F"
+                        style={{ borderColor: '#D32F2F', borderRadius: 6 }}
+                        onPress={() => handleRejectPayment(p.id)}
+                        disabled={submitting}
+                      >
+                        Rechazar
+                      </Button>
+                    </View>
+                  )}
                 </View>
-                <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#4CAF50', marginLeft: 8 }}>
-                  +{formatCOP(p.amount)}
-                </Text>
-              </View>
-            ))
+              );
+            })
           )}
         </Card.Content>
       </Card>

@@ -1,6 +1,7 @@
 import { supabase } from '../../lib/supabase';
 import { CreditEntry, CreditPayment, DebtorType } from '../../domain/entities';
 import { ICreditRepository } from '../../domain/interfaces/repositories';
+import { PaymentMethod } from '../../domain/enums';
 import { todayColombia } from '../../utils/dates';
 
 // --- Row type ---
@@ -35,6 +36,10 @@ interface CreditPaymentRow {
   source: string;
   notes: string | null;
   created_at: string;
+  payment_method: string;
+  status: string;
+  expense_id: string | null;
+  income_id: string | null;
 }
 
 // --- Mappers ---
@@ -91,6 +96,10 @@ function paymentToEntity(row: CreditPaymentRow): CreditPayment {
     source: row.source as CreditPayment['source'],
     notes: row.notes ?? undefined,
     createdAt: row.created_at,
+    paymentMethod: row.payment_method as PaymentMethod,
+    status: row.status as 'PENDING' | 'CONFIRMED' | 'REJECTED',
+    expenseId: row.expense_id ?? undefined,
+    incomeId: row.income_id ?? undefined,
   };
 }
 
@@ -194,12 +203,18 @@ export class SupabaseCreditRepository implements ICreditRepository {
         date: input.date,
         source: input.source,
         notes: input.notes ?? null,
+        payment_method: input.paymentMethod ?? 'TRANSFERENCIA',
+        status: input.status ?? 'CONFIRMED',
+        expense_id: input.expenseId ?? null,
+        income_id: input.incomeId ?? null,
       })
       .select()
       .single();
     if (error) throw error;
 
-    await this.updateBalance(input.creditEntryId, Math.max(0, credit.balance - amount));
+    if (input.status !== 'PENDING') {
+      await this.updateBalance(input.creditEntryId, Math.max(0, credit.balance - amount));
+    }
     return paymentToEntity(data as CreditPaymentRow);
   }
 
@@ -223,5 +238,38 @@ export class SupabaseCreditRepository implements ICreditRepository {
       .order('created_at', { ascending: true });
     if (error) throw error;
     return (data as CreditPaymentRow[]).map(paymentToEntity);
+  }
+
+  async updatePaymentStatus(
+    paymentId: string,
+    status: 'CONFIRMED' | 'REJECTED',
+    incomeId?: string,
+  ): Promise<CreditPayment> {
+    const updates: Record<string, unknown> = { status };
+    if (incomeId) {
+      updates.income_id = incomeId;
+    }
+
+    const { data, error } = await supabase
+      .from('credit_payments')
+      .update(updates)
+      .eq('id', paymentId)
+      .select()
+      .single();
+    if (error) throw error;
+    return paymentToEntity(data as CreditPaymentRow);
+  }
+
+  async getPaymentById(id: string): Promise<CreditPayment | null> {
+    const { data, error } = await supabase
+      .from('credit_payments')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (error) {
+      if (error.code === 'PGRST116') return null;
+      throw error;
+    }
+    return paymentToEntity(data as CreditPaymentRow);
   }
 }
