@@ -1,7 +1,7 @@
 export type { Store } from './Store';
 export type { ProductFormat } from './ProductFormat';
 export type { Product, ProductCategory } from './Product';
-export type { Supply, SupplyUnit } from './Supply';
+export type { Supply, SupplyUnit, SupplyCategory } from './Supply';
 export type { Recipe, RecipeIngredient } from './Recipe';
 export type { Sale } from './Sale';
 export type { SaleItem } from './SaleItem';

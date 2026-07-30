@@ -96,7 +96,7 @@ export default function ComprasScreen() {
   }, [newSupplyName, newSupplyUnit, newSupplyGramsPerBag, supplyRepo, refreshMasterData, showSuccess, showError]);
 
   const supplyOptions = useMemo(
-    () => supplies.map((s) => ({ value: s.id, label: s.name, subtitle: `${s.gramsPerBag}g/bolsa` })),
+    () => supplies.filter((s) => s.isActive !== false).map((s) => ({ value: s.id, label: s.name, subtitle: `${s.gramsPerBag}g/bolsa` })),
     [supplies],
   );
 

@@ -9,6 +9,7 @@ import { EmptyState } from '../../../src/components/common/EmptyState';
 import { InventoryLevelCard } from '../../../src/components/inventario/InventoryLevelCard';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { InventoryLevel, UserRole } from '../../../src/domain/enums';
 import { InventorySummaryItem } from '../../../src/services/InventoryService';
 
@@ -33,6 +34,7 @@ export default function InventarioScreen() {
   const theme = useTheme();
   const { inventoryService, stockMinimumRepo } = useDI();
   const { selectedStoreId, stores, userRole } = useAppStore();
+  const { supplies } = useMasterDataStore();
 
   const isAdmin = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
   const isProductionCenter = stores.find((s) => s.id === selectedStoreId)?.isProductionCenter ?? false;
@@ -160,12 +162,22 @@ export default function InventarioScreen() {
     loadInventory();
   }, [loadInventory]);
 
+  const supplyCategoryMap = useMemo(() => {
+    return new Map(supplies.map((s) => [s.id, s.category || 'PROCESSED']));
+  }, [supplies]);
+
   const filteredItems = useMemo(() => {
-    const sorted = [...items].sort((a, b) => a.supplyName.localeCompare(b.supplyName));
+    let sorted = [...items].sort((a, b) => a.supplyName.localeCompare(b.supplyName));
+
+    // Si la sede NO es Centro de Producción, excluir insumos de categoría 'RAW' (Materia Prima)
+    if (!isProductionCenter) {
+      sorted = sorted.filter((item) => supplyCategoryMap.get(item.supplyId) !== 'RAW');
+    }
+
     if (!searchQuery.trim()) return sorted;
     const q = searchQuery.toLowerCase().trim();
     return sorted.filter((item) => item.supplyName.toLowerCase().includes(q));
-  }, [items, searchQuery]);
+  }, [items, searchQuery, isProductionCenter, supplyCategoryMap]);
 
   const handleSetMinimum = useCallback(async (supplyId: string, grams: number) => {
     if (!selectedStoreId) return;

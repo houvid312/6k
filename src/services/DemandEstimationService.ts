@@ -6,8 +6,9 @@ import {
   ISupplyRepository,
   IProductRepository,
   IProductStoreAssignmentRepository,
+  IStockMinimumRepository,
 } from '../domain/interfaces/repositories';
-import { InventoryLevel, PACKAGING_SUPPLY_IDS } from '../domain/enums';
+import { InventoryLevel } from '../domain/enums';
 
 export interface SupplyRequirement {
   supplyId: string;
@@ -27,6 +28,7 @@ export class DemandEstimationService {
     private supplyRepo: ISupplyRepository,
     private productRepo: IProductRepository,
     private productStoreAssignmentRepo: IProductStoreAssignmentRepository,
+    private stockMinimumRepo?: IStockMinimumRepository,
   ) {}
 
   /**
@@ -89,7 +91,7 @@ export class DemandEstimationService {
 
   /**
    * Generates a suggested transfer: what a destination store needs based on
-   * demand estimates minus current inventory.
+   * demand estimates and stock minimums minus current inventory.
    * Returns editable requirements that the shipment screen turns into transfer items.
    */
   async generateSuggestedTransfer(
@@ -100,13 +102,21 @@ export class DemandEstimationService {
     const supplies = await this.supplyRepo.getAll();
     const supplyMap = new Map(supplies.map((s) => [s.id, s]));
 
-    // Asegurar minimo de 10 unidades para empaques
-    const packagingIds = Object.values(PACKAGING_SUPPLY_IDS);
-    for (const pkgId of packagingIds) {
-      if (!requiredMap.has(pkgId)) {
-        requiredMap.set(pkgId, 10);
-      } else {
-        requiredMap.set(pkgId, Math.max(requiredMap.get(pkgId)!, 10));
+    // Incorporar requerimientos por Stock Mínimo (PAR Level) de la sede
+    if (this.stockMinimumRepo) {
+      try {
+        const minimums = await this.stockMinimumRepo.getByStoreAndLevel(toStoreId, InventoryLevel.STORE);
+        for (const m of minimums) {
+          if (m.minimumGrams > 0) {
+            if (!requiredMap.has(m.supplyId)) {
+              requiredMap.set(m.supplyId, m.minimumGrams);
+            } else {
+              requiredMap.set(m.supplyId, Math.max(requiredMap.get(m.supplyId)!, m.minimumGrams));
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load stock minimums for transfer suggestion:', err);
       }
     }
 
@@ -123,7 +133,7 @@ export class DemandEstimationService {
       );
       const currentGrams = currentItem?.quantityGrams ?? 0;
       const neededGrams = Math.max(0, requiredGrams - currentGrams);
-      const bagsToSend = neededGrams > 0 ? Math.ceil(neededGrams / supply.gramsPerBag) : 0;
+      const bagsToSend = neededGrams > 0 ? Math.ceil(neededGrams / (supply.gramsPerBag || 1)) : 0;
 
       requirements.push({
         supplyId,

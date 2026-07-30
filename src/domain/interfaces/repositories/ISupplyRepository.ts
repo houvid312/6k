@@ -5,4 +5,5 @@ export interface ISupplyRepository {
   getById(id: string): Promise<Supply | null>;
   create(supply: Omit<Supply, 'id'>): Promise<Supply>;
   update(id: string, data: Partial<Omit<Supply, 'id'>>): Promise<Supply>;
+  delete(id: string): Promise<void>;
 }

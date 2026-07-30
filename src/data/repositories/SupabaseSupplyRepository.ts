@@ -13,6 +13,8 @@ interface SupplyRow {
   commercial_price_cop: number | null;
   sale_price_cop: number | null;
   is_billable_to_store: boolean | null;
+  category?: string | null;
+  is_active?: boolean | null;
 }
 
 // --- Mappers ---
@@ -27,6 +29,8 @@ function toEntity(row: SupplyRow): Supply {
     commercialPriceCop: row.commercial_price_cop ?? 0,
     salePriceCop: row.sale_price_cop ?? 0,
     isBillableToStore: row.is_billable_to_store ?? true,
+    category: (row.category as any) ?? 'PROCESSED',
+    isActive: row.is_active ?? true,
   };
 }
 
@@ -36,7 +40,7 @@ export class SupabaseSupplyRepository implements ISupplyRepository {
   async getAll(includeProductionCost = false): Promise<Supply[]> {
     const columns = includeProductionCost
       ? '*'
-      : 'id,name,unit,grams_per_bag,commercial_price_cop,sale_price_cop,is_billable_to_store';
+      : 'id,name,unit,grams_per_bag,commercial_price_cop,sale_price_cop,is_billable_to_store,category,is_active';
     const { data, error } = await supabase
       .from('supplies')
       .select(columns);
@@ -68,6 +72,8 @@ export class SupabaseSupplyRepository implements ISupplyRepository {
         commercial_price_cop: supply.commercialPriceCop,
         sale_price_cop: supply.salePriceCop,
         is_billable_to_store: supply.isBillableToStore,
+        category: supply.category ?? 'PROCESSED',
+        is_active: supply.isActive ?? true,
       })
       .select()
       .single();
@@ -84,6 +90,8 @@ export class SupabaseSupplyRepository implements ISupplyRepository {
     if (updates.commercialPriceCop !== undefined) row.commercial_price_cop = updates.commercialPriceCop;
     if (updates.salePriceCop !== undefined) row.sale_price_cop = updates.salePriceCop;
     if (updates.isBillableToStore !== undefined) row.is_billable_to_store = updates.isBillableToStore;
+    if (updates.category !== undefined) row.category = updates.category;
+    if (updates.isActive !== undefined) row.is_active = updates.isActive;
 
     const { data, error } = await supabase
       .from('supplies')
@@ -93,5 +101,13 @@ export class SupabaseSupplyRepository implements ISupplyRepository {
       .single();
     if (error) throw error;
     return toEntity(data as SupplyRow);
+  }
+
+  async delete(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('supplies')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
   }
 }

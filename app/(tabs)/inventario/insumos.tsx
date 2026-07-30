@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { View, StyleSheet, ScrollView } from 'react-native';
 import {
   Card,
   Text,
@@ -10,6 +10,7 @@ import {
   Modal,
   Snackbar,
   Switch,
+  Chip,
   useTheme,
 } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
@@ -17,11 +18,12 @@ import { LoadingIndicator } from '../../../src/components/common/LoadingIndicato
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
+import { ConfirmDialog } from '../../../src/components/common/ConfirmDialog';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
-import { Supply, SupplyUnit } from '../../../src/domain/entities';
+import { Supply, SupplyUnit, SupplyCategory } from '../../../src/domain/entities';
 import { UserRole } from '../../../src/domain/enums';
 import { formatCOP, formatCOPDecimal } from '../../../src/utils/currency';
 
@@ -39,6 +41,8 @@ interface FormState {
   commercialPriceCop: number;
   salePriceCop: number;
   isBillableToStore: boolean;
+  category: SupplyCategory;
+  isActive: boolean;
 }
 
 const EMPTY_FORM: FormState = {
@@ -49,6 +53,8 @@ const EMPTY_FORM: FormState = {
   commercialPriceCop: 0,
   salePriceCop: 0,
   isBillableToStore: true,
+  category: 'PROCESSED',
+  isActive: true,
 };
 
 function parseDecimal(value: string): number {
@@ -59,24 +65,48 @@ function parseDecimal(value: string): number {
 
 export default function InsumosScreen() {
   const theme = useTheme();
-  const { supplyRepo } = useDI();
+  const { supplyRepo, recipeRepo, productionRecipeRepo } = useDI();
   const userRole = useAppStore((s) => s.userRole);
-  const { supplies: cachedSupplies, refreshMasterData } = useMasterDataStore();
+  const { supplies: cachedSupplies, products: cachedProducts, refreshMasterData } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
   const isGerente = userRole === UserRole.GERENTE;
 
   const [supplies, setSupplies] = useState<Supply[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<'ALL' | 'RAW' | 'PROCESSED' | 'OPERATIVE'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ACTIVE' | 'ARCHIVED' | 'ALL'>('ACTIVE');
   const [modalVisible, setModalVisible] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
 
+  // Estados para eliminación / archivado
+  const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
+  const [deletingSupply, setDeletingSupply] = useState<Supply | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const [archiveDialogVisible, setArchiveDialogVisible] = useState(false);
+  const [archivingSupply, setArchivingSupply] = useState<Supply | null>(null);
+  const [archiving, setArchiving] = useState(false);
+
   useEffect(() => {
     setSupplies([...cachedSupplies].sort((a, b) => a.name.localeCompare(b.name)));
     setLoading(false);
   }, [cachedSupplies]);
+
+  const filteredSupplies = useMemo(() => {
+    return supplies.filter((s) => {
+      const matchesQuery = !searchQuery.trim() || s.name.toLowerCase().includes(searchQuery.toLowerCase().trim());
+      const matchesCategory = categoryFilter === 'ALL' || (s.category || 'PROCESSED') === categoryFilter;
+      const isActive = s.isActive ?? true;
+      const matchesStatus =
+        statusFilter === 'ALL' ||
+        (statusFilter === 'ACTIVE' && isActive) ||
+        (statusFilter === 'ARCHIVED' && !isActive);
+      return matchesQuery && matchesCategory && matchesStatus;
+    });
+  }, [supplies, searchQuery, categoryFilter, statusFilter]);
 
   const handleNew = () => {
     setEditingId(null);
@@ -94,8 +124,93 @@ export default function InsumosScreen() {
       commercialPriceCop: supply.commercialPriceCop,
       salePriceCop: supply.salePriceCop,
       isBillableToStore: supply.isBillableToStore,
+      category: supply.category || 'PROCESSED',
+      isActive: supply.isActive ?? true,
     });
     setModalVisible(true);
+  };
+
+  const handleDeleteClick = (supply: Supply) => {
+    setDeletingSupply(supply);
+    setDeleteDialogVisible(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deletingSupply) return;
+    setDeleting(true);
+    try {
+      // 1. Consultar si está en uso en recetas de ventas o de producción
+      const [salesRecipes, prodRecipes] = await Promise.all([
+        recipeRepo.getAll(),
+        productionRecipeRepo.getAll(),
+      ]);
+
+      const usedInSales: string[] = [];
+      for (const r of salesRecipes) {
+        if (r.ingredients.some((ing) => ing.supplyId === deletingSupply.id)) {
+          const prod = cachedProducts.find((p) => p.id === r.productId);
+          usedInSales.push(prod?.name || 'Producto');
+        }
+      }
+
+      const usedInProd: string[] = [];
+      for (const pr of prodRecipes) {
+        if (pr.supplyId === deletingSupply.id || pr.inputs.some((i) => i.supplyId === deletingSupply.id)) {
+          usedInProd.push(pr.name);
+        }
+      }
+
+      if (usedInSales.length > 0 || usedInProd.length > 0) {
+        const recipeList: string[] = [];
+        if (usedInSales.length > 0) {
+          recipeList.push(`• Receta(s) de Venta: ${usedInSales.join(', ')}`);
+        }
+        if (usedInProd.length > 0) {
+          recipeList.push(`• Receta(s) de Producción: ${usedInProd.join(', ')}`);
+        }
+        const warningMsg = `No se puede eliminar "${deletingSupply.name}" porque está usado en:\n${recipeList.join('\n')}\n\nPara eliminarlo, reemplázalo o quítalo primero de esas recetas.`;
+        showError(warningMsg);
+        setDeleting(false);
+        return;
+      }
+
+      // 2. Si no está en recetas, proceder a intentar la eliminación física
+      await supplyRepo.delete(deletingSupply.id);
+      showSuccess(`Insumo "${deletingSupply.name}" eliminado correctamente`);
+      setDeleteDialogVisible(false);
+      setDeletingSupply(null);
+      refreshMasterData();
+    } catch (err: any) {
+      console.error('Error deleting supply:', err);
+      const errMsg = err?.message || '';
+      if (errMsg.includes('foreign key') || errMsg.includes('violates') || err?.code === '23503') {
+        const supplyToArchive = deletingSupply;
+        setDeleteDialogVisible(false);
+        setDeletingSupply(null);
+        setArchivingSupply(supplyToArchive);
+        setArchiveDialogVisible(true);
+      } else {
+        showError(`Error al eliminar insumo: ${errMsg || 'inténtalo de nuevo'}`);
+      }
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleConfirmArchive = async () => {
+    if (!archivingSupply) return;
+    setArchiving(true);
+    try {
+      await supplyRepo.update(archivingSupply.id, { isActive: false });
+      showSuccess(`Insumo "${archivingSupply.name}" archivado correctamente`);
+      setArchiveDialogVisible(false);
+      setArchivingSupply(null);
+      refreshMasterData();
+    } catch {
+      showError('Error al archivar insumo');
+    } finally {
+      setArchiving(false);
+    }
   };
 
   const handleSave = useCallback(async () => {
@@ -129,6 +244,8 @@ export default function InsumosScreen() {
           name: form.name.trim(),
           unit: form.unit,
           gramsPerBag: gpb,
+          category: form.category,
+          isActive: form.isActive,
         };
         if (isGerente) {
           updates.productionCostCop = productionCost;
@@ -147,6 +264,8 @@ export default function InsumosScreen() {
           commercialPriceCop: isGerente ? form.commercialPriceCop : 0,
           salePriceCop: isGerente ? form.salePriceCop : 0,
           isBillableToStore: isGerente ? form.isBillableToStore : true,
+          category: form.category,
+          isActive: form.isActive,
         });
         showSuccess(`${form.name.trim()} creado`);
       }
@@ -158,10 +277,6 @@ export default function InsumosScreen() {
       setSaving(false);
     }
   }, [editingId, form, supplyRepo, refreshMasterData, showSuccess, showError]);
-
-  const filteredSupplies = searchQuery.trim()
-    ? supplies.filter((s) => s.name.toLowerCase().includes(searchQuery.toLowerCase().trim()))
-    : supplies;
 
   if (loading) {
     return <LoadingIndicator message="Cargando insumos..." />;
@@ -199,20 +314,94 @@ export default function InsumosScreen() {
         right={searchQuery ? <TextInput.Icon icon="close" onPress={() => setSearchQuery('')} /> : undefined}
       />
 
+      {/* Category and Status Filter Chips */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          {[
+            { key: 'ACTIVE', label: '🟢 Activos' },
+            { key: 'ARCHIVED', label: '🔴 Archivados' },
+            { key: 'ALL', label: '⚪ Todos los estados' },
+          ].map((st) => (
+            <Chip
+              key={st.key}
+              selected={statusFilter === st.key}
+              onPress={() => setStatusFilter(st.key as any)}
+              style={{ backgroundColor: statusFilter === st.key ? '#333' : '#1E1E1E', borderColor: statusFilter === st.key ? '#E63946' : '#444', borderWidth: 1 }}
+              textStyle={{ color: statusFilter === st.key ? '#E63946' : '#999', fontSize: 10, fontWeight: '600' }}
+              compact
+              showSelectedOverlay={false}
+            >
+              {st.label}
+            </Chip>
+          ))}
+        </View>
+      </ScrollView>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          {[
+            { key: 'ALL', label: 'Todas las categorias' },
+            { key: 'RAW', label: '🌾 Materias Primas' },
+            { key: 'PROCESSED', label: '⚙️ Procesados' },
+            { key: 'OPERATIVE', label: '📦 Empaques / Consumibles' },
+          ].map((cat) => (
+            <Chip
+              key={cat.key}
+              selected={categoryFilter === cat.key}
+              onPress={() => setCategoryFilter(cat.key as any)}
+              style={{ backgroundColor: categoryFilter === cat.key ? '#E63946' : '#2A2A2A' }}
+              textStyle={{ color: '#FFF', fontSize: 10 }}
+              compact
+              showSelectedOverlay={false}
+            >
+              {cat.label}
+            </Chip>
+          ))}
+        </View>
+      </ScrollView>
+
       {filteredSupplies.length === 0 ? (
-        <EmptyState icon="package-variant" title="Sin insumos" subtitle="Agrega tu primer insumo" />
+        <EmptyState icon="package-variant" title="Sin insumos" subtitle="No hay insumos en esta categoria" />
       ) : (
-        filteredSupplies.map((supply) => (
+        filteredSupplies.map((supply) => {
+          const cat = supply.category || 'PROCESSED';
+          let catLabel = 'Procesado';
+          let catColor = '#1976D2';
+          if (cat === 'RAW') {
+            catLabel = 'Materia Prima';
+            catColor = '#F57C00';
+          } else if (cat === 'OPERATIVE') {
+            catLabel = 'Empaque / Consumible';
+            catColor = '#388E3C';
+          }
+
+          const isSupplyActive = supply.isActive ?? true;
+
+          return (
           <Card
             key={supply.id}
-            style={[styles.card, { backgroundColor: '#1E1E1E' }]}
+            style={[styles.card, { backgroundColor: '#1E1E1E', opacity: isSupplyActive ? 1 : 0.6 }]}
             onPress={isGerente ? () => handleEdit(supply) : undefined}
           >
             <Card.Content style={styles.cardContent}>
               <View style={{ flex: 1 }}>
-                <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: '600' }}>
-                  {supply.name}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: '600' }}>
+                    {supply.name}
+                  </Text>
+                  <View style={{ backgroundColor: catColor, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1 }}>
+                    <Text style={{ fontSize: 9, color: '#FFF', fontWeight: '600' }}>
+                      {catLabel}
+                    </Text>
+                  </View>
+                  {!isSupplyActive && (
+                    <View style={{ backgroundColor: '#D32F2F', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 1 }}>
+                      <Text style={{ fontSize: 9, color: '#FFF', fontWeight: '600' }}>
+                        Archivado
+                      </Text>
+                    </View>
+                  )}
+                </View>
                 <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
                   {supply.gramsPerBag}g/bolsa | {supply.unit.toLowerCase()}
                 </Text>
@@ -229,16 +418,25 @@ export default function InsumosScreen() {
                 )}
               </View>
               {isGerente && (
-                <IconButton
-                  icon="pencil"
-                  size={18}
-                  iconColor="#E63946"
-                  onPress={() => handleEdit(supply)}
-                />
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <IconButton
+                    icon="pencil"
+                    size={18}
+                    iconColor="#E63946"
+                    onPress={() => handleEdit(supply)}
+                  />
+                  <IconButton
+                    icon="delete-outline"
+                    size={18}
+                    iconColor="#D32F2F"
+                    onPress={() => handleDeleteClick(supply)}
+                  />
+                </View>
               )}
             </Card.Content>
           </Card>
-        ))
+          );
+        })
       )}
 
       <View style={{ height: 100 }} />
@@ -263,6 +461,29 @@ export default function InsumosScreen() {
             activeOutlineColor="#E63946"
             textColor="#F5F0EB"
           />
+
+          <Text variant="bodySmall" style={{ color: '#999', marginTop: 4, marginBottom: 4 }}>
+            Categoria del insumo:
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+            {[
+              { key: 'RAW', label: 'Mat. Prima' },
+              { key: 'PROCESSED', label: 'Procesado' },
+              { key: 'OPERATIVE', label: 'Empaque/Consumible' },
+            ].map((cat) => (
+              <Chip
+                key={cat.key}
+                selected={form.category === cat.key}
+                onPress={() => setForm((p) => ({ ...p, category: cat.key as any }))}
+                style={{ backgroundColor: form.category === cat.key ? '#E63946' : '#2A2A2A' }}
+                textStyle={{ color: '#FFF', fontSize: 10 }}
+                compact
+                showSelectedOverlay={false}
+              >
+                {cat.label}
+              </Chip>
+            ))}
+          </View>
 
           <SearchableSelect
             options={UNIT_OPTIONS.map((u) => ({ value: u.value, label: u.label }))}
@@ -328,6 +549,22 @@ export default function InsumosScreen() {
                   color="#E63946"
                 />
               </View>
+
+              <View style={styles.switchRow}>
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodyMedium" style={{ color: '#F5F0EB', fontWeight: '600' }}>
+                    Insumo Activo
+                  </Text>
+                  <Text variant="bodySmall" style={{ color: '#999' }}>
+                    Si esta desactivado (archivado), se oculta de las compras, recetas y cierres diarios.
+                  </Text>
+                </View>
+                <Switch
+                  value={form.isActive}
+                  onValueChange={(v) => setForm((p) => ({ ...p, isActive: v }))}
+                  color="#4CAF50"
+                />
+              </View>
             </>
           )}
 
@@ -360,6 +597,38 @@ export default function InsumosScreen() {
         >
           {snackbar.message}
         </Snackbar>
+
+        <ConfirmDialog
+          visible={deleteDialogVisible}
+          title="Eliminar Insumo"
+          message={`¿Estás seguro de que deseas eliminar el insumo "${deletingSupply?.name || ''}"? Esta acción no se puede deshacer.`}
+          onConfirm={handleConfirmDelete}
+          onDismiss={() => {
+            if (!deleting) {
+              setDeleteDialogVisible(false);
+              setDeletingSupply(null);
+            }
+          }}
+          confirmLabel="Eliminar"
+          destructive
+          confirmLoading={deleting}
+        />
+
+        <ConfirmDialog
+          visible={archiveDialogVisible}
+          title="Archivar Insumo"
+          message={`No es posible eliminar físicamente "${archivingSupply?.name || ''}" porque posee registros de compras, cierres o movimientos en el sistema.\n\n¿Deseas ARCHIVARLO/DESACTIVARLO? Se ocultará de la operación cotidiana pero conservará tu contabilidad e historial intactos.`}
+          onConfirm={handleConfirmArchive}
+          onDismiss={() => {
+            if (!archiving) {
+              setArchiveDialogVisible(false);
+              setArchivingSupply(null);
+            }
+          }}
+          confirmLabel="Archivar Insumo"
+          destructive={false}
+          confirmLoading={archiving}
+        />
       </Portal>
     </ScreenContainer>
   );
