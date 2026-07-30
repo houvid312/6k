@@ -291,16 +291,28 @@ export default function InventarioScreen() {
             Bajas/Mermas
           </Button>
           {isAdmin && (
-            <Button
-              mode="outlined"
-              compact
-              icon="pencil-box-multiple-outline"
-              style={{ marginRight: 8, height: 32, borderColor: '#FF9800' }}
-              labelStyle={{ fontSize: 11, marginVertical: 4, color: '#FF9800' }}
-              onPress={() => router.push('/(tabs)/inventario/ajustes' as any)}
-            >
-              Ajustes / Auditoría
-            </Button>
+            <>
+              <Button
+                mode="outlined"
+                compact
+                icon="pencil-box-multiple-outline"
+                style={{ marginRight: 8, height: 32, borderColor: '#FF9800' }}
+                labelStyle={{ fontSize: 11, marginVertical: 4, color: '#FF9800' }}
+                onPress={() => router.push('/(tabs)/inventario/ajustes' as any)}
+              >
+                Ajustes / Auditoría
+              </Button>
+              <Button
+                mode="outlined"
+                compact
+                icon="store-cog"
+                style={{ marginRight: 8, height: 32, borderColor: '#E63946' }}
+                labelStyle={{ fontSize: 11, marginVertical: 4, color: '#E63946' }}
+                onPress={() => router.push('/(tabs)/inventario/sedes' as any)}
+              >
+                Gestión Sedes
+              </Button>
+            </>
           )}
         </ScrollView>
       </View>
