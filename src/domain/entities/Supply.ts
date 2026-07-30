@@ -12,4 +12,5 @@ export interface Supply {
   isBillableToStore: boolean;
   category?: SupplyCategory;
   isActive?: boolean;
+  allowLocalPurchase?: boolean;
 }

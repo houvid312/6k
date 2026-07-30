@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { View, StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform, useWindowDimensions } from 'react-native';
 import {
   Text,
@@ -27,7 +27,7 @@ import { AdditionSelector } from '../../../src/components/ventas/AdditionSelecto
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useSaleStore, CartItem, CartItemAddition } from '../../../src/stores/useSaleStore';
-import { Product, Sale, ProductFormat, AdditionCatalogItem, Customer } from '../../../src/domain/entities';
+import { Product, Sale, ProductFormat, AdditionCatalogItem, Customer, Supply } from '../../../src/domain/entities';
 import {
   PaymentMethod,
   InventoryLevel,
@@ -46,7 +46,7 @@ import { colombiaDateRangeToUtc, formatDate, todayColombia } from '../../../src/
 
 export default function VentasScreen() {
   const theme = useTheme();
-  const { saleService, writeoffService, cashClosingService, creditService, expenseRepo, productFormatRepo, productStoreAssignmentRepo, additionCatalogRepo, customerRepo } = useDI();
+  const { saleService, writeoffService, cashClosingService, creditService, expenseRepo, productFormatRepo, productStoreAssignmentRepo, additionCatalogRepo, customerRepo, inventoryRepo } = useDI();
   const { selectedStoreId, userId, userRole } = useAppStore();
   const { products: cachedProducts, supplies, workers } = useMasterDataStore();
   const {
@@ -128,6 +128,16 @@ export default function VentasScreen() {
   const [salidaType, setSalidaType] = useState<string>('COMPRA');
   const [salidaWorkerId, setSalidaWorkerId] = useState<string>('');
   const [salidaPaymentMethod, setSalidaPaymentMethod] = useState<PaymentMethod>(PaymentMethod.EFECTIVO);
+  const [salidaSupplyId, setSalidaSupplyId] = useState<string>('');
+  const [salidaBags, setSalidaBags] = useState<string>('1');
+
+  const authorizedSupplies = useMemo(() => {
+    return supplies.filter((s: Supply) => (s.isActive ?? true) && s.allowLocalPurchase);
+  }, [supplies]);
+
+  const selectedAuthorizedSupply = useMemo(() => {
+    return authorizedSupplies.find((s: Supply) => s.id === salidaSupplyId);
+  }, [authorizedSupplies, salidaSupplyId]);
 
   // Estados deudor para fiados (isPaid = false)
   const [isCredit, setIsCredit] = useState<boolean>(false);
@@ -402,8 +412,8 @@ export default function VentasScreen() {
       Alert.alert('Error', 'Por favor selecciona el trabajador para el adelanto');
       return;
     }
-    if (salidaType === 'COMPRA' && !compraTurnoDesc.trim()) {
-      Alert.alert('Error', 'Por favor ingresa una descripción para la compra');
+    if (salidaType === 'COMPRA' && !salidaSupplyId && !compraTurnoDesc.trim()) {
+      Alert.alert('Error', 'Por favor ingresa una descripción para la compra o selecciona un insumo');
       return;
     }
     if (compraTurnoAmount <= 0) {
@@ -414,9 +424,19 @@ export default function VentasScreen() {
     try {
       const selectedWorker = workers.find((w) => w.id === salidaWorkerId);
       const category = salidaType === 'ADELANTO' ? 'Adelanto' : 'Compra Turno';
-      const desc = salidaType === 'ADELANTO'
-        ? `Adelanto a ${selectedWorker ? selectedWorker.name : 'trabajador'}${compraTurnoDesc.trim() ? `: ${compraTurnoDesc.trim()}` : ''}`
-        : compraTurnoDesc.trim();
+      let desc = compraTurnoDesc.trim();
+      let totalGramsAdded = 0;
+
+      if (salidaType === 'COMPRA' && selectedAuthorizedSupply) {
+        const bagsCount = parseFloat(salidaBags) || 1;
+        totalGramsAdded = bagsCount * selectedAuthorizedSupply.gramsPerBag;
+        const detailStr = `${bagsCount} bolsa(s) / ${totalGramsAdded}g`;
+        desc = desc
+          ? `Compra local: ${selectedAuthorizedSupply.name} (${detailStr}) - ${desc}`
+          : `Compra local: ${selectedAuthorizedSupply.name} (${detailStr})`;
+      } else if (salidaType === 'ADELANTO') {
+        desc = `Adelanto a ${selectedWorker ? selectedWorker.name : 'trabajador'}${compraTurnoDesc.trim() ? `: ${compraTurnoDesc.trim()}` : ''}`;
+      }
 
       const payMethod = salidaType === 'ADELANTO' ? salidaPaymentMethod : PaymentMethod.EFECTIVO;
 
@@ -430,18 +450,31 @@ export default function VentasScreen() {
         workerId: salidaType === 'ADELANTO' ? salidaWorkerId : undefined,
         isFixed: category === 'Adelanto',
       });
+
+      if (salidaType === 'COMPRA' && selectedAuthorizedSupply && totalGramsAdded > 0) {
+        await inventoryRepo.addGrams(selectedStoreId, selectedAuthorizedSupply.id, totalGramsAdded, InventoryLevel.STORE);
+      }
+
       setCompraTurnoVisible(false);
       setCompraTurnoDesc('');
       setCompraTurnoAmount(0);
       setSalidaType('COMPRA');
       setSalidaWorkerId('');
+      setSalidaSupplyId('');
+      setSalidaBags('1');
       setSalidaPaymentMethod(PaymentMethod.EFECTIVO);
+
+      let successMsg = `Compra registrada: ${formatCOP(compraTurnoAmount)}`;
+      if (salidaType === 'ADELANTO') {
+        successMsg = `Adelanto registrado: ${formatCOP(compraTurnoAmount)}`;
+      } else if (selectedAuthorizedSupply && totalGramsAdded > 0) {
+        successMsg = `Compra de ${selectedAuthorizedSupply.name} registrada (${formatCOP(compraTurnoAmount)}) y +${totalGramsAdded}g cargados al inventario.`;
+      }
+
       setSnackbar({
         visible: true,
         success: true,
-        message: salidaType === 'ADELANTO'
-          ? `Adelanto registrado: ${formatCOP(compraTurnoAmount)}`
-          : `Compra registrada: ${formatCOP(compraTurnoAmount)}`,
+        message: successMsg,
       });
     } catch {
       setSnackbar({
@@ -452,7 +485,7 @@ export default function VentasScreen() {
     } finally {
       setCompraTurnoSubmitting(false);
     }
-  }, [compraTurnoDesc, compraTurnoAmount, selectedStoreId, expenseRepo, salidaType, salidaWorkerId, salidaPaymentMethod, workers]);
+  }, [compraTurnoDesc, compraTurnoAmount, selectedStoreId, expenseRepo, inventoryRepo, salidaType, salidaWorkerId, salidaSupplyId, salidaBags, selectedAuthorizedSupply, salidaPaymentMethod, workers]);
 
   const selectedProduct = products.find((p) => p.id === selectedProductId);
   const getPackagingSalePrice = useCallback((packagingSupplyId?: string) => {
@@ -1992,6 +2025,51 @@ export default function VentasScreen() {
             density="small"
           />
 
+          {salidaType === 'COMPRA' && (
+            <View style={{ marginBottom: 12 }}>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 4 }}>
+                Insumo Autorizado (Cargue directo a inventario):
+              </Text>
+              <SearchableSelect
+                options={[
+                  { value: '', label: 'Ninguno (Gasto general sin inventario)' },
+                  ...authorizedSupplies.map((s: Supply) => ({
+                    value: s.id,
+                    label: s.name,
+                    subtitle: `${s.gramsPerBag}g/bolsa • Autorizado`,
+                  })),
+                ]}
+                selectedValue={salidaSupplyId}
+                placeholder="Seleccionar Insumo Autorizado (Opcional)"
+                icon="cube-outline"
+                onSelect={(val) => {
+                  setSalidaSupplyId(val);
+                  setSalidaBags('1');
+                }}
+              />
+
+              {selectedAuthorizedSupply && (
+                <View style={{ marginTop: 10, padding: 10, backgroundColor: theme.colors.surfaceVariant, borderRadius: 8 }}>
+                  <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.primary, marginBottom: 6 }}>
+                    📦 Cargue Directo: {selectedAuthorizedSupply.name}
+                  </Text>
+                  <TextInput
+                    label="Cantidad de Bolsas / Unidades"
+                    value={salidaBags}
+                    onChangeText={setSalidaBags}
+                    keyboardType="decimal-pad"
+                    mode="outlined"
+                    dense
+                    style={{ marginBottom: 4 }}
+                  />
+                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                    Se cargarán {((parseFloat(salidaBags) || 0) * selectedAuthorizedSupply.gramsPerBag).toLocaleString()}g al inventario del local.
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+
           {salidaType === 'ADELANTO' && (
             <>
               <View style={{ marginBottom: 12 }}>
@@ -2028,7 +2106,7 @@ export default function VentasScreen() {
             mode="outlined"
             dense
             style={{ marginBottom: 12 }}
-            placeholder={salidaType === 'ADELANTO' ? 'Opcional (Ej. Primera quincena)' : 'Obligatorio (Ej. Gaseosas)'}
+            placeholder={salidaType === 'ADELANTO' ? 'Opcional (Ej. Primera quincena)' : 'Opcional si elegiste insumo, u obligatorio si es gasto general'}
           />
           <CurrencyInput
             value={compraTurnoAmount}
@@ -2044,7 +2122,7 @@ export default function VentasScreen() {
               disabled={
                 compraTurnoAmount <= 0 ||
                 compraTurnoSubmitting ||
-                (salidaType === 'COMPRA' && !compraTurnoDesc.trim()) ||
+                (salidaType === 'COMPRA' && !salidaSupplyId && !compraTurnoDesc.trim()) ||
                 (salidaType === 'ADELANTO' && !salidaWorkerId)
               }
               buttonColor="#E63946"

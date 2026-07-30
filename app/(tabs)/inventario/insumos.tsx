@@ -43,6 +43,7 @@ interface FormState {
   isBillableToStore: boolean;
   category: SupplyCategory;
   isActive: boolean;
+  allowLocalPurchase: boolean;
 }
 
 const EMPTY_FORM: FormState = {
@@ -55,6 +56,7 @@ const EMPTY_FORM: FormState = {
   isBillableToStore: true,
   category: 'PROCESSED',
   isActive: true,
+  allowLocalPurchase: false,
 };
 
 function parseDecimal(value: string): number {
@@ -126,6 +128,7 @@ export default function InsumosScreen() {
       isBillableToStore: supply.isBillableToStore,
       category: supply.category || 'PROCESSED',
       isActive: supply.isActive ?? true,
+      allowLocalPurchase: supply.allowLocalPurchase ?? false,
     });
     setModalVisible(true);
   };
@@ -246,6 +249,7 @@ export default function InsumosScreen() {
           gramsPerBag: gpb,
           category: form.category,
           isActive: form.isActive,
+          allowLocalPurchase: form.allowLocalPurchase,
         };
         if (isGerente) {
           updates.productionCostCop = productionCost;
@@ -266,6 +270,7 @@ export default function InsumosScreen() {
           isBillableToStore: isGerente ? form.isBillableToStore : true,
           category: form.category,
           isActive: form.isActive,
+          allowLocalPurchase: form.allowLocalPurchase,
         });
         showSuccess(`${form.name.trim()} creado`);
       }
@@ -563,6 +568,22 @@ export default function InsumosScreen() {
                   value={form.isActive}
                   onValueChange={(v) => setForm((p) => ({ ...p, isActive: v }))}
                   color="#4CAF50"
+                />
+              </View>
+
+              <View style={styles.switchRow}>
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodyMedium" style={{ color: '#F5F0EB', fontWeight: '600' }}>
+                    Permitir compra directa en local
+                  </Text>
+                  <Text variant="bodySmall" style={{ color: '#999' }}>
+                    Autoriza a las sedes a comprar este insumo en caja e ingresar el inventario al instante.
+                  </Text>
+                </View>
+                <Switch
+                  value={form.allowLocalPurchase}
+                  onValueChange={(v) => setForm((p) => ({ ...p, allowLocalPurchase: v }))}
+                  color="#FF9800"
                 />
               </View>
             </>

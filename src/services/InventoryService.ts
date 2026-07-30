@@ -60,21 +60,24 @@ export class InventoryService {
   ): Promise<InventorySummaryItem[]> {
     const inventory = await this.inventoryRepo.getByStore(storeId, level);
     const supplies = await this.supplyRepo.getAll();
-    const supplyMap = new Map<string, Supply>();
-    for (const s of supplies) {
-      supplyMap.set(s.id, s);
+
+    const inventoryMap = new Map<string, number>();
+    for (const item of inventory) {
+      inventoryMap.set(item.supplyId, item.quantityGrams);
     }
 
-    return inventory.map((item) => {
-      const supply = supplyMap.get(item.supplyId);
-      const gramsPerBag = supply?.gramsPerBag ?? 1;
-      const bags = Math.floor(item.quantityGrams / gramsPerBag);
-      const looseGrams = Math.round((item.quantityGrams % gramsPerBag) * 100) / 100;
+    const activeSupplies = supplies.filter((s) => s.isActive !== false);
+
+    return activeSupplies.map((supply) => {
+      const quantityGrams = inventoryMap.get(supply.id) ?? 0;
+      const gramsPerBag = supply.gramsPerBag || 1;
+      const bags = Math.floor(quantityGrams / gramsPerBag);
+      const looseGrams = Math.round((quantityGrams % gramsPerBag) * 100) / 100;
 
       return {
-        supplyId: item.supplyId,
-        supplyName: supply?.name ?? 'Desconocido',
-        quantityGrams: item.quantityGrams,
+        supplyId: supply.id,
+        supplyName: supply.name,
+        quantityGrams,
         bags,
         looseGrams,
         gramsPerBag,
