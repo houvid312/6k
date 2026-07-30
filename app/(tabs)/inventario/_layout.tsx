@@ -71,6 +71,7 @@ export default function InventarioLayout() {
           headerLeft: () => <InventoryBackButton />,
         }}
       />
+      <Stack.Screen name="ajustes" options={{ title: 'Ajustes e Inicialización' }} />
       <Stack.Screen name="productos" options={{ title: 'Catálogo de Productos' }} />
     </Stack>
   );

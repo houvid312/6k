@@ -148,7 +148,8 @@ export default function CierreFisicoScreen() {
         totalGrams: c.bags * c.gramsPerBag + c.looseGrams,
       }));
 
-      const count = await physicalCountService.submitCount(selectedStoreId!, items, selectedWorkerId || undefined);
+      const targetLevel = isProductionCenter ? InventoryLevel.RAW : InventoryLevel.STORE;
+      const count = await physicalCountService.submitCount(selectedStoreId!, items, selectedWorkerId || undefined, targetLevel);
       showSuccess(`${count.items.length} insumos registrados. Inventario actualizado.`);
       resetForm();
     } catch {

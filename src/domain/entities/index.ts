@@ -32,4 +32,6 @@ export type { ChecklistItem, ChecklistEntry } from './ChecklistItem';
 export type { PayrollPeriod, PeriodType, PeriodStatus } from './PayrollPeriod';
 export type { Customer } from './Customer';
 export type { Income } from './Income';
+export type { InventoryAdjustment } from './InventoryAdjustment';
+
 
