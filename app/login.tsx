@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, KeyboardAvoidingView, Platform, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, KeyboardAvoidingView, Platform, useWindowDimensions, Image } from 'react-native';
 import {
   Text,
   Button,
@@ -32,7 +32,7 @@ export default function LoginScreen() {
     try {
       const result = await authService.login(name.trim(), pin.trim());
       if (result.success && result.user) {
-        login(result.user.id, result.user.name, result.user.role);
+        login(result.user.id, result.user.name, result.user.role, result.user.storeIds);
         await loadStores();
         await loadMasterData();
         router.replace('/(tabs)/ventas');
@@ -59,9 +59,10 @@ export default function LoginScreen() {
         <View style={styles.decorCircle2} />
 
         <View style={styles.header}>
-          <View style={styles.logoRing}>
-            <Text style={styles.logo}>6K</Text>
-          </View>
+          <Image
+            source={require('../assets/logo.png')}
+            style={styles.logoImage}
+          />
           <Text style={styles.brand}>P I Z Z A</Text>
           <View style={styles.taglineRow}>
             <View style={styles.taglineLine} />
@@ -191,28 +192,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 24,
   },
-  logoRing: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: 'rgba(230, 57, 70, 0.12)',
-    justifyContent: 'center',
-    alignItems: 'center',
+  logoImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     marginBottom: 12,
-    borderWidth: 2,
-    borderColor: '#D4A843',
-  },
-  logo: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: '#F5F0EB',
-    letterSpacing: 2,
   },
   brand: {
     fontSize: 20,
-    fontWeight: '300',
-    color: '#D4A843',
+    fontFamily: 'Arvo',
+    fontWeight: '700',
+    color: '#FFFFFF',
     letterSpacing: 14,
+    paddingLeft: 14,
+    textAlign: 'center',
   },
   taglineRow: {
     flexDirection: 'row',

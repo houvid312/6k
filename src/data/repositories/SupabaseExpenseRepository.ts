@@ -13,6 +13,8 @@ interface ExpenseRow {
   description: string;
   amount: number;
   payment_method: string;
+  worker_id: string | null;
+  is_fixed: boolean;
 }
 
 // --- Mappers ---
@@ -26,6 +28,8 @@ function toEntity(row: ExpenseRow): Expense {
     description: row.description,
     amount: row.amount,
     paymentMethod: row.payment_method as PaymentMethod,
+    workerId: row.worker_id ?? undefined,
+    isFixed: row.is_fixed,
   };
 }
 
@@ -37,6 +41,8 @@ function toRow(expense: Omit<Expense, 'id'>): Record<string, unknown> {
     description: expense.description,
     amount: expense.amount,
     payment_method: expense.paymentMethod,
+    worker_id: expense.workerId ?? null,
+    is_fixed: expense.isFixed,
   };
 }
 
@@ -82,6 +88,8 @@ export class SupabaseExpenseRepository implements IExpenseRepository {
     if (expense.amount !== undefined) row.amount = expense.amount;
     if (expense.paymentMethod !== undefined) row.payment_method = expense.paymentMethod;
     if (expense.date !== undefined) row.date = expense.date;
+    if (expense.workerId !== undefined) row.worker_id = expense.workerId ?? null;
+    if (expense.isFixed !== undefined) row.is_fixed = expense.isFixed;
 
     const { data, error } = await supabase
       .from('expenses')
@@ -107,5 +115,15 @@ export class SupabaseExpenseRepository implements IExpenseRepository {
       .order('date', { ascending: false });
     if (error) throw error;
     return (data as ExpenseRow[]).map(toEntity);
+  }
+
+  async getById(id: string): Promise<Expense | null> {
+    const { data, error } = await supabase
+      .from('expenses')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? toEntity(data as ExpenseRow) : null;
   }
 }

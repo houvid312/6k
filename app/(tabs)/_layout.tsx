@@ -6,11 +6,26 @@ import { UserRole } from '../../src/domain/enums';
 export default function TabLayout() {
   const userRole = useAppStore((s) => s.userRole);
   const isAuthenticated = useAppStore((s) => s.isAuthenticated);
-  const isAdmin = userRole === UserRole.ADMIN;
 
   if (!isAuthenticated) {
     return <Redirect href="/login" />;
   }
+
+  const showTab = (tabName: string) => {
+    switch (userRole) {
+      case UserRole.GERENTE:
+        return true;
+      case UserRole.ADMIN_LOCAL:
+        return ['ventas', 'inventario', 'cartera', 'rrhh', 'dashboard', 'contabilidad'].includes(tabName);
+      case UserRole.PREPARADOR:
+      case UserRole.RODY:
+        return ['inventario'].includes(tabName);
+      case UserRole.VENDEDOR:
+        return ['ventas', 'inventario'].includes(tabName);
+      default:
+        return false;
+    }
+  };
 
   return (
     <Tabs
@@ -36,6 +51,7 @@ export default function TabLayout() {
         options={{
           title: 'Ventas',
           headerShown: false,
+          href: showTab('ventas') ? '/(tabs)/ventas' : null,
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="cash-register" size={size} color={color} />
           ),
@@ -46,6 +62,7 @@ export default function TabLayout() {
         options={{
           title: 'Inventario',
           headerShown: false,
+          href: showTab('inventario') ? '/(tabs)/inventario' : null,
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="warehouse" size={size} color={color} />
           ),
@@ -56,7 +73,7 @@ export default function TabLayout() {
         options={{
           title: 'Contable',
           headerShown: false,
-          href: isAdmin ? '/(tabs)/contabilidad' : null,
+          href: showTab('contabilidad') ? '/(tabs)/contabilidad' : null,
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="bank" size={size} color={color} />
           ),
@@ -67,7 +84,7 @@ export default function TabLayout() {
         options={{
           title: 'Cartera',
           headerShown: false,
-          href: isAdmin ? '/(tabs)/cartera' : null,
+          href: showTab('cartera') ? '/(tabs)/cartera' : null,
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="account-cash" size={size} color={color} />
           ),
@@ -78,7 +95,7 @@ export default function TabLayout() {
         options={{
           title: 'RRHH',
           headerShown: false,
-          href: isAdmin ? '/(tabs)/rrhh' : null,
+          href: showTab('rrhh') ? '/(tabs)/rrhh' : null,
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="account-group" size={size} color={color} />
           ),
@@ -89,7 +106,7 @@ export default function TabLayout() {
         options={{
           title: 'Dashboard',
           headerShown: false,
-          href: isAdmin ? '/(tabs)/dashboard' : null,
+          href: showTab('dashboard') ? '/(tabs)/dashboard' : null,
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="chart-bar" size={size} color={color} />
           ),

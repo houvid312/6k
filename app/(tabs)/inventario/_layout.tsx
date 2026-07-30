@@ -24,6 +24,7 @@ export default function InventarioLayout() {
         headerTintColor: '#F5F0EB',
         headerTitleStyle: { fontWeight: '600' },
         headerBackVisible: true,
+        headerRight: () => <HeaderUserMenu />,
       }}
     >
       <Stack.Screen
@@ -31,7 +32,6 @@ export default function InventarioLayout() {
         options={{
           title: 'Inventario',
           headerBackVisible: false,
-          headerRight: () => <HeaderUserMenu />,
         }}
       />
       <Stack.Screen name="compras" options={{ title: 'Registrar Compra' }} />
@@ -55,7 +55,6 @@ export default function InventarioLayout() {
               }}
             />
           ),
-          headerRight: () => <HeaderUserMenu />,
         }}
       />
       <Stack.Screen name="validaciones" options={{ title: 'Validaciones' }} />
@@ -72,6 +71,7 @@ export default function InventarioLayout() {
           headerLeft: () => <InventoryBackButton />,
         }}
       />
+      <Stack.Screen name="ajustes" options={{ title: 'Ajustes e Inicialización' }} />
       <Stack.Screen name="productos" options={{ title: 'Catálogo de Productos' }} />
     </Stack>
   );

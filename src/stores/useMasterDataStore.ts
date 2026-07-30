@@ -22,7 +22,7 @@ interface MasterDataState {
 
 async function loadMasterDataSlices(role: UserRole, current: MasterDataState): Promise<Partial<MasterDataState>> {
   const [suppliesResult, productsResult, workersResult] = await Promise.allSettled([
-    container.supplyRepo.getAll(role === UserRole.ADMIN),
+    container.supplyRepo.getAll([UserRole.GERENTE, UserRole.ADMIN_LOCAL].includes(role)),
     container.productRepo.getAll(),
     container.workerRepo.getAll(),
   ]);

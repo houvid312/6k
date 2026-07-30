@@ -75,8 +75,19 @@ export class ValidationService {
         endDate,
       );
       for (const wo of approvedWriteoffs) {
-        const current = consumptionMap.get(wo.supplyId) ?? 0;
-        consumptionMap.set(wo.supplyId, current + wo.quantityGrams);
+        if (wo.productId) {
+          const recipe = await this.recipeRepo.getByProductId(wo.productId);
+          if (recipe) {
+            for (const ingredient of recipe.ingredients) {
+              const grams = ingredient.gramsPerPortion * wo.quantityGrams;
+              const current = consumptionMap.get(ingredient.supplyId) ?? 0;
+              consumptionMap.set(ingredient.supplyId, current + grams);
+            }
+          }
+        } else if (wo.supplyId) {
+          const current = consumptionMap.get(wo.supplyId) ?? 0;
+          consumptionMap.set(wo.supplyId, current + wo.quantityGrams);
+        }
       }
     }
 

@@ -1,4 +1,5 @@
 export type SupplyUnit = 'GRAMOS' | 'MILILITROS' | 'UNIDAD';
+export type SupplyCategory = 'RAW' | 'PROCESSED' | 'OPERATIVE';
 
 export interface Supply {
   id: string;
@@ -9,4 +10,7 @@ export interface Supply {
   commercialPriceCop: number;
   salePriceCop: number;
   isBillableToStore: boolean;
+  category?: SupplyCategory;
+  isActive?: boolean;
+  allowLocalPurchase?: boolean;
 }

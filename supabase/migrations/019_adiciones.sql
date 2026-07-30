@@ -234,7 +234,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- Usa los grams de pizzas normales (no Diamante) como referencia
 -- ON CONFLICT actualiza si ya existe un mínimo para ese supply/store/level
 INSERT INTO stock_minimums (supply_id, store_id, level, minimum_grams)
-SELECT DISTINCT s.supply_id, st.id, 'STORE', s.grams * 5
+SELECT DISTINCT s.supply_id, st.id, 'STORE'::inventory_level, s.grams * 5
 FROM (VALUES
   ('00000000-0000-0000-0002-000000000002'::UUID, 39),   -- Queso
   ('00000000-0000-0000-0002-000000000003'::UUID, 50),   -- Salsa Napolitana

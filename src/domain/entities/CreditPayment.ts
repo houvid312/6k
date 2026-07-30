@@ -1,3 +1,5 @@
+import { PaymentMethod } from '../enums';
+
 export interface CreditPayment {
   id: string;
   creditEntryId: string;
@@ -10,4 +12,9 @@ export interface CreditPayment {
   source: 'PAYROLL' | 'MANUAL';
   notes?: string;
   createdAt?: string;
+  paymentMethod?: PaymentMethod;
+  status?: 'PENDING' | 'CONFIRMED' | 'REJECTED';
+  expenseId?: string;
+  incomeId?: string;
 }
+

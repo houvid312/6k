@@ -23,15 +23,17 @@ function AuthGate({ children }: { children: React.ReactNode }) {
         const { data: { session } } = await supabase.auth.getSession();
 
         if (session) {
-          // Recuperar perfil del worker
+          // Recuperar perfil del worker con sus asignaciones de local
           const { data: worker } = await supabase
             .from('workers')
-            .select('id, name, user_role')
+            .select('id, name, user_role, worker_store_assignments(store_id)')
             .eq('auth_user_id', session.user.id)
             .single();
 
           if (worker) {
-            login(worker.id, worker.name, worker.user_role as UserRole);
+            const rawAssignments = (worker as any).worker_store_assignments || [];
+            const storeIds = rawAssignments.map((a: any) => a.store_id);
+            login(worker.id, worker.name, worker.user_role as UserRole, storeIds);
             await loadStores();
             await loadMasterData();
           }

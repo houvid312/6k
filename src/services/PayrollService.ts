@@ -159,6 +159,7 @@ export class PayrollService {
       description: `Nomina ${report.periodStart} a ${report.periodEnd}`,
       amount: closedPeriod.totalGross,
       paymentMethod: PaymentMethod.EFECTIVO,
+      isFixed: true,
     });
 
     for (const entry of entries) {

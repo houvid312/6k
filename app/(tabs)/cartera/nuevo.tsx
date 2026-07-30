@@ -1,33 +1,56 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { TextInput, Button, Text, SegmentedButtons, Portal, Snackbar, useTheme } from 'react-native-paper';
 import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
+import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
+import { useAppStore } from '../../../src/stores/useAppStore';
 import { useDI } from '../../../src/di/providers';
 import { useSnackbar } from '../../../src/hooks';
-import { DebtorType } from '../../../src/domain/entities';
+import { DebtorType, Customer } from '../../../src/domain/entities';
 import { formatCOP } from '../../../src/utils/currency';
 import { todayColombia } from '../../../src/utils/dates';
 
 export default function NuevoCreditoScreen() {
   const theme = useTheme();
-  const { creditService } = useDI();
+  const { creditService, customerRepo } = useDI();
+  const { workers } = useMasterDataStore();
+  const { selectedStoreId } = useAppStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [debtorName, setDebtorName] = useState('');
   const [debtorType, setDebtorType] = useState<string>('CLIENTE');
+  const [debtorWorkerId, setDebtorWorkerId] = useState('');
+  const [debtorCustomerId, setDebtorCustomerId] = useState('');
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [concept, setConcept] = useState('');
   const [amount, setAmount] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const list = await customerRepo.getAll();
+        setCustomers(list.filter((c) => c.isActive));
+      } catch (e) {
+        console.error('Error loading customers in Cartera:', e);
+      }
+    })();
+  }, [customerRepo]);
+
   const handleSubmit = useCallback(async () => {
-    if (!debtorName.trim()) {
-      showError('Ingresa el nombre del deudor');
+    if (debtorType === 'TRABAJADOR' && !debtorWorkerId) {
+      showError('Por favor selecciona el trabajador');
+      return;
+    }
+    if (debtorType === 'CLIENTE' && !debtorCustomerId) {
+      showError('Por favor selecciona el cliente');
       return;
     }
     if (amount <= 0) {
-      showError('Ingresa un monto valido');
+      showError('Ingresa un monto válido');
       return;
     }
 
@@ -36,45 +59,82 @@ export default function NuevoCreditoScreen() {
       await creditService.createCredit(
         debtorName.trim(),
         debtorType as DebtorType,
-        concept || 'Credito',
+        concept || 'Crédito',
         amount,
         todayColombia(),
+        debtorType === 'TRABAJADOR' ? debtorWorkerId : undefined,
+        undefined,
+        undefined,
+        selectedStoreId || undefined,
+        debtorType === 'CLIENTE' ? debtorCustomerId : undefined,
       );
-      showSuccess(`Credito de ${formatCOP(amount)} registrado para ${debtorName.trim()}`);
+      showSuccess(`Crédito de ${formatCOP(amount)} registrado para ${debtorName.trim()}`);
       setTimeout(() => router.back(), 1200);
     } catch {
-      showError('No se pudo registrar el credito');
+      showError('No se pudo registrar el crédito');
     } finally {
       setSubmitting(false);
     }
-  }, [debtorName, debtorType, concept, amount, creditService, showSuccess, showError]);
+  }, [debtorName, debtorType, debtorWorkerId, debtorCustomerId, concept, amount, selectedStoreId, creditService, showSuccess, showError]);
 
   return (
     <ScreenContainer>
       <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600' }]}>
-        Nuevo Credito
+        Nuevo Crédito
       </Text>
-
-      <TextInput
-        label="Nombre del deudor"
-        value={debtorName}
-        onChangeText={setDebtorName}
-        mode="outlined"
-        style={styles.input}
-      />
 
       <Text variant="bodyMedium" style={{ fontWeight: '600', marginBottom: 8 }}>
         Tipo de deudor
       </Text>
       <SegmentedButtons
         value={debtorType}
-        onValueChange={setDebtorType}
+        onValueChange={(val) => {
+          setDebtorType(val);
+          setDebtorName('');
+          setDebtorWorkerId('');
+          setDebtorCustomerId('');
+        }}
         buttons={[
           { value: 'CLIENTE', label: 'Cliente' },
           { value: 'TRABAJADOR', label: 'Trabajador' },
         ]}
         style={styles.segments}
       />
+
+      <Text variant="bodyMedium" style={{ fontWeight: '600', marginBottom: 8 }}>
+        Deudor
+      </Text>
+      {debtorType === 'TRABAJADOR' ? (
+        <View style={{ marginBottom: 12 }}>
+          <SearchableSelect
+            options={workers
+              .filter((w) => w.isActive)
+              .map((w) => ({ value: w.id, label: w.name, subtitle: w.role }))}
+            selectedValue={debtorWorkerId}
+            placeholder="Seleccionar Trabajador"
+            icon="account"
+            onSelect={(id) => {
+              setDebtorWorkerId(id);
+              const w = workers.find((x) => x.id === id);
+              setDebtorName(w ? w.name : '');
+            }}
+          />
+        </View>
+      ) : (
+        <View style={{ marginBottom: 12 }}>
+          <SearchableSelect
+            options={customers.map((c) => ({ value: c.id, label: c.name, subtitle: c.phone || 'Sin teléfono' }))}
+            selectedValue={debtorCustomerId}
+            placeholder="Seleccionar Cliente"
+            icon="account-tie"
+            onSelect={(id) => {
+              setDebtorCustomerId(id);
+              const c = customers.find((x) => x.id === id);
+              setDebtorName(c ? c.name : '');
+            }}
+          />
+        </View>
+      )}
 
       <TextInput
         label="Concepto"
@@ -99,7 +159,7 @@ export default function NuevoCreditoScreen() {
         style={styles.submitBtn}
         icon="check"
       >
-        Registrar Credito
+        Registrar Crédito
       </Button>
 
       <Portal>

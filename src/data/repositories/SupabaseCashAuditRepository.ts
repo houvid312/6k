@@ -13,6 +13,15 @@ interface CashAuditRow {
   actual_total: number;
   discrepancy: number;
   notes: string | null;
+  bills_100k: number;
+  bills_50k: number;
+  bills_20k: number;
+  bills_10k: number;
+  bills_5k: number;
+  bills_2k: number;
+  coins: number;
+  bank_total: number;
+  cartera: number;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -29,6 +38,15 @@ function toEntity(row: CashAuditRow): CashAuditEntry {
     actualTotal: row.actual_total,
     discrepancy: row.discrepancy,
     notes: row.notes ?? '',
+    bills100k: row.bills_100k ?? 0,
+    bills50k: row.bills_50k ?? 0,
+    bills20k: row.bills_20k ?? 0,
+    bills10k: row.bills_10k ?? 0,
+    bills5k: row.bills_5k ?? 0,
+    bills2k: row.bills_2k ?? 0,
+    coins: row.coins ?? 0,
+    bankTotal: row.bank_total ?? 0,
+    cartera: row.cartera ?? 0,
     createdAt: row.created_at ?? undefined,
     updatedAt: row.updated_at ?? undefined,
   };
@@ -45,6 +63,15 @@ function toRow(entry: Omit<CashAuditEntry, 'id' | 'createdAt' | 'updatedAt'>): R
     actual_total: entry.actualTotal,
     discrepancy: entry.discrepancy,
     notes: entry.notes,
+    bills_100k: entry.bills100k,
+    bills_50k: entry.bills50k,
+    bills_20k: entry.bills20k,
+    bills_10k: entry.bills10k,
+    bills_5k: entry.bills5k,
+    bills_2k: entry.bills2k,
+    coins: entry.coins,
+    bank_total: entry.bankTotal,
+    cartera: entry.cartera,
   };
 }
 
@@ -71,6 +98,20 @@ export class SupabaseCashAuditRepository implements ICashAuditRepository {
       .order('date', { ascending: false });
     if (error) throw error;
     return (data as CashAuditRow[]).map(toEntity);
+  }
+
+  async getLastAuditBeforeDate(storeId: string, date: string): Promise<CashAuditEntry | null> {
+    const { data, error } = await supabase
+      .from('cash_audit_entries')
+      .select('*')
+      .eq('store_id', storeId)
+      .lt('date', date)
+      .order('date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return toEntity(data as CashAuditRow);
   }
 
   async upsert(entry: Omit<CashAuditEntry, 'id' | 'createdAt' | 'updatedAt'>): Promise<CashAuditEntry> {

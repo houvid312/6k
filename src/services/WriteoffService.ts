@@ -4,25 +4,29 @@ import { WriteoffStatus } from '../domain/enums/WriteoffStatus';
 import { WriteoffReason } from '../domain/enums/WriteoffReason';
 import { IWriteoffRepository } from '../domain/interfaces/repositories/IWriteoffRepository';
 import { IInventoryRepository } from '../domain/interfaces/repositories/IInventoryRepository';
+import { IRecipeRepository } from '../domain/interfaces/repositories/IRecipeRepository';
 
 export class WriteoffService {
   constructor(
     private writeoffRepo: IWriteoffRepository,
     private inventoryRepo: IInventoryRepository,
+    private recipeRepo?: IRecipeRepository,
   ) {}
 
   async createRequest(
     storeId: string,
-    supplyId: string,
+    supplyId: string | undefined,
     level: InventoryLevel,
     quantityGrams: number,
     reason: WriteoffReason,
     notes: string,
     requestedBy: string,
+    productId?: string,
   ): Promise<InventoryWriteoff> {
     return this.writeoffRepo.create({
       storeId,
       supplyId,
+      productId,
       level,
       quantityGrams,
       reason,
@@ -38,12 +42,27 @@ export class WriteoffService {
       WriteoffStatus.APPROVED,
       reviewedBy,
     );
-    await this.inventoryRepo.deductGrams(
-      writeoff.storeId,
-      writeoff.supplyId,
-      writeoff.quantityGrams,
-      writeoff.level,
-    );
+    if (writeoff.productId && this.recipeRepo) {
+      const recipe = await this.recipeRepo.getByProductId(writeoff.productId);
+      if (recipe) {
+        for (const ingredient of recipe.ingredients) {
+          const grams = ingredient.gramsPerPortion * writeoff.quantityGrams;
+          await this.inventoryRepo.deductGrams(
+            writeoff.storeId,
+            ingredient.supplyId,
+            grams,
+            writeoff.level,
+          );
+        }
+      }
+    } else if (writeoff.supplyId) {
+      await this.inventoryRepo.deductGrams(
+        writeoff.storeId,
+        writeoff.supplyId,
+        writeoff.quantityGrams,
+        writeoff.level,
+      );
+    }
     return writeoff;
   }
 

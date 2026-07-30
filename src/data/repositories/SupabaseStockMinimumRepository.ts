@@ -3,10 +3,13 @@ import { StockMinimum } from '../../domain/entities/StockMinimum';
 import { IStockMinimumRepository } from '../../domain/interfaces/repositories/IStockMinimumRepository';
 import { InventoryLevel } from '../../domain/enums';
 
-const LEVEL_MAP: Record<InventoryLevel, string> = {
+const LEVEL_MAP: Record<string | number, string> = {
   [InventoryLevel.RAW]: 'RAW',
   [InventoryLevel.PROCESSED]: 'PROCESSED',
   [InventoryLevel.STORE]: 'STORE',
+  RAW: 'RAW',
+  PROCESSED: 'PROCESSED',
+  STORE: 'STORE',
 };
 
 const REVERSE_LEVEL: Record<string, InventoryLevel> = {

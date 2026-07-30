@@ -38,7 +38,7 @@ export default function SugerenciaEnvioScreen() {
   const theme = useTheme();
   const { demandEstimationService, transferService } = useDI();
   const { selectedStoreId, stores } = useAppStore();
-  const { supplies } = useMasterDataStore();
+  const { supplies, refreshMasterData } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [selectedDay, setSelectedDay] = useState<string>(getTomorrowDay());
@@ -47,12 +47,18 @@ export default function SugerenciaEnvioScreen() {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [calculated, setCalculated] = useState(false);
+
+  React.useEffect(() => {
+    refreshMasterData();
+  }, [refreshMasterData]);
+
   const supplyMap = new Map(supplies.map((s) => [s.id, s]));
 
   const estimatedTotal = requirements.reduce((sum, req) => {
     const supply = supplyMap.get(req.supplyId);
     const bags = parseBagCount(editableBags[req.supplyId]);
-    const unitPrice = supply?.isBillableToStore ? supply.commercialPriceCop : 0;
+    const isBillable = supply?.isBillableToStore !== false;
+    const unitPrice = isBillable ? (Number(supply?.commercialPriceCop) || Number(supply?.productionCostCop) || 0) : 0;
     return sum + bags * unitPrice;
   }, 0);
 
@@ -199,7 +205,8 @@ export default function SugerenciaEnvioScreen() {
                 {(() => {
                   const supply = supplyMap.get(req.supplyId);
                   const bags = parseBagCount(editableBags[req.supplyId]);
-                  const unitPrice = supply?.isBillableToStore ? supply.commercialPriceCop : 0;
+                  const isBillable = supply?.isBillableToStore !== false;
+                  const unitPrice = isBillable ? (Number(supply?.commercialPriceCop) || Number(supply?.productionCostCop) || 0) : 0;
                   const lineTotal = bags * unitPrice;
                   return (
                     <>

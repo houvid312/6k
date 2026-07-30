@@ -1,7 +1,7 @@
 export type { Store } from './Store';
 export type { ProductFormat } from './ProductFormat';
 export type { Product, ProductCategory } from './Product';
-export type { Supply, SupplyUnit } from './Supply';
+export type { Supply, SupplyUnit, SupplyCategory } from './Supply';
 export type { Recipe, RecipeIngredient } from './Recipe';
 export type { Sale } from './Sale';
 export type { SaleItem } from './SaleItem';
@@ -30,3 +30,8 @@ export type { AdditionCatalogItem, SaleItemAddition } from './Addition';
 export type { CashOpening } from './CashOpening';
 export type { ChecklistItem, ChecklistEntry } from './ChecklistItem';
 export type { PayrollPeriod, PeriodType, PeriodStatus } from './PayrollPeriod';
+export type { Customer } from './Customer';
+export type { Income } from './Income';
+export type { InventoryAdjustment } from './InventoryAdjustment';
+
+

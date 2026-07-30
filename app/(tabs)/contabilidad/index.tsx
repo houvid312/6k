@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Alert, Platform } from 'react-native';
+import { View, StyleSheet, Alert, Platform, ScrollView } from 'react-native';
 import { Card, Text, Button, Chip, Divider, IconButton, Portal, Modal, TextInput, useTheme } from 'react-native-paper';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { KpiCard } from '../../../src/components/common/KpiCard';
@@ -9,10 +9,12 @@ import { LoadingIndicator } from '../../../src/components/common/LoadingIndicato
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
-import { Sale, Expense, Purchase, Transfer, CashClosing, CashAuditEntry } from '../../../src/domain/entities';
-import { InventoryLevel, PaymentMethod } from '../../../src/domain/enums';
+import { Sale, Expense, Purchase, Transfer, CashClosing, CashAuditEntry, DenominationCount, Income } from '../../../src/domain/entities';
+import { DenominationCounter } from '../../../src/components/ventas/DenominationCounter';
+import { InventoryLevel, PaymentMethod, ClosingStatus } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate, formatDateTime, toISODate, todayColombia } from '../../../src/utils/dates';
+import { supabase } from '../../../src/lib/supabase';
 
 interface InventoryValuationRow {
   supplyName: string;
@@ -34,7 +36,7 @@ interface WriteoffValuationRow {
 
 interface CashAuditRow {
   date: string;
-  status: CashClosing['status'] | 'AUDIT';
+  status: CashClosing['status'] | 'AUDIT' | 'DRAFT';
   source: 'CLOSING' | 'MANUAL';
   openingBase: number;
   expectedTotal: number;
@@ -43,6 +45,15 @@ interface CashAuditRow {
   actualTotal: number;
   discrepancy: number;
   notes: string;
+  bills100k: number;
+  bills50k: number;
+  bills20k: number;
+  bills10k: number;
+  bills5k: number;
+  bills2k: number;
+  coins: number;
+  bankTotal: number;
+  cartera: number;
 }
 
 type ExcelCell = string | number | null | { value: string | number | null; style?: string };
@@ -134,7 +145,16 @@ function getMonthToDateRange() {
   };
 }
 
-function getClosingStatusLabel(status: CashClosing['status'] | 'AUDIT'): string {
+function getYearToDateRange() {
+  const today = todayColombia();
+  const currentDate = new Date(`${today}T12:00:00`);
+  return {
+    start: `${currentDate.getFullYear()}-01-01`,
+    end: today,
+  };
+}
+
+function getClosingStatusLabel(status: CashClosing['status'] | 'AUDIT' | 'DRAFT'): string {
   if (status === 'AUDIT') return 'Conteo manual';
   if (status === 'APPROVED') return 'Aprobado';
   if (status === 'CONFIRMED') return 'Confirmado';
@@ -155,26 +175,36 @@ export default function ContabilidadScreen() {
     supplyRepo,
     recipeRepo,
     writeoffRepo,
+    productRepo,
+    creditRepo,
+    incomeRepo,
   } = useDI();
-  const { selectedStoreId, stores } = useAppStore();
+  const { selectedStoreId, stores, userRole, setSelectedStore } = useAppStore();
   const selectedStore = stores.find((s) => s.id === selectedStoreId);
+  const isGerente = userRole === 'GERENTE';
 
-  type ContaPeriod = 'hoy' | 'ayer' | 'semana' | 'mes' | 'rango';
-  const [period, setPeriod] = useState<ContaPeriod>('rango');
-  const [filterPeriod, setFilterPeriod] = useState<ContaPeriod>('rango');
-  const [appliedStoreId, setAppliedStoreId] = useState(selectedStoreId);
+  type ContaPeriod = 'hoy' | 'ayer' | 'semana' | 'mes' | 'año' | 'rango';
+  const [period, setPeriod] = useState<ContaPeriod>('año');
+  const [filterPeriod, setFilterPeriod] = useState<ContaPeriod>('año');
+  const [appliedStoreId, setAppliedStoreId] = useState(
+    userRole === 'GERENTE' ? 'consolidado' : selectedStoreId
+  );
   const appliedStore = stores.find((s) => s.id === appliedStoreId) ?? selectedStore;
   const isProductionCenter = appliedStore?.isProductionCenter ?? false;
-  const initialRange = getMonthToDateRange();
+  const initialRange = getYearToDateRange();
   const [rangeStartDraft, setRangeStartDraft] = useState(initialRange.start);
   const [rangeEndDraft, setRangeEndDraft] = useState(initialRange.end);
   const [rangeStartDate, setRangeStartDate] = useState(initialRange.start);
   const [rangeEndDate, setRangeEndDate] = useState(initialRange.end);
-  const [activeView, setActiveView] = useState<'resultado' | 'arqueo'>('resultado');
+  const [activeView, setActiveView] = useState<'general' | 'diaria' | 'rentabilidad'>('general');
 
   const [ingresos, setIngresos] = useState(0);
   const [egresos, setEgresos] = useState(0);
+  const [generalIngresos, setGeneralIngresos] = useState(0);
+  const [generalEgresos, setGeneralEgresos] = useState(0);
   const [salesIncome, setSalesIncome] = useState(0);
+  const [fixedExpenses, setFixedExpenses] = useState(0);
+  const [variableExpenses, setVariableExpenses] = useState(0);
   const [internalTransferIncome, setInternalTransferIncome] = useState(0);
   const [operatingExpenses, setOperatingExpenses] = useState(0);
   const [purchaseExpenses, setPurchaseExpenses] = useState(0);
@@ -190,6 +220,7 @@ export default function ContabilidadScreen() {
   const [periodLabel, setPeriodLabel] = useState('');
   const [reportSales, setReportSales] = useState<Sale[]>([]);
   const [reportExpenses, setReportExpenses] = useState<Expense[]>([]);
+  const [reportIncomes, setReportIncomes] = useState<Income[]>([]);
   const [reportPurchases, setReportPurchases] = useState<Purchase[]>([]);
   const [reportIncomingTransfers, setReportIncomingTransfers] = useState<Transfer[]>([]);
   const [reportOutgoingTransfers, setReportOutgoingTransfers] = useState<Transfer[]>([]);
@@ -221,6 +252,61 @@ export default function ContabilidadScreen() {
   const [auditNotes, setAuditNotes] = useState('');
   const [auditSaving, setAuditSaving] = useState(false);
   const [auditError, setAuditError] = useState('');
+  const [auditDenominations, setAuditDenominations] = useState<DenominationCount>({
+    bills100k: 0,
+    bills50k: 0,
+    bills20k: 0,
+    bills10k: 0,
+    bills5k: 0,
+    bills2k: 0,
+    coins: 0,
+  });
+  const [auditBankTotal, setAuditBankTotal] = useState(0);
+  const [auditCartera, setAuditCartera] = useState(0);
+  const [dbCartera, setDbCartera] = useState(0);
+  const [dbCuentasPorPagar, setDbCuentasPorPagar] = useState(0);
+  const [reportClosings, setReportClosings] = useState<CashClosing[]>([]);
+  const [openingsMap, setOpeningsMap] = useState<Record<string, number>>({});
+
+  // States for general cash breakdown
+  const [latestTheoreticalCash, setLatestTheoreticalCash] = useState(0);
+  const [latestTheoreticalBank, setLatestTheoreticalBank] = useState(0);
+  const [latestTheoreticalCartera, setLatestTheoreticalCartera] = useState(0);
+  const [latestTheoreticalBase, setLatestTheoreticalBase] = useState(0);
+  const [auditBase, setAuditBase] = useState(0);
+
+  // States for verification and approval modal
+  const [approvingClosing, setApprovingClosing] = useState<CashClosing | null>(null);
+  const [closingDenoms, setClosingDenoms] = useState<DenominationCount>({
+    bills100k: 0,
+    bills50k: 0,
+    bills20k: 0,
+    bills10k: 0,
+    bills5k: 0,
+    bills2k: 0,
+    coins: 0,
+  });
+  const [closingBankTotal, setClosingBankTotal] = useState(0);
+  const [closingExpenses, setClosingExpenses] = useState(0);
+  const [closingDate, setClosingDate] = useState('');
+  const [closingExpected, setClosingExpected] = useState(0);
+  const [closingOpeningBase, setClosingOpeningBase] = useState(0);
+  const [closingCreditSales, setClosingCreditSales] = useState(0);
+
+  // Helper date function for chronological lists
+  const getDatesInRange = (startStr: string, endStr: string) => {
+    const dates: string[] = [];
+    const curr = new Date(`${startStr}T12:00:00`);
+    const end = new Date(`${endStr}T12:00:00`);
+    while (curr <= end) {
+      const y = curr.getFullYear();
+      const m = String(curr.getMonth() + 1).padStart(2, '0');
+      const d = String(curr.getDate()).padStart(2, '0');
+      dates.push(`${y}-${m}-${d}`);
+      curr.setDate(curr.getDate() + 1);
+    }
+    return dates;
+  };
 
   const loadData = useCallback(async () => {
     if (!hasAppliedFilter || !appliedStoreId) {
@@ -252,36 +338,97 @@ export default function ContabilidadScreen() {
         const d = new Date(today + 'T12:00:00');
         startDate = toISODate(new Date(d.getFullYear(), d.getMonth(), 1));
         endDate = today;
+      } else if (period === 'año') {
+        const d = new Date(today + 'T12:00:00');
+        startDate = `${d.getFullYear()}-01-01`;
+        endDate = today;
       } else {
         startDate = rangeStartDate;
         endDate = rangeEndDate;
       }
 
       const endDateTime = `${endDate}T23:59:59`;
-      const sales = await saleService.getSalesByDateRange(appliedStoreId, startDate, endDateTime);
+      let sales: Sale[] = [];
+      let allExpenses: Expense[] = [];
+      let allIncomes: Income[] = [];
+      let purchases: Purchase[] = [];
+      let incomingTransfers: Transfer[] = [];
+      let outgoingTransfers: Transfer[] = [];
+      let storeInventory: any[] = [];
+      let approvedWriteoffs: any[] = [];
+
+      if (appliedStoreId === 'consolidado') {
+        const fetchPromises = stores.map(async (store) => {
+          const [s, e, p, inc, out, inv, wo, closings, audits, inco] = await Promise.all([
+            saleService.getSalesByDateRange(store.id, startDate, endDateTime),
+            expenseRepo.getByDateRange(store.id, startDate, endDateTime),
+            purchaseRepo.getByDateRange(startDate, endDateTime, store.id),
+            transferRepo.getReceivedByDestination(store.id, startDate, endDate),
+            transferRepo.getReceivedByOrigin(store.id, startDate, endDate),
+            inventoryRepo.getByStore(store.id, InventoryLevel.STORE),
+            writeoffRepo.getApprovedByStoreAndDateRange(store.id, startDate, endDate),
+            cashClosingService.getClosingsByDateRange(store.id, startDate, endDate),
+            cashAuditRepo.getByDateRange(store.id, startDate, endDate),
+            incomeRepo.getByDateRange(store.id, startDate, endDate),
+          ]);
+          return { s, e, p, inc, out, inv, wo, closings, audits, inco, storeIsProd: store.isProductionCenter };
+        });
+
+        const results = await Promise.all(fetchPromises);
+        for (const res of results) {
+          sales = [...sales, ...res.s];
+          allExpenses = [...allExpenses, ...res.e];
+          purchases = [...purchases, ...res.p];
+          incomingTransfers = [...incomingTransfers, ...res.inc];
+          if (res.storeIsProd) {
+            outgoingTransfers = [...outgoingTransfers, ...res.out];
+          }
+          storeInventory = [...storeInventory, ...res.inv];
+          approvedWriteoffs = [...approvedWriteoffs, ...res.wo];
+          allIncomes = [...allIncomes, ...res.inco];
+        }
+      } else {
+        const [s, e, p, inc, out, inv, wo, closings, audits, inco] = await Promise.all([
+          saleService.getSalesByDateRange(appliedStoreId, startDate, endDateTime),
+          expenseRepo.getByDateRange(appliedStoreId, startDate, endDateTime),
+          purchaseRepo.getByDateRange(startDate, endDateTime, appliedStoreId),
+          transferRepo.getReceivedByDestination(appliedStoreId, startDate, endDate),
+          transferRepo.getReceivedByOrigin(appliedStoreId, startDate, endDate),
+          inventoryRepo.getByStore(appliedStoreId, InventoryLevel.STORE),
+          writeoffRepo.getApprovedByStoreAndDateRange(appliedStoreId, startDate, endDate),
+          cashClosingService.getClosingsByDateRange(appliedStoreId, startDate, endDate),
+          cashAuditRepo.getByDateRange(appliedStoreId, startDate, endDate),
+          incomeRepo.getByDateRange(appliedStoreId, startDate, endDate),
+        ]);
+        sales = s;
+        allExpenses = e;
+        purchases = p;
+        incomingTransfers = inc;
+        outgoingTransfers = out;
+        storeInventory = inv;
+        approvedWriteoffs = wo;
+        allIncomes = inco;
+      }
+
+      allExpenses = allExpenses.filter((exp) => exp.category !== 'Adelanto');
+
       const totalRevenue = sales.reduce((sum, s) => sum + s.totalAmount, 0);
-
-      const allExpenses = await expenseRepo.getByDateRange(appliedStoreId, startDate, endDateTime);
       const totalExpenses = allExpenses.reduce((sum, e) => sum + e.amount, 0);
-
-      const purchases = await purchaseRepo.getByDateRange(startDate, endDateTime, appliedStoreId);
       const totalPurchases = purchases.reduce((sum, p) => sum + p.priceCOP, 0);
-
-      const incomingTransfers = await transferRepo.getReceivedByDestination(appliedStoreId, startDate, endDate);
       const totalIncomingTransfers = incomingTransfers.reduce((sum, t) => sum + (t.totalPriceCop ?? 0), 0);
-
-      const outgoingTransfers = await transferRepo.getReceivedByOrigin(appliedStoreId, startDate, endDate);
-      const totalOutgoingTransfers = isProductionCenter
+      const totalOutgoingTransfers = isProductionCenter || appliedStoreId === 'consolidado'
         ? outgoingTransfers.reduce((sum, t) => sum + (t.totalPriceCop ?? 0), 0)
         : 0;
 
-      const [storeInventory, supplies, recipes, approvedWriteoffs] = await Promise.all([
-        inventoryRepo.getByStore(appliedStoreId, InventoryLevel.STORE),
+      const [, supplies, recipes,, products] = await Promise.all([
+        null,
         supplyRepo.getAll(false),
         recipeRepo.getAll(),
-        writeoffRepo.getApprovedByStoreAndDateRange(appliedStoreId, startDate, endDate),
+        null,
+        productRepo.getAll(),
       ]);
       const suppliesById = new Map(supplies.map((supply) => [supply.id, supply]));
+      const productsById = new Map(products.map((product) => [product.id, product]));
 
       const valueQuantityAtStorePrice = (supplyId: string | undefined, quantity: number) => {
         if (!supplyId || quantity <= 0) return 0;
@@ -359,14 +506,37 @@ export default function ContabilidadScreen() {
       }, 0);
 
       const currentWriteoffRows = approvedWriteoffs
-        .map((writeoff): WriteoffValuationRow => ({
-          date: formatDateTime(writeoff.createdAt),
-          supplyName: suppliesById.get(writeoff.supplyId)?.name ?? 'Insumo',
-          quantityGrams: writeoff.quantityGrams,
-          reason: writeoff.reason,
-          notes: writeoff.notes,
-          totalValueCop: valueQuantityAtStorePrice(writeoff.supplyId, writeoff.quantityGrams),
-        }))
+        .map((writeoff): WriteoffValuationRow => {
+          let supplyName = 'Insumo';
+          let totalValueCop = 0;
+
+          if (writeoff.productId) {
+            const product = productsById.get(writeoff.productId);
+            supplyName = product ? `${product.name} (Porciones)` : 'Producto';
+
+            const recipe = recipes.find((r) => r.productId === writeoff.productId);
+            if (recipe) {
+              totalValueCop = recipe.ingredients.reduce(
+                (sum, ingredient) =>
+                  sum + valueQuantityAtStorePrice(ingredient.supplyId, ingredient.gramsPerPortion * writeoff.quantityGrams),
+                0,
+              );
+            }
+          } else if (writeoff.supplyId) {
+            const supply = suppliesById.get(writeoff.supplyId);
+            supplyName = supply?.name ?? 'Insumo';
+            totalValueCop = valueQuantityAtStorePrice(writeoff.supplyId, writeoff.quantityGrams);
+          }
+
+          return {
+            date: formatDateTime(writeoff.createdAt),
+            supplyName,
+            quantityGrams: writeoff.quantityGrams,
+            reason: writeoff.reason,
+            notes: writeoff.notes,
+            totalValueCop,
+          };
+        })
         .sort((a, b) => b.totalValueCop - a.totalValueCop);
 
       const totalWriteoffInventoryCost = currentWriteoffRows.reduce(
@@ -378,58 +548,319 @@ export default function ContabilidadScreen() {
       const periodExpenses = totalExpenses + totalPurchases + totalIncomingTransfers;
       const auditYear = String(new Date(`${endDate}T12:00:00`).getFullYear());
       const auditYearStart = `${auditYear}-01-01`;
-      const [yearClosings, yearAuditEntries] = await Promise.all([
-        cashClosingService.getClosingsByDateRange(appliedStoreId, auditYearStart, endDate),
-        cashAuditRepo.getByDateRange(appliedStoreId, auditYearStart, endDate),
-      ]);
-      const closingByDate = new Map(yearClosings.map((closing) => [closing.date, closing]));
-      const manualAuditByDate = new Map(yearAuditEntries.map((entry) => [entry.date, entry]));
-      const auditDates = Array.from(new Set([
-        ...yearClosings.map((closing) => closing.date),
-        ...yearAuditEntries.map((entry) => entry.date),
-      ])).sort((a, b) => a.localeCompare(b));
-      const openingsByDate = await Promise.all(
-        auditDates.map((date) =>
-          cashClosingService.getOpeningByDate(appliedStoreId, date).catch(() => null),
-        ),
-      );
-      const auditRows = auditDates.map((date, index): CashAuditRow | null => {
-        const manualAudit = manualAuditByDate.get(date);
-        if (manualAudit) {
-          return {
-            date: manualAudit.date,
-            status: 'AUDIT',
-            source: 'MANUAL',
-            openingBase: manualAudit.openingBase,
-            expectedTotal: manualAudit.cashSales,
-            expenses: manualAudit.cashExpenses,
-            theoreticalTotal: manualAudit.theoreticalTotal,
-            actualTotal: manualAudit.actualTotal,
-            discrepancy: manualAudit.discrepancy,
-            notes: manualAudit.notes,
-          };
+      let auditRows: CashAuditRow[] = [];
+      let cashAuditYearValue = auditYear;
+
+      if (appliedStoreId !== 'consolidado') {
+        const lastAudit = await cashAuditRepo.getLastAuditBeforeDate(appliedStoreId, startDate);
+        const anchorDate = lastAudit ? lastAudit.date : '2020-01-01';
+
+        const [credits, closings, audits, openingsRes, ledgerExpenses, ledgerPurchases, creditPaymentsRes, ledgerIncomes] = await Promise.all([
+          creditRepo.getAll(),
+          cashClosingService.getClosingsByDateRange(appliedStoreId, anchorDate, endDate),
+          cashAuditRepo.getByDateRange(appliedStoreId, anchorDate, endDate),
+          supabase
+            .from('cash_openings')
+            .select('date,total')
+            .eq('store_id', appliedStoreId)
+            .gte('date', anchorDate)
+            .lte('date', endDate),
+          expenseRepo.getByDateRange(appliedStoreId, anchorDate, endDate),
+          purchaseRepo.getByDateRange(anchorDate, endDate, appliedStoreId),
+          supabase
+            .from('credit_payments')
+            .select('*, credit_entries(debtor_type, store_id)')
+            .gte('date', anchorDate)
+            .lte('date', endDate),
+          incomeRepo.getByDateRange(appliedStoreId, anchorDate, endDate),
+        ]);
+
+        const openingsObj = Object.fromEntries(
+          (openingsRes.data || []).map((o: any) => [o.date, o.total])
+        );
+        setOpeningsMap(openingsObj);
+
+        const openingsByDate = new Map<string, number>(
+          (openingsRes.data || []).map((o: any) => [o.date, o.total])
+        );
+
+        const appliedStore = stores.find(s => s.id === appliedStoreId);
+        const isProd = appliedStore?.isProductionCenter ?? false;
+
+        const totalCartera = isProd
+          ? credits.filter(c => c.debtorType === 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0)
+          : credits.filter(c => c.storeId === appliedStoreId && c.debtorType !== 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0);
+
+        const totalCuentasPorPagar = isProd
+          ? 0
+          : credits.filter(c => c.storeId === appliedStoreId && c.debtorType === 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0);
+
+        setDbCartera(totalCartera);
+        setDbCuentasPorPagar(totalCuentasPorPagar);
+        setReportClosings(closings.filter(c => c.date >= startDate));
+
+        const initialBase = lastAudit ? lastAudit.actualTotal : 0;
+        const initialBank = lastAudit ? lastAudit.bankTotal : 0;
+        const initialCartera = lastAudit ? lastAudit.cartera : 0;
+        const initialBaseLocal = lastAudit ? lastAudit.openingBase : 0;
+        const initialCash = initialBase - initialBank - initialCartera - initialBaseLocal;
+
+        const dates = getDatesInRange(anchorDate, endDate);
+        let runningCash = initialCash;
+        let runningBank = initialBank;
+        let runningCartera = initialCartera;
+        let runningBaseLocal = initialBaseLocal;
+
+        const closingsByDate = new Map(closings.map(c => [c.date, c]));
+        const auditsByDate = new Map(audits.map(a => [a.date, a]));
+
+        // Segment expenses and purchases by date and payment method
+        const cashExpensesByDate = new Map<string, number>();
+        const bankExpensesByDate = new Map<string, number>();
+        const cashAdvancesByDate = new Map<string, number>();
+        const bankAdvancesByDate = new Map<string, number>();
+        for (const exp of ledgerExpenses) {
+          const expDate = exp.date.split('T')[0];
+          if (exp.category === 'Adelanto') {
+            if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
+              cashAdvancesByDate.set(expDate, (cashAdvancesByDate.get(expDate) ?? 0) + exp.amount);
+            } else {
+              bankAdvancesByDate.set(expDate, (bankAdvancesByDate.get(expDate) ?? 0) + exp.amount);
+            }
+          } else if (exp.category === 'Compra Turno') {
+            // Exclude Compra Turno as it is already included in closing.expenses
+          } else {
+            if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
+              cashExpensesByDate.set(expDate, (cashExpensesByDate.get(expDate) ?? 0) + exp.amount);
+            } else {
+              bankExpensesByDate.set(expDate, (bankExpensesByDate.get(expDate) ?? 0) + exp.amount);
+            }
+          }
         }
 
-        const closing = closingByDate.get(date);
-        if (!closing) return null;
-        const openingBaseValue = openingsByDate[index]?.total ?? 0;
-        const theoreticalTotal = openingBaseValue + closing.expectedTotal - closing.expenses;
-        const actualTotal = closing.actualTotal;
-        const discrepancy = actualTotal - theoreticalTotal;
+        const cashPurchasesByDate = new Map<string, number>();
+        const bankPurchasesByDate = new Map<string, number>();
+        for (const pur of ledgerPurchases) {
+          const purDate = pur.timestamp.split('T')[0];
+          if (pur.paymentMethod === PaymentMethod.EFECTIVO) {
+            cashPurchasesByDate.set(purDate, (cashPurchasesByDate.get(purDate) ?? 0) + pur.priceCOP);
+          } else {
+            bankPurchasesByDate.set(purDate, (bankPurchasesByDate.get(purDate) ?? 0) + pur.priceCOP);
+          }
+        }
 
-        return {
-          date: closing.date,
-          status: closing.status,
-          source: 'CLOSING',
-          openingBase: openingBaseValue,
-          expectedTotal: closing.expectedTotal,
-          expenses: closing.expenses,
-          theoreticalTotal,
-          actualTotal,
-          discrepancy,
-          notes: '',
-        };
-      }).filter((row): row is CashAuditRow => !!row);
+        // Segment incomes by date and payment method
+        const cashIncomesByDate = new Map<string, number>();
+        const bankIncomesByDate = new Map<string, number>();
+        for (const inc of ledgerIncomes) {
+          const incDate = inc.date.split('T')[0];
+          if (inc.paymentMethod === PaymentMethod.EFECTIVO) {
+            cashIncomesByDate.set(incDate, (cashIncomesByDate.get(incDate) ?? 0) + inc.amount);
+          } else {
+            bankIncomesByDate.set(incDate, (bankIncomesByDate.get(incDate) ?? 0) + inc.amount);
+          }
+        }
+
+        // Segment credit payments (abonos) by date and payment method
+        const cashPaymentsByDate = new Map<string, number>();
+        const bankPaymentsByDate = new Map<string, number>();
+        const totalPaymentsByDate = new Map<string, number>();
+        const cpOutflowPaymentsByDate = new Map<string, number>();
+
+        const creditPayments = (creditPaymentsRes.data || []) as any[];
+        for (const p of creditPayments) {
+          const entry = p.credit_entries;
+          if (!entry) continue;
+
+          // Skip non-confirmed payments (pending/rejected)
+          const isConfirmed = p.status === 'CONFIRMED';
+          if (!isConfirmed) continue;
+
+          const pDate = p.date;
+          const isCpCredit = entry.debtor_type === 'LOCAL';
+
+          if (isProd) {
+            if (isCpCredit) {
+              // ONLY add to bank/total payments if this payment does NOT have an associated income record
+              if (!p.income_id) {
+                bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
+              }
+              totalPaymentsByDate.set(pDate, (totalPaymentsByDate.get(pDate) ?? 0) + p.amount);
+            }
+          } else {
+            if (entry.store_id === appliedStoreId) {
+              if (isCpCredit) {
+                // Outflow payment made to CP
+                // ONLY subtract from outflow if this payment does NOT have an associated expense record
+                if (!p.expense_id) {
+                  const isCash = p.notes?.toLowerCase().includes('efectivo') ?? false;
+                  if (isCash) {
+                    cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
+                  } else {
+                    cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
+                  }
+                }
+              } else {
+                // Inflow abono received
+                const isCash = p.notes?.toLowerCase().includes('efectivo') ?? false;
+                if (isCash) {
+                  cashPaymentsByDate.set(pDate, (cashPaymentsByDate.get(pDate) ?? 0) + p.amount);
+                } else {
+                  bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
+                }
+                totalPaymentsByDate.set(pDate, (totalPaymentsByDate.get(pDate) ?? 0) + p.amount);
+              }
+            }
+          }
+        }
+
+        // Segment newly created credits by date
+        const creditsByDate = new Map<string, number>();
+        const creditSalesByDate = new Map<string, number>();
+        for (const c of credits) {
+          const cDate = c.date.split('T')[0];
+          const isCpCredit = c.debtorType === 'LOCAL';
+
+          if (isProd) {
+            if (isCpCredit) {
+              creditsByDate.set(cDate, (creditsByDate.get(cDate) ?? 0) + c.amount);
+            }
+          } else {
+            if (c.storeId === appliedStoreId && !isCpCredit) {
+              creditsByDate.set(cDate, (creditsByDate.get(cDate) ?? 0) + c.amount);
+              if (c.saleId) {
+                creditSalesByDate.set(cDate, (creditSalesByDate.get(cDate) ?? 0) + c.amount);
+              }
+            }
+          }
+        }
+
+        const calculatedAudits: CashAuditRow[] = [];
+        let sumIngresosGral = 0;
+        let sumEgresosGral = 0;
+
+        for (const date of dates) {
+          const closing = closingsByDate.get(date);
+          const audit = auditsByDate.get(date);
+
+          const openingBaseVal = openingsByDate.get(date) ?? 100000;
+          const isApproved = closing && closing.status === ClosingStatus.APPROVED;
+
+          const generalCashExp = (cashExpensesByDate.get(date) ?? 0) + (cashPurchasesByDate.get(date) ?? 0);
+          const generalBankExp = (bankExpensesByDate.get(date) ?? 0) + (bankPurchasesByDate.get(date) ?? 0);
+
+          const cashPayToday = cashPaymentsByDate.get(date) ?? 0;
+          const bankPayToday = bankPaymentsByDate.get(date) ?? 0;
+          const totalPayToday = totalPaymentsByDate.get(date) ?? 0;
+          const cpOutflowPayToday = cpOutflowPaymentsByDate.get(date) ?? 0;
+          const newCreditsToday = creditsByDate.get(date) ?? 0;
+          const creditSalesToday = creditSalesByDate.get(date) ?? 0;
+
+          const salesTransferCash = isApproved ? (closing.expectedTotal - closing.bankTotal - creditSalesToday - closing.expenses) : 0;
+          const salesTransferBank = isApproved ? closing.bankTotal : 0;
+
+          // Variable base en local does not go in/out as expense. It is a separate ledger asset.
+          const theoreticalBaseToday = isApproved ? openingBaseVal : runningBaseLocal;
+
+          const cashAdvancesToday = cashAdvancesByDate.get(date) ?? 0;
+          const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
+          const generalCashIncomeToday = cashIncomesByDate.get(date) ?? 0;
+          const generalBankIncomeToday = bankIncomesByDate.get(date) ?? 0;
+
+          const grossInflowToday = (isApproved ? closing.expectedTotal : 0) + generalCashIncomeToday + generalBankIncomeToday;
+          const grossOutflowToday = (isApproved ? Math.max(0, closing.expenses - cashAdvancesToday) : 0) + generalCashExp + generalBankExp;
+
+          if (date >= startDate) {
+            sumIngresosGral += grossInflowToday;
+            sumEgresosGral += grossOutflowToday;
+          }
+
+          const theoreticalCashToday = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday;
+          const theoreticalBankToday = runningBank + salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
+          const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
+          const theoreticalToday = theoreticalCashToday + theoreticalBankToday + theoreticalCarteraToday + theoreticalBaseToday;
+
+          if (date === dates[dates.length - 1]) {
+            setLatestTheoreticalCash(theoreticalCashToday);
+            setLatestTheoreticalBank(theoreticalBankToday);
+            setLatestTheoreticalCartera(theoreticalCarteraToday);
+            setLatestTheoreticalBase(theoreticalBaseToday);
+          }
+
+          if (audit) {
+            runningBank = audit.bankTotal;
+            runningCartera = audit.cartera;
+            runningBaseLocal = audit.openingBase;
+            runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - audit.openingBase;
+            if (date >= startDate) {
+              calculatedAudits.push({
+                date,
+                status: 'AUDIT',
+                source: 'MANUAL',
+                openingBase: theoreticalBaseToday,
+                expectedTotal: grossInflowToday,
+                expenses: grossOutflowToday,
+                theoreticalTotal: theoreticalToday,
+                actualTotal: audit.actualTotal,
+                discrepancy: audit.actualTotal - theoreticalToday,
+                notes: audit.notes,
+                bills100k: audit.bills100k,
+                bills50k: audit.bills50k,
+                bills20k: audit.bills20k,
+                bills10k: audit.bills10k,
+                bills5k: audit.bills5k,
+                bills2k: audit.bills2k,
+                coins: audit.coins,
+                bankTotal: audit.bankTotal,
+                cartera: audit.cartera,
+              });
+            }
+          } else {
+            runningCash = theoreticalCashToday;
+            runningBank = theoreticalBankToday;
+            runningCartera = theoreticalCarteraToday;
+            runningBaseLocal = theoreticalBaseToday;
+            if (date >= startDate) {
+              calculatedAudits.push({
+                date,
+                status: 'DRAFT',
+                source: 'MANUAL',
+                openingBase: theoreticalBaseToday,
+                expectedTotal: grossInflowToday,
+                expenses: grossOutflowToday,
+                theoreticalTotal: theoreticalToday,
+                actualTotal: theoreticalToday,
+                discrepancy: 0,
+                notes: '',
+                bills100k: 0,
+                bills50k: 0,
+                bills20k: 0,
+                bills10k: 0,
+                bills5k: 0,
+                bills2k: 0,
+                coins: 0,
+                bankTotal: runningBank,
+                cartera: runningCartera,
+              });
+            }
+          }
+        }
+
+        setGeneralIngresos(sumIngresosGral);
+        setGeneralEgresos(sumEgresosGral);
+        if (dates.length === 0) {
+          setLatestTheoreticalCash(initialCash);
+          setLatestTheoreticalBank(initialBank);
+          setLatestTheoreticalCartera(initialCartera);
+          setLatestTheoreticalBase(initialBaseLocal);
+        }
+        auditRows = calculatedAudits;
+      }
+
+      const fixed = allExpenses.filter(e => e.isFixed).reduce((sum, e) => sum + e.amount, 0);
+      const variable = allExpenses.filter(e => !e.isFixed).reduce((sum, e) => sum + e.amount, 0);
+      setFixedExpenses(fixed);
+      setVariableExpenses(variable);
 
       setSalesIncome(totalRevenue);
       setInternalTransferIncome(totalOutgoingTransfers);
@@ -444,23 +875,24 @@ export default function ContabilidadScreen() {
       setPeriodLabel(startDate === endDate ? startDate : `${startDate} a ${endDate}`);
       setReportSales(sales);
       setReportExpenses(allExpenses);
+      setReportIncomes(allIncomes);
       setReportPurchases(purchases);
       setReportIncomingTransfers(incomingTransfers);
-      setReportOutgoingTransfers(isProductionCenter ? outgoingTransfers : []);
+      setReportOutgoingTransfers(isProductionCenter || appliedStoreId === 'consolidado' ? outgoingTransfers : []);
       setInventoryValuationRows(currentInventoryRows);
       setWriteoffValuationRows(currentWriteoffRows);
       setCashAuditRows([...auditRows].reverse());
-      setCashAuditYear(auditYear);
+      setCashAuditYear(cashAuditYearValue);
 
       // Transacciones del periodo (últimas 10)
       setRecentSales(sales.slice(0, 10));
       setRecentExpenses(allExpenses.slice(0, 10));
       setRecentPurchases(purchases.slice(0, 10));
       setRecentIncomingTransfers(incomingTransfers.slice(0, 10));
-      setRecentOutgoingTransfers(isProductionCenter ? outgoingTransfers.slice(0, 10) : []);
+      setRecentOutgoingTransfers(isProductionCenter || appliedStoreId === 'consolidado' ? outgoingTransfers.slice(0, 10) : []);
 
       // C1: Daily audit data (solo para hoy)
-      if (period === 'hoy') {
+      if (period === 'hoy' && appliedStoreId !== 'consolidado') {
         try {
           const opening = await cashClosingService.getOpeningByDate(appliedStoreId, today);
           setOpeningBase(opening?.total ?? 0);
@@ -502,14 +934,32 @@ export default function ContabilidadScreen() {
     rangeEndDate,
   ]);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
+
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (appliedStoreId === 'consolidado') {
+      setActiveView('rentabilidad');
+    }
+  }, [appliedStoreId]);
+
+  useEffect(() => {
+    if (selectedStoreId && selectedStoreId !== appliedStoreId) {
+      setAppliedStoreId(selectedStoreId);
+    }
+  }, [selectedStoreId, appliedStoreId]);
 
   const utilidad = ingresos - egresos;
   const flujoConInventario = utilidad + inventoryAssetValue;
-  const margenBruto = salesIncome - soldInventoryCost;
-  const resultadoOperativo = margenBruto - operatingExpenses - writeoffInventoryCost;
+  
+  // Margen bruto: Ventas externas + Ventas internas (traslados del centro) - Consumo Recetas - Compras Directas locales
+  const margenBruto = salesIncome + internalTransferIncome - soldInventoryCost - purchaseExpenses;
+  
+  // Margen operativo / Resultado neto de operacion: margen bruto menos bajas/mermas menos gastos fijos/variables
+  const resultadoOperativo = margenBruto - writeoffInventoryCost - fixedExpenses - variableExpenses;
   const latestCashAudit = cashAuditRows[0];
   const latestCashAuditTheoretical = latestCashAudit?.theoreticalTotal ?? 0;
   const latestCashAuditActual = latestCashAudit?.actualTotal ?? 0;
@@ -594,15 +1044,244 @@ export default function ContabilidadScreen() {
     }
   }, [editingExpense, editDescription, editAmount, expenseRepo, loadData]);
 
-  const handleOpenAuditModal = useCallback(() => {
+  const handleOpenAuditModal = useCallback(async () => {
     const defaultDate = todayColombia();
     const existingAudit = cashAuditRows.find((row) => row.date === defaultDate);
     setAuditDate(defaultDate);
-    setAuditActualTotal(existingAudit?.actualTotal ?? 0);
     setAuditNotes(existingAudit?.notes ?? '');
+    setAuditDenominations({
+      bills100k: existingAudit?.bills100k ?? 0,
+      bills50k: existingAudit?.bills50k ?? 0,
+      bills20k: existingAudit?.bills20k ?? 0,
+      bills10k: existingAudit?.bills10k ?? 0,
+      bills5k: existingAudit?.bills5k ?? 0,
+      bills2k: existingAudit?.bills2k ?? 0,
+      coins: existingAudit?.coins ?? 0,
+    });
+    setAuditBankTotal(latestTheoreticalBank);
+    setAuditBase(latestTheoreticalBase);
     setAuditError('');
+    setAuditCartera(latestTheoreticalCartera);
     setAuditModalVisible(true);
-  }, [cashAuditRows]);
+
+    try {
+      const freshCredits = await creditRepo.getAll();
+      const appliedStore = stores.find((s) => s.id === appliedStoreId);
+      const isProd = appliedStore?.isProductionCenter ?? false;
+      const freshTotal = isProd
+        ? freshCredits.filter(c => c.debtorType === 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0)
+        : freshCredits.filter(c => c.storeId === appliedStoreId && c.debtorType !== 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0);
+      setAuditCartera(freshTotal);
+    } catch (err) {
+      console.warn('Error reloading fresh cartera for audit:', err);
+    }
+  }, [cashAuditRows, latestTheoreticalBank, latestTheoreticalCartera, latestTheoreticalBase, creditRepo, appliedStoreId, stores]);
+
+  const calculateLiveTheoreticalTotal = useCallback(async (storeId: string, targetDate: string): Promise<number> => {
+    try {
+      const lastAudit = await cashAuditRepo.getLastAuditBeforeDate(storeId, targetDate);
+      const anchorDate = lastAudit ? lastAudit.date : '2020-01-01';
+
+      const [credits, closings, audits, openingsRes, ledgerExpenses, ledgerPurchases, creditPaymentsRes, ledgerIncomes] = await Promise.all([
+        creditRepo.getAll(),
+        cashClosingService.getClosingsByDateRange(storeId, anchorDate, targetDate),
+        cashAuditRepo.getByDateRange(storeId, anchorDate, targetDate),
+        supabase
+          .from('cash_openings')
+          .select('date,total')
+          .eq('store_id', storeId)
+          .gte('date', anchorDate)
+          .lte('date', targetDate),
+        expenseRepo.getByDateRange(storeId, anchorDate, targetDate),
+        purchaseRepo.getByDateRange(anchorDate, targetDate, storeId),
+        supabase
+          .from('credit_payments')
+          .select('*, credit_entries(debtor_type, store_id)')
+          .gte('date', anchorDate)
+          .lte('date', targetDate),
+        incomeRepo.getByDateRange(storeId, anchorDate, targetDate),
+      ]);
+
+      const openingsByDate = new Map<string, number>(
+        (openingsRes.data || []).map((o: any) => [o.date, o.total])
+      );
+
+      const closingsByDate = new Map(closings.map(c => [c.date, c]));
+      const auditsByDate = new Map(audits.map(a => [a.date, a]));
+
+      const cashExpensesByDate = new Map<string, number>();
+      const bankExpensesByDate = new Map<string, number>();
+      const cashAdvancesByDate = new Map<string, number>();
+      const bankAdvancesByDate = new Map<string, number>();
+      for (const exp of ledgerExpenses) {
+        const expDate = exp.date.split('T')[0];
+        if (exp.category === 'Adelanto') {
+          if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
+            cashAdvancesByDate.set(expDate, (cashAdvancesByDate.get(expDate) ?? 0) + exp.amount);
+          } else {
+            bankAdvancesByDate.set(expDate, (bankAdvancesByDate.get(expDate) ?? 0) + exp.amount);
+          }
+        } else if (exp.category === 'Compra Turno') {
+          // Exclude Compra Turno as it is already included in closing.expenses
+        } else {
+          if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
+            cashExpensesByDate.set(expDate, (cashExpensesByDate.get(expDate) ?? 0) + exp.amount);
+          } else {
+            bankExpensesByDate.set(expDate, (bankExpensesByDate.get(expDate) ?? 0) + exp.amount);
+          }
+        }
+      }
+
+      const cashPurchasesByDate = new Map<string, number>();
+      const bankPurchasesByDate = new Map<string, number>();
+      for (const pur of ledgerPurchases) {
+        const purDate = pur.timestamp.split('T')[0];
+        if (pur.paymentMethod === PaymentMethod.EFECTIVO) {
+          cashPurchasesByDate.set(purDate, (cashPurchasesByDate.get(purDate) ?? 0) + pur.priceCOP);
+        } else {
+          bankPurchasesByDate.set(purDate, (bankPurchasesByDate.get(purDate) ?? 0) + pur.priceCOP);
+        }
+      }
+
+      // Segment incomes by date and payment method
+      const cashIncomesByDate = new Map<string, number>();
+      const bankIncomesByDate = new Map<string, number>();
+      for (const inc of ledgerIncomes) {
+        const incDate = inc.date.split('T')[0];
+        if (inc.paymentMethod === PaymentMethod.EFECTIVO) {
+          cashIncomesByDate.set(incDate, (cashIncomesByDate.get(incDate) ?? 0) + inc.amount);
+        } else {
+          bankIncomesByDate.set(incDate, (bankIncomesByDate.get(incDate) ?? 0) + inc.amount);
+        }
+      }
+
+      const cashPaymentsByDate = new Map<string, number>();
+      const bankPaymentsByDate = new Map<string, number>();
+      const totalPaymentsByDate = new Map<string, number>();
+      const cpOutflowPaymentsByDate = new Map<string, number>();
+
+      const isProd = stores.find((s) => s.id === storeId)?.isProductionCenter ?? false;
+
+      for (const p of (creditPaymentsRes.data || [])) {
+        const pDate = p.date.split('T')[0];
+        const entryStoreId = p.credit_entries?.store_id;
+        const debtorType = p.credit_entries?.debtor_type;
+        const isCpCredit = debtorType === 'LOCAL';
+
+        // Skip non-confirmed payments (pending/rejected)
+        const isConfirmed = p.status === 'CONFIRMED';
+        if (!isConfirmed) continue;
+
+        if (isProd) {
+          if (isCpCredit) {
+            // ONLY add to bank/total payments if this payment does NOT have an associated income record
+            if (!p.income_id) {
+              bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
+            }
+            totalPaymentsByDate.set(pDate, (totalPaymentsByDate.get(pDate) ?? 0) + p.amount);
+          }
+        } else {
+          if (entryStoreId === storeId) {
+            if (isCpCredit) {
+              // Outflow payment made to CP
+              // ONLY subtract from outflow if this payment does NOT have an associated expense record
+              if (!p.expense_id) {
+                cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
+              }
+            } else {
+              totalPaymentsByDate.set(pDate, (totalPaymentsByDate.get(pDate) ?? 0) + p.amount);
+              const isCash = p.notes && String(p.notes).toLowerCase().includes('efectivo');
+              if (isCash) {
+                cashPaymentsByDate.set(pDate, (cashPaymentsByDate.get(pDate) ?? 0) + p.amount);
+              } else {
+                bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
+              }
+            }
+          }
+        }
+      }
+
+      const creditsByDate = new Map<string, number>();
+      const creditSalesByDate = new Map<string, number>();
+      for (const c of credits) {
+        const isCpCredit = c.debtorType === 'LOCAL';
+        if (isProd) {
+          if (isCpCredit) {
+            const cDate = c.date.split('T')[0];
+            creditsByDate.set(cDate, (creditsByDate.get(cDate) ?? 0) + c.amount);
+          }
+        } else {
+          if (c.storeId === storeId && !isCpCredit) {
+            const cDate = c.date.split('T')[0];
+            creditsByDate.set(cDate, (creditsByDate.get(cDate) ?? 0) + c.amount);
+            if (c.saleId) {
+              creditSalesByDate.set(cDate, (creditSalesByDate.get(cDate) ?? 0) + c.amount);
+            }
+          }
+        }
+      }
+
+      const initialBase = lastAudit ? lastAudit.actualTotal : 0;
+      const initialBank = lastAudit ? lastAudit.bankTotal : 0;
+      const initialCartera = lastAudit ? lastAudit.cartera : 0;
+      const initialBaseLocal = lastAudit ? lastAudit.openingBase : 0;
+      const initialCash = initialBase - initialBank - initialCartera - initialBaseLocal;
+
+      const dates = getDatesInRange(anchorDate, targetDate);
+      let runningCash = initialCash;
+      let runningBank = initialBank;
+      let runningCartera = initialCartera;
+      let runningBaseLocal = initialBaseLocal;
+
+      for (const date of dates) {
+        const audit = auditsByDate.get(date);
+        const closing = closingsByDate.get(date);
+
+        const openingBaseVal = openingsByDate.get(date) ?? 100000;
+        const isApproved = closing && closing.status === ClosingStatus.APPROVED;
+
+        const generalCashExp = (cashExpensesByDate.get(date) ?? 0) + (cashPurchasesByDate.get(date) ?? 0);
+        const generalBankExp = (bankExpensesByDate.get(date) ?? 0) + (bankPurchasesByDate.get(date) ?? 0);
+
+        const cashPayToday = cashPaymentsByDate.get(date) ?? 0;
+        const bankPayToday = bankPaymentsByDate.get(date) ?? 0;
+        const totalPayToday = totalPaymentsByDate.get(date) ?? 0;
+        const cpOutflowPayToday = cpOutflowPaymentsByDate.get(date) ?? 0;
+        const newCreditsToday = creditsByDate.get(date) ?? 0;
+        const creditSalesToday = creditSalesByDate.get(date) ?? 0;
+
+        const salesTransferCash = isApproved ? (closing.expectedTotal - closing.bankTotal - creditSalesToday - closing.expenses) : 0;
+        const salesTransferBank = isApproved ? closing.bankTotal : 0;
+
+        const theoreticalBaseToday = isApproved ? openingBaseVal : runningBaseLocal;
+
+        const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
+        const generalCashIncomeToday = cashIncomesByDate.get(date) ?? 0;
+        const generalBankIncomeToday = bankIncomesByDate.get(date) ?? 0;
+
+        const theoreticalCashToday = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday;
+        const theoreticalBankToday = runningBank + salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
+        const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
+
+        if (audit && date !== targetDate) {
+          runningBank = audit.bankTotal;
+          runningCartera = audit.cartera;
+          runningBaseLocal = audit.openingBase;
+          runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - audit.openingBase;
+        } else {
+          runningCash = theoreticalCashToday;
+          runningBank = theoreticalBankToday;
+          runningCartera = theoreticalCarteraToday;
+          runningBaseLocal = theoreticalBaseToday;
+        }
+      }
+
+      return runningCash + runningBank + runningCartera + runningBaseLocal;
+    } catch (err) {
+      console.error('Error calculating live theoretical total:', err);
+      return 0;
+    }
+  }, [creditRepo, cashClosingService, cashAuditRepo, expenseRepo, purchaseRepo]);
 
   const handleSaveCashAudit = useCallback(async () => {
     if (!appliedStoreId) return;
@@ -626,18 +1305,39 @@ export default function ContabilidadScreen() {
         + dayPurchases
           .filter((purchase) => purchase.paymentMethod === PaymentMethod.EFECTIVO)
           .reduce((sum, purchase) => sum + purchase.priceCOP, 0);
-      const theoreticalTotal = openingBaseValue + cashSales - cashExpenses;
+
+      const cashTotal =
+        (auditDenominations.bills100k * 100000) +
+        (auditDenominations.bills50k * 50000) +
+        (auditDenominations.bills20k * 20000) +
+        (auditDenominations.bills10k * 10000) +
+        (auditDenominations.bills5k * 5000) +
+        (auditDenominations.bills2k * 2000) +
+        auditDenominations.coins;
+      const actualTotalComputed = cashTotal + auditBankTotal + auditCartera + auditBase;
+
+      const expectedTheoretical = await calculateLiveTheoreticalTotal(appliedStoreId, auditDate);
+      const discrepancyComputed = actualTotalComputed - expectedTheoretical;
 
       const entry: Omit<CashAuditEntry, 'id' | 'createdAt' | 'updatedAt'> = {
         storeId: appliedStoreId,
         date: auditDate,
-        openingBase: openingBaseValue,
+        openingBase: auditBase,
         cashSales,
         cashExpenses,
-        theoreticalTotal,
-        actualTotal: auditActualTotal,
-        discrepancy: auditActualTotal - theoreticalTotal,
+        theoreticalTotal: expectedTheoretical,
+        actualTotal: actualTotalComputed,
+        discrepancy: discrepancyComputed,
         notes: auditNotes.trim(),
+        bills100k: auditDenominations.bills100k,
+        bills50k: auditDenominations.bills50k,
+        bills20k: auditDenominations.bills20k,
+        bills10k: auditDenominations.bills10k,
+        bills5k: auditDenominations.bills5k,
+        bills2k: auditDenominations.bills2k,
+        coins: auditDenominations.coins,
+        bankTotal: auditBankTotal,
+        cartera: auditCartera,
       };
 
       await cashAuditRepo.upsert(entry);
@@ -654,16 +1354,76 @@ export default function ContabilidadScreen() {
     }
   }, [
     appliedStoreId,
-    auditActualTotal,
     auditDate,
+    auditDenominations,
+    auditBankTotal,
+    auditCartera,
     auditNotes,
-    cashAuditRepo,
     cashClosingService,
-    expenseRepo,
-    loadData,
-    purchaseRepo,
     saleService,
+    expenseRepo,
+    purchaseRepo,
+    cashAuditRepo,
+    loadData,
   ]);
+
+  const handleOpenApproveModal = useCallback(async (closing: CashClosing) => {
+    setApprovingClosing(closing);
+    setClosingDenoms(closing.denominations);
+    setClosingBankTotal(closing.bankTotal);
+    setClosingExpenses(closing.expenses);
+    setClosingDate(closing.date);
+    setClosingExpected(closing.expectedTotal);
+    setClosingOpeningBase(100000);
+    setClosingCreditSales(0);
+    try {
+      const [opening, dailySales] = await Promise.all([
+        cashClosingService.getOpeningByDate(closing.storeId, closing.date),
+        saleService.getDailySummary(closing.storeId, closing.date),
+      ]);
+      if (opening) {
+        setClosingOpeningBase(opening.total);
+      }
+      if (dailySales) {
+        setClosingCreditSales(dailySales.totalCreditAmount ?? 0);
+      }
+    } catch (err) {
+      console.warn('Error fetching opening base/credits for closing approval:', err);
+    }
+  }, [cashClosingService, saleService]);
+
+  const handleSaveAndApproveClosing = useCallback(async () => {
+    if (!approvingClosing) return;
+    try {
+      if (approvingClosing.status === ClosingStatus.CONFIRMED) {
+        await cashClosingService.returnToDraft(approvingClosing.id);
+      }
+      await cashClosingService.updateClosing(
+        approvingClosing.id,
+        approvingClosing.storeId,
+        closingDate,
+        closingDenoms,
+        closingBankTotal,
+        closingExpenses
+      );
+      await cashClosingService.approveClosing(approvingClosing.id, '');
+      
+      if (Platform.OS === 'web') {
+        window.alert('Cierre de caja verificado y aprobado correctamente.');
+      } else {
+        Alert.alert('Éxito', 'Cierre de caja verificado y aprobado correctamente.');
+      }
+      setApprovingClosing(null);
+      loadData();
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'No se pudo guardar e ingresar el cierre.';
+      if (Platform.OS === 'web') {
+        window.alert(errMsg);
+      } else {
+        Alert.alert('Error', errMsg);
+      }
+    }
+  }, [approvingClosing, closingDate, closingDenoms, closingBankTotal, closingExpenses, cashClosingService, loadData]);
 
   const handlePeriodPress = useCallback((nextPeriod: ContaPeriod) => {
     setFilterPeriod(nextPeriod);
@@ -709,7 +1469,7 @@ export default function ContabilidadScreen() {
       return;
     }
 
-    const storeName = appliedStore?.name ?? 'Local';
+    const storeName = appliedStoreId === 'consolidado' ? 'Consolidado Global' : (appliedStore?.name ?? 'Local');
     const generatedAt = new Date().toISOString();
     const transferDescription = (transfer: Transfer) => {
       const itemCount = transfer.items.length;
@@ -727,19 +1487,22 @@ export default function ContabilidadScreen() {
       ['Flujo neto', currencyCell(utilidad), 'Ingresos menos egresos. Es lectura de flujo, no margen.'],
       ['Inventario valorizado', currencyCell(inventoryAssetValue), 'Stock actual valorizado al precio de traslado.'],
       ['Flujo + inventario', currencyCell(flujoConInventario), 'Flujo neto mas inventario actual como activo.'],
-      ['Margen bruto', currencyCell(margenBruto), 'Ventas a clientes menos costo vendido por recetas.'],
-      ['Margen operativo', currencyCell(resultadoOperativo), 'Margen bruto menos mermas aprobadas y gastos operativos. Es lectura de rentabilidad, no se suma al flujo.'],
+      ['Margen bruto', currencyCell(margenBruto), 'Ventas totales menos costos variables de inventario y compras directas.'],
+      ['Margen operativo', currencyCell(resultadoOperativo), 'Margen bruto menos mermas aprobadas y gastos operativos. Es lectura de rentabilidad.'],
     ];
 
     const marginRows: ExcelCell[][] = [
       ['Concepto', 'Valor', 'Descripcion'],
       ['Ventas a clientes', currencyCell(salesIncome), 'Total vendido a clientes en el periodo seleccionado.'],
-      ['Costo vendido por recetas', currencyCell(-soldInventoryCost), 'Inventario consumido por ventas, recetas, adiciones y empaques a precio de traslado.'],
-      ['Margen bruto', currencyCell(margenBruto), 'Ventas menos costo vendido. Indica si la venta cubre el producto consumido.'],
+      ['Ventas internas (Centro Prod.)', currencyCell(internalTransferIncome), 'Facturacion interna al enviar insumos a locales.'],
+      ['Costo vendido por recetas', currencyCell(-soldInventoryCost), 'Inventario consumido por ventas a precio de traslado.'],
+      ['Compras directas insumos', currencyCell(-purchaseExpenses), 'Compras directas hechas a proveedores locales.'],
+      ['Margen bruto', currencyCell(margenBruto), 'Ventas totales menos costos de inventario consumido y compras directas.'],
       ['Bajas y mermas aprobadas', currencyCell(-writeoffInventoryCost), 'Inventario descontado por bajas aprobadas en el periodo.'],
-      ['Gastos operativos', currencyCell(-operatingExpenses), 'Gastos registrados por la tienda, sin costo vendido ni cargos internos.'],
-      ['Margen operativo', currencyCell(resultadoOperativo), 'Margen bruto menos mermas y gastos operativos. Es una lectura separada del flujo de caja.'],
-      ['Inventario actual como activo', currencyCell(inventoryAssetValue), 'Stock que queda en el local valorizado al precio de compra al centro de produccion.'],
+      ['Gastos variables operacionales', currencyCell(-variableExpenses), 'Gastos generales variables de la operacion.'],
+      ['Gastos fijos operacionales', currencyCell(-fixedExpenses), 'Gastos generales fijos (arriendo, nomina, servicios).'],
+      ['Margen operativo', currencyCell(resultadoOperativo), 'Margen bruto menos mermas y gastos fijos/variables.'],
+      ['Inventario actual como activo', currencyCell(inventoryAssetValue), 'Stock que queda en el local valorizado al precio de compra.'],
     ];
 
     const transactionRows: ExcelCell[][] = [
@@ -875,12 +1638,121 @@ export default function ContabilidadScreen() {
   return (
     <ScreenContainer>
       <View style={styles.header}>
-        <StoreSelector />
+        {isGerente ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.tabsContainer}
+          >
+            <Chip
+              selected={appliedStoreId === 'consolidado'}
+              onPress={() => {
+                setAppliedStoreId('consolidado');
+              }}
+              mode={appliedStoreId === 'consolidado' ? 'flat' : 'outlined'}
+              icon="earth"
+              style={[
+                styles.tabChip,
+                appliedStoreId === 'consolidado' ? { backgroundColor: theme.colors.primaryContainer } : undefined,
+              ]}
+            >
+              Consolidado Global
+            </Chip>
+            {stores.map((store) => (
+              <Chip
+                key={store.id}
+                selected={appliedStoreId === store.id}
+                onPress={() => {
+                  setAppliedStoreId(store.id);
+                  setSelectedStore(store.id);
+                }}
+                mode={appliedStoreId === store.id ? 'flat' : 'outlined'}
+                icon={store.isProductionCenter ? 'factory' : 'storefront'}
+                style={[
+                  styles.tabChip,
+                  appliedStoreId === store.id ? { backgroundColor: theme.colors.primaryContainer } : undefined,
+                ]}
+              >
+                {store.name}
+              </Chip>
+            ))}
+          </ScrollView>
+        ) : (
+          <StoreSelector />
+        )}
       </View>
+
+      {/* Nav buttons — permanently visible below the store selector */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ marginVertical: 8, paddingHorizontal: 16, maxHeight: 40 }}
+      >
+        <Button
+          mode="outlined"
+          compact
+          icon="wallet"
+          style={{ marginRight: 8, height: 32 }}
+          labelStyle={{ fontSize: 12, marginVertical: 4 }}
+          onPress={() => router.push('/(tabs)/contabilidad/gastos')}
+        >
+          Gastos
+        </Button>
+        <Button
+          mode="outlined"
+          compact
+          icon="wallet-giftcard"
+          style={{ marginRight: 8, height: 32 }}
+          labelStyle={{ fontSize: 12, marginVertical: 4 }}
+          onPress={() => router.push('/(tabs)/contabilidad/ingresos')}
+        >
+          Ingresos
+        </Button>
+        <Button
+          mode="outlined"
+          compact
+          icon="bank"
+          style={{ marginRight: 8, height: 32 }}
+          labelStyle={{ fontSize: 12, marginVertical: 4 }}
+          onPress={() => router.push('/(tabs)/contabilidad/bancos')}
+        >
+          Bancos
+        </Button>
+        <Button
+          mode="outlined"
+          compact
+          icon="calendar-check"
+          style={{ marginRight: 8, height: 32 }}
+          labelStyle={{ fontSize: 12, marginVertical: 4 }}
+          onPress={() => router.push('/(tabs)/contabilidad/cierres')}
+        >
+          Cierres
+        </Button>
+        <Button
+          mode="outlined"
+          compact
+          icon="cart"
+          style={{ marginRight: 8, height: 32 }}
+          labelStyle={{ fontSize: 12, marginVertical: 4 }}
+          onPress={() => router.push('/(tabs)/inventario/compras')}
+        >
+          Compras
+        </Button>
+        <Button
+          mode="outlined"
+          compact
+          icon="scale-balance"
+          style={{ marginRight: 8, height: 32 }}
+          labelStyle={{ fontSize: 12, marginVertical: 4 }}
+          onPress={() => router.push('/(tabs)/contabilidad/balances')}
+        >
+          Balances
+        </Button>
+      </ScrollView>
 
       {/* Period filter */}
       <View style={styles.periodRow}>
-        {(['hoy', 'ayer', 'semana', 'mes', 'rango'] as const).map((p) => (
+        {(['hoy', 'ayer', 'semana', 'mes', 'año', 'rango'] as const).map((p) => (
           <Chip
             key={p}
             selected={filterPeriod === p}
@@ -888,7 +1760,7 @@ export default function ContabilidadScreen() {
             mode={filterPeriod === p ? 'flat' : 'outlined'}
             style={filterPeriod === p ? { backgroundColor: theme.colors.primaryContainer } : undefined}
           >
-            {p === 'hoy' ? 'Hoy' : p === 'ayer' ? 'Ayer' : p === 'semana' ? 'Semana' : p === 'mes' ? 'Mes' : 'Rango'}
+            {p === 'hoy' ? 'Hoy' : p === 'ayer' ? 'Ayer' : p === 'semana' ? 'Semana' : p === 'mes' ? 'Mes' : p === 'año' ? 'Año' : 'Rango'}
           </Chip>
         ))}
       </View>
@@ -957,94 +1829,150 @@ export default function ContabilidadScreen() {
         </Card>
       ) : (
         <>
-          <View style={styles.viewTabs}>
-            <Chip
-              selected={activeView === 'resultado'}
-              onPress={() => setActiveView('resultado')}
-              mode={activeView === 'resultado' ? 'flat' : 'outlined'}
-              icon="chart-line"
-              style={activeView === 'resultado' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
-            >
-              Resultado
-            </Chip>
-            <Chip
-              selected={activeView === 'arqueo'}
-              onPress={() => setActiveView('arqueo')}
-              mode={activeView === 'arqueo' ? 'flat' : 'outlined'}
-              icon="cash-register"
-              style={activeView === 'arqueo' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
-            >
-              Arqueo caja
-            </Chip>
-          </View>
+          {appliedStoreId !== 'consolidado' && (
+            <View style={styles.viewTabs}>
+              <Chip
+                selected={activeView === 'general'}
+                onPress={() => setActiveView('general')}
+                mode={activeView === 'general' ? 'flat' : 'outlined'}
+                icon="cash-register"
+                style={activeView === 'general' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
+              >
+                Caja General (Safe/Bank)
+              </Chip>
+              <Chip
+                selected={activeView === 'diaria'}
+                onPress={() => setActiveView('diaria')}
+                mode={activeView === 'diaria' ? 'flat' : 'outlined'}
+                icon="cash"
+                style={activeView === 'diaria' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
+              >
+                Caja Diaria (Ventas)
+              </Chip>
+              <Chip
+                selected={activeView === 'rentabilidad'}
+                onPress={() => setActiveView('rentabilidad')}
+                mode={activeView === 'rentabilidad' ? 'flat' : 'outlined'}
+                icon="chart-line"
+                style={activeView === 'rentabilidad' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
+              >
+                Rentabilidad (P&L)
+              </Chip>
+            </View>
+          )}
 
-          {activeView === 'arqueo' ? (
+          {activeView === 'general' ? (
             <>
               <View style={styles.kpiRow}>
                 <KpiCard
-                  icon="cash-check"
-                  label="Real actual"
-                  value={formatCOP(latestCashAuditActual)}
-                  color="#1976D2"
+                  icon="arrow-down-circle"
+                  label="Total Ingresos"
+                  value={formatCOP(generalIngresos)}
+                  color="#388E3C"
                 />
                 <KpiCard
+                  icon="arrow-up-circle"
+                  label="Total Egresos"
+                  value={formatCOP(generalEgresos)}
+                  color="#D32F2F"
+                />
+              </View>
+              <View style={styles.kpiRow}>
+                <KpiCard
                   icon="calculator"
-                  label="Teorico actual"
+                  label="Debe Haber (Teórico)"
                   value={formatCOP(latestCashAuditTheoretical)}
                   color="#6A5ACD"
+                />
+                <KpiCard
+                  icon="cash-check"
+                  label="Conteo Real (HAY)"
+                  value={formatCOP(latestCashAuditActual)}
+                  color="#1976D2"
                 />
               </View>
               <View style={styles.kpiRow}>
                 <KpiCard
                   icon="scale-balance"
-                  label="Descuadre actual"
+                  label="Descuadre"
                   value={formatCOP(latestCashAuditDiscrepancy)}
-                  color={latestCashAuditDiscrepancy === 0 ? '#388E3C' : '#D32F2F'}
+                  color={latestCashAuditDiscrepancy >= 0 ? '#388E3C' : '#D32F2F'}
                 />
                 <KpiCard
                   icon="chart-timeline-variant"
                   label="Mayor descuadre"
                   value={formatCOP(maxCashAuditDiscrepancy)}
-                  color={maxCashAuditDiscrepancy === 0 ? '#388E3C' : '#D32F2F'}
+                  color={maxCashAuditDiscrepancy >= 0 ? '#388E3C' : '#D32F2F'}
                 />
               </View>
+
+              <Card style={[styles.txCard, { marginTop: 4 }]} mode="outlined">
+                <Card.Content style={{ paddingVertical: 10 }}>
+                  <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 6 }}>
+                    Distribución Teórica (Debe Haber)
+                  </Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                    <Text variant="bodySmall" style={{ color: '#aaa', marginRight: 8 }}>
+                      Efectivo: <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{formatCOP(latestTheoreticalCash)}</Text>
+                    </Text>
+                    <Text variant="bodySmall" style={{ color: '#aaa', marginRight: 8 }}>
+                      Bancos: <Text style={{ color: '#388E3C', fontWeight: 'bold' }}>{formatCOP(latestTheoreticalBank)}</Text>
+                    </Text>
+                    <Text variant="bodySmall" style={{ color: '#aaa', marginRight: 8 }}>
+                      Cartera: <Text style={{ color: '#1976D2', fontWeight: 'bold' }}>{formatCOP(latestTheoreticalCartera)}</Text>
+                    </Text>
+                    {!isProductionCenter && (
+                      <Text variant="bodySmall" style={{ color: '#aaa', marginRight: 8 }}>
+                        Base Local: <Text style={{ color: '#E2B13C', fontWeight: 'bold' }}>{formatCOP(latestTheoreticalBase)}</Text>
+                      </Text>
+                    )}
+                    {!isProductionCenter && (
+                      <Text variant="bodySmall" style={{ color: '#aaa' }}>
+                        Cuentas por Pagar (CP): <Text style={{ color: '#D32F2F', fontWeight: 'bold' }}>{formatCOP(dbCuentasPorPagar)}</Text>
+                      </Text>
+                    )}
+                  </View>
+                </Card.Content>
+              </Card>
 
               <Card style={styles.txCard} mode="elevated">
                 <Card.Content>
                   <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 8 }}>
-                    Arqueo de caja {cashAuditYear || 'ano'}
+                    Caja General (Fuerte + Cuenta + Cartera)
                   </Text>
                   <Text variant="bodySmall" style={styles.txInfoText}>
-                    Historial anual por centro de costo. Cada registro es un saldo real del dia, por eso el valor actual se toma del ultimo conteo y no de una suma.
+                    Libro diario acumulativo. Cada conteo real reportado reajusta la base para el dia siguiente. La cartera se computa como valor positivo.
                   </Text>
                   <View style={styles.txRow}>
-                    <Text variant="bodySmall">Dias auditados</Text>
-                    <Text variant="bodySmall" style={{ fontWeight: '600' }}>{cashAuditRows.length}</Text>
-                  </View>
-                  <View style={styles.txRow}>
-                    <Text variant="bodySmall">Ultimo conteo</Text>
+                    <Text variant="bodySmall">Base Inicial (Ayer)</Text>
                     <Text variant="bodySmall" style={{ fontWeight: '600' }}>
-                      {latestCashAudit ? formatDate(latestCashAudit.date) : 'Sin registro'}
+                      {latestCashAudit ? formatCOP(latestCashAudit.openingBase) : '$0'}
                     </Text>
                   </View>
                   <View style={styles.txRow}>
-                    <Text variant="bodySmall">Real actual</Text>
-                    <Text variant="bodySmall" style={{ fontWeight: '600', color: '#1976D2' }}>
-                      {formatCOP(latestCashAuditActual)}
+                    <Text variant="bodySmall">Ingresos (Traslados aprobados)</Text>
+                    <Text variant="bodySmall" style={{ fontWeight: '600', color: '#388E3C' }}>
+                      +{latestCashAudit ? formatCOP(latestCashAudit.expectedTotal) : '$0'}
                     </Text>
                   </View>
                   <View style={styles.txRow}>
-                    <Text variant="bodySmall">Teorico actual</Text>
+                    <Text variant="bodySmall">Egresos (Gastos + Compras)</Text>
+                    <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
+                      -{latestCashAudit ? formatCOP(latestCashAudit.expenses) : '$0'}
+                    </Text>
+                  </View>
+                  <View style={styles.txRow}>
+                    <Text variant="bodySmall">Esperado Teórico</Text>
                     <Text variant="bodySmall" style={{ fontWeight: '600', color: '#6A5ACD' }}>
                       {formatCOP(latestCashAuditTheoretical)}
                     </Text>
                   </View>
                   <Divider style={{ marginVertical: 8 }} />
                   <View style={styles.txRow}>
-                    <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Diferencia actual</Text>
+                    <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Diferencia Descuadre</Text>
                     <Text
                       variant="bodyMedium"
-                      style={{ fontWeight: 'bold', color: latestCashAuditDiscrepancy === 0 ? '#388E3C' : '#D32F2F' }}
+                      style={{ fontWeight: 'bold', color: latestCashAuditDiscrepancy >= 0 ? '#388E3C' : '#D32F2F' }}
                     >
                       {formatCOP(latestCashAuditDiscrepancy)}
                     </Text>
@@ -1063,13 +1991,6 @@ export default function ContabilidadScreen() {
                   Registrar conteo
                 </Button>
                 <Button
-                  mode="outlined"
-                  icon="calendar-check"
-                  onPress={() => router.push('/(tabs)/ventas/cierre-caja')}
-                >
-                  Registrar cierre
-                </Button>
-                <Button
                   mode="contained"
                   icon="file-excel"
                   buttonColor="#2E7D32"
@@ -1081,7 +2002,7 @@ export default function ContabilidadScreen() {
               </View>
 
               <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600' }]}>
-                Detalle diario
+                Detalle diario (Caja General)
               </Text>
 
               {cashAuditRows.length === 0 ? (
@@ -1091,7 +2012,7 @@ export default function ContabilidadScreen() {
                       Sin conteos registrados
                     </Text>
                     <Text variant="bodySmall" style={styles.txInfoText}>
-                      No hay registros de arqueo para el ano corrido del centro de costo aplicado.
+                      No hay registros de arqueo para el local o periodo seleccionado.
                     </Text>
                   </Card.Content>
                 </Card>
@@ -1101,61 +2022,98 @@ export default function ContabilidadScreen() {
                     <View style={styles.txRow}>
                       <View style={{ flex: 1, marginRight: 8 }}>
                         <Text variant="bodyMedium" style={{ fontWeight: '600' }}>{formatDate(row.date)}</Text>
-                        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                          {getClosingStatusLabel(row.status)}
-                          {row.source === 'MANUAL' ? ' · saldo real actualizado' : ' · desde cierre'}
+                        <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
+                          Efectivo: {formatCOP(row.actualTotal - row.bankTotal - row.cartera)} | Cuenta: {formatCOP(row.bankTotal)} | Cartera: {formatCOP(row.cartera)}
                         </Text>
+                        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
+                          Total Conteo (HAY): {formatCOP(row.actualTotal)}
+                        </Text>
+                        {row.notes ? (
+                          <Text variant="bodySmall" style={{ color: '#DDBB99', fontStyle: 'italic', marginTop: 4 }}>
+                            Nota: {row.notes}
+                          </Text>
+                        ) : null}
                       </View>
-                      <Text
-                        variant="bodyMedium"
-                        style={{ fontWeight: '700', color: row.discrepancy === 0 ? '#388E3C' : '#D32F2F' }}
-                      >
-                        {formatCOP(row.discrepancy)}
-                      </Text>
-                    </View>
-                    <Divider style={{ marginVertical: 8 }} />
-                    <View style={styles.auditGrid}>
-                      <View style={styles.auditCell}>
-                        <Text variant="bodySmall" style={styles.txInfoText}>Base</Text>
-                        <Text variant="bodySmall" style={styles.auditValue}>{formatCOP(row.openingBase)}</Text>
-                      </View>
-                      <View style={styles.auditCell}>
-                        <Text variant="bodySmall" style={styles.txInfoText}>Ventas</Text>
-                        <Text variant="bodySmall" style={styles.auditValue}>{formatCOP(row.expectedTotal)}</Text>
-                      </View>
-                      <View style={styles.auditCell}>
-                        <Text variant="bodySmall" style={styles.txInfoText}>Egresos</Text>
-                        <Text variant="bodySmall" style={styles.auditValue}>{formatCOP(row.expenses)}</Text>
-                      </View>
-                      <View style={styles.auditCell}>
-                        <Text variant="bodySmall" style={styles.txInfoText}>Teorico</Text>
-                        <Text variant="bodySmall" style={styles.auditValue}>{formatCOP(row.theoreticalTotal)}</Text>
-                      </View>
-                      <View style={styles.auditCell}>
-                        <Text variant="bodySmall" style={styles.txInfoText}>Real</Text>
-                        <Text variant="bodySmall" style={styles.auditValue}>{formatCOP(row.actualTotal)}</Text>
-                      </View>
-                      <View style={styles.auditCell}>
-                        <Text variant="bodySmall" style={styles.txInfoText}>Descuadre</Text>
+                      <View style={{ alignItems: 'flex-end' }}>
                         <Text
-                          variant="bodySmall"
-                          style={[
-                            styles.auditValue,
-                            { color: row.discrepancy === 0 ? '#388E3C' : '#D32F2F' },
-                          ]}
+                          variant="bodyMedium"
+                          style={{ fontWeight: '700', color: row.discrepancy >= 0 ? '#388E3C' : '#D32F2F' }}
                         >
-                          {formatCOP(row.discrepancy)}
+                          {row.discrepancy > 0 ? '+' : ''}{formatCOP(row.discrepancy)}
+                        </Text>
+                        <Text variant="bodySmall" style={{ color: '#777', fontSize: 10 }}>
+                          Descuadre
                         </Text>
                       </View>
                     </View>
-                    {!!row.notes && (
-                      <Text variant="bodySmall" style={[styles.txInfoText, { marginTop: 8 }]}>
-                        {row.notes}
-                      </Text>
-                    )}
                   </Card.Content>
                 </Card>
               ))}
+            </>
+          ) : activeView === 'diaria' ? (
+            <>
+              <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600', marginBottom: 12 }]}>
+                Cierre Caja Diaria (Ventas)
+              </Text>
+              {reportClosings.length === 0 ? (
+                <Card style={styles.txCard} mode="elevated">
+                  <Card.Content>
+                    <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 4 }}>
+                      Sin cierres de ventas
+                    </Text>
+                    <Text variant="bodySmall" style={styles.txInfoText}>
+                      No hay registros de cierre en este periodo.
+                    </Text>
+                  </Card.Content>
+                </Card>
+              ) : reportClosings.map((closing) => {
+                const statusColor = closing.status === ClosingStatus.APPROVED ? '#388E3C' : (closing.status === ClosingStatus.CONFIRMED ? '#1976D2' : '#F57C00');
+                const statusText = closing.status === ClosingStatus.APPROVED ? 'Aprobado' : (closing.status === ClosingStatus.CONFIRMED ? 'Pendiente' : 'Borrador');
+                const closingOpeningBase = openingsMap[closing.date] ?? 100000;
+                return (
+                  <Card key={closing.id} style={styles.txCard} mode="elevated">
+                    <Card.Content>
+                      <View style={styles.txRow}>
+                        <View style={{ flex: 1, marginRight: 8 }}>
+                          <Text variant="bodyMedium" style={{ fontWeight: '600' }}>{formatDate(closing.date)}</Text>
+                          <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
+                            Base: {formatCOP(closingOpeningBase)} | Ventas: {formatCOP(closing.expectedTotal)}
+                          </Text>
+                          <Text variant="bodySmall" style={{ color: '#999' }}>
+                            Egresos: {formatCOP(closing.expenses)} | Reportado (HAY): {formatCOP(closing.actualTotal)}
+                          </Text>
+                          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 4 }}>
+                            Estado: <Text style={{ color: statusColor, fontWeight: 'bold' }}>{statusText}</Text>
+                          </Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+                          <Text
+                            variant="bodyMedium"
+                            style={{ fontWeight: '700', color: closing.discrepancy >= 0 ? '#388E3C' : '#D32F2F' }}
+                          >
+                            {closing.discrepancy > 0 ? '+' : ''}{formatCOP(closing.discrepancy)}
+                          </Text>
+                          <Text variant="bodySmall" style={{ color: '#777', fontSize: 10, marginBottom: 8 }}>
+                            Descuadre
+                          </Text>
+                          {closing.status !== ClosingStatus.APPROVED && (
+                            <Button
+                              mode="contained"
+                              compact
+                              buttonColor="#388E3C"
+                              textColor="#FFFFFF"
+                              style={{ height: 28, justifyContent: 'center' }}
+                              onPress={() => handleOpenApproveModal(closing)}
+                            >
+                              Aprobar
+                            </Button>
+                          )}
+                        </View>
+                      </View>
+                    </Card.Content>
+                  </Card>
+                );
+              })}
             </>
           ) : (
             <>
@@ -1332,13 +2290,22 @@ export default function ContabilidadScreen() {
             Inventario descontado por bajas aprobadas, como dano, vencimiento, derrame o contaminacion.
           </Text>
           <View style={styles.txRow}>
-            <Text variant="bodySmall">Gastos operativos</Text>
+            <Text variant="bodySmall">Gastos variables operacionales</Text>
             <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
-              -{formatCOP(operatingExpenses)}
+              -{formatCOP(variableExpenses)}
             </Text>
           </View>
           <Text variant="bodySmall" style={styles.txInfoText}>
-            Gastos registrados por la tienda. Tambien aparecen como egreso de caja, pero aqui se muestran dentro de rentabilidad para llegar al margen operativo.
+            Egresos generales variables del periodo (clasificados al registrar).
+          </Text>
+          <View style={styles.txRow}>
+            <Text variant="bodySmall">Gastos fijos operacionales</Text>
+            <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
+              -{formatCOP(fixedExpenses)}
+            </Text>
+          </View>
+          <Text variant="bodySmall" style={styles.txInfoText}>
+            Arriendos, nominas fijas y servicios basicos del centro de costos.
           </Text>
           <View style={[styles.txRow, styles.txSubtotalRow]}>
             <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Margen operativo</Text>
@@ -1376,46 +2343,12 @@ export default function ContabilidadScreen() {
       {/* Nav buttons */}
       <View style={styles.navRow}>
         <Button
-          mode="outlined"
-          icon="wallet"
-          onPress={() => router.push('/(tabs)/contabilidad/gastos')}
-        >
-          Gastos
-        </Button>
-        <Button
-          mode="outlined"
-          icon="bank"
-          onPress={() => router.push('/(tabs)/contabilidad/bancos')}
-        >
-          Bancos
-        </Button>
-        <Button
-          mode="outlined"
-          icon="calendar-check"
-          onPress={() => router.push('/(tabs)/contabilidad/cierres')}
-        >
-          Cierres
-        </Button>
-        <Button
-          mode="outlined"
-          icon="cart"
-          onPress={() => router.push('/(tabs)/inventario/compras')}
-        >
-          Compras
-        </Button>
-        <Button
-          mode="outlined"
-          icon="scale-balance"
-          onPress={() => router.push('/(tabs)/contabilidad/balances')}
-        >
-          Balances
-        </Button>
-        <Button
           mode="contained"
           icon="file-excel"
           buttonColor="#2E7D32"
           textColor="#FFFFFF"
           onPress={handleExportExcel}
+          style={{ flex: 1 }}
         >
           Exportar Excel
         </Button>
@@ -1584,29 +2517,89 @@ export default function ContabilidadScreen() {
           <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>
             Guarda el saldo real de caja para el centro de costo aplicado. Si la fecha ya existe, se actualiza.
           </Text>
-          <TextInput
-            label="Fecha"
-            value={auditDate}
-            onChangeText={setAuditDate}
-            mode="outlined"
-            dense
-            placeholder="YYYY-MM-DD"
-            style={{ marginBottom: 12 }}
-          />
-          <CurrencyInput
-            value={auditActualTotal}
-            onChangeValue={setAuditActualTotal}
-            label="Valor real contado"
-          />
-          <TextInput
-            label="Notas"
-            value={auditNotes}
-            onChangeText={setAuditNotes}
-            mode="outlined"
-            multiline
-            numberOfLines={3}
-            style={{ marginTop: 12 }}
-          />
+          <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={true}>
+            <TextInput
+              label="Fecha"
+              value={auditDate}
+              onChangeText={setAuditDate}
+              mode="outlined"
+              dense
+              placeholder="YYYY-MM-DD"
+              style={{ marginBottom: 12 }}
+            />
+            
+            <Text variant="titleSmall" style={{ fontWeight: '600', marginVertical: 8 }}>
+              Efectivo en Caja (Billetes / Monedas)
+            </Text>
+            
+            <DenominationCounter
+              denominations={auditDenominations}
+              onChange={(key, count) => setAuditDenominations((p) => ({ ...p, [key]: count }))}
+              total={
+                (auditDenominations.bills100k * 100000) +
+                (auditDenominations.bills50k * 50000) +
+                (auditDenominations.bills20k * 20000) +
+                (auditDenominations.bills10k * 10000) +
+                (auditDenominations.bills5k * 5000) +
+                (auditDenominations.bills2k * 2000) +
+                auditDenominations.coins
+              }
+            />
+
+            <View style={{ marginVertical: 12 }}>
+              <CurrencyInput
+                value={auditBankTotal}
+                onChangeValue={(val) => setAuditBankTotal(val ?? 0)}
+                label="Valor en Cuenta Bancaria (CUENTA)"
+              />
+            </View>
+
+             <View style={{ marginVertical: 12 }}>
+              <CurrencyInput
+                value={auditCartera}
+                onChangeValue={(val) => setAuditCartera(val ?? 0)}
+                label="Valor de Cartera (Cuentas por Cobrar)"
+              />
+            </View>
+
+            <View style={{ marginVertical: 12 }}>
+              <CurrencyInput
+                value={auditBase}
+                onChangeValue={(val) => setAuditBase(val ?? 0)}
+                label="Base en Local (Dinero en caja de ventas)"
+              />
+            </View>
+
+            <Divider style={{ marginVertical: 12 }} />
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Total General Conteo (HAY):</Text>
+              <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+                {formatCOP(
+                  (auditDenominations.bills100k * 100000) +
+                  (auditDenominations.bills50k * 50000) +
+                  (auditDenominations.bills20k * 20000) +
+                  (auditDenominations.bills10k * 10000) +
+                  (auditDenominations.bills5k * 5000) +
+                  (auditDenominations.bills2k * 2000) +
+                  auditDenominations.coins +
+                  auditBankTotal +
+                  auditCartera +
+                  auditBase
+                )}
+              </Text>
+            </View>
+
+            <TextInput
+              label="Notas"
+              value={auditNotes}
+              onChangeText={setAuditNotes}
+              mode="outlined"
+              multiline
+              numberOfLines={3}
+              style={{ marginTop: 4 }}
+            />
+          </ScrollView>
           {!!auditError && (
             <Text variant="bodySmall" style={{ color: '#D32F2F', marginTop: 12 }}>
               {auditError}
@@ -1632,6 +2625,175 @@ export default function ContabilidadScreen() {
               onPress={handleSaveCashAudit}
             >
               Guardar
+            </Button>
+          </View>
+        </Modal>
+      </Portal>
+
+      {/* Verify and Approve Closing Modal */}
+      <Portal>
+        <Modal
+          visible={!!approvingClosing}
+          onDismiss={() => setApprovingClosing(null)}
+          contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
+        >
+          <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 4 }}>
+            Verificar y Aprobar Cierre
+          </Text>
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>
+            Fecha: {closingDate ? formatDate(closingDate) : ''} | Revisa las denominaciones del cajero y aprueba para ingresar a la Caja General.
+          </Text>
+          <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={true}>
+            <DenominationCounter
+              denominations={closingDenoms}
+              onChange={(key, count) => setClosingDenoms((p) => ({ ...p, [key]: count }))}
+              total={
+                (closingDenoms.bills100k * 100000) +
+                (closingDenoms.bills50k * 50000) +
+                (closingDenoms.bills20k * 20000) +
+                (closingDenoms.bills10k * 10000) +
+                (closingDenoms.bills5k * 5000) +
+                (closingDenoms.bills2k * 2000) +
+                closingDenoms.coins
+              }
+            />
+
+            <View style={{ marginVertical: 12 }}>
+              <CurrencyInput
+                value={closingBankTotal}
+                onChangeValue={(val) => setClosingBankTotal(val ?? 0)}
+                label="Valor en Cuenta Bancaria (CUENTA)"
+              />
+            </View>
+
+            <View style={{ marginVertical: 12 }}>
+              <CurrencyInput
+                value={closingExpenses}
+                onChangeValue={(val) => setClosingExpenses(val ?? 0)}
+                label="Gastos de Caja (Turno)"
+              />
+            </View>
+
+            <Divider style={{ marginVertical: 12 }} />
+
+            <Text variant="titleSmall" style={{ fontWeight: 'bold', marginBottom: 8, color: theme.colors.primary }}>
+              Resumen de Jornada (Verificación)
+            </Text>
+
+            {/* Base */}
+            <View style={styles.txRow}>
+              <Text variant="bodySmall">Base del día (Apertura)</Text>
+              <Text variant="bodySmall" style={{ fontWeight: '600', color: '#E2B13C' }}>
+                {formatCOP(closingOpeningBase)}
+              </Text>
+            </View>
+
+            <Divider style={{ marginVertical: 6 }} />
+
+            {/* Ventas */}
+            <View style={styles.txRow}>
+              <Text variant="bodySmall" style={{ fontWeight: 'bold' }}>Total Ventas</Text>
+              <Text variant="bodySmall" style={{ fontWeight: 'bold' }}>
+                {formatCOP(closingExpected)}
+              </Text>
+            </View>
+            <View style={[styles.txRow, { paddingLeft: 12 }]}>
+              <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Efectivo Esperado (Ventas)</Text>
+              <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
+                {formatCOP(closingExpected - closingBankTotal - closingCreditSales)}
+              </Text>
+            </View>
+            <View style={[styles.txRow, { paddingLeft: 12 }]}>
+              <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Transferencias (Bancos)</Text>
+              <Text variant="bodySmall" style={{ color: '#388E3C' }}>
+                {formatCOP(closingBankTotal)}
+              </Text>
+            </View>
+            <View style={[styles.txRow, { paddingLeft: 12 }]}>
+              <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Fiados (Cartera)</Text>
+              <Text variant="bodySmall" style={{ color: '#1976D2' }}>
+                {formatCOP(closingCreditSales)}
+              </Text>
+            </View>
+
+            <Divider style={{ marginVertical: 6 }} />
+
+            {/* Egresos */}
+            <View style={styles.txRow}>
+              <Text variant="bodySmall" style={{ fontWeight: 'bold' }}>Total Egresos (Gastos)</Text>
+              <Text variant="bodySmall" style={{ fontWeight: 'bold', color: '#D32F2F' }}>
+                -{formatCOP(closingExpenses)}
+              </Text>
+            </View>
+
+            <Divider style={{ marginVertical: 6 }} />
+
+            {/* Efectivo con y sin base */}
+            <View style={styles.txRow}>
+              <Text variant="bodySmall">Efectivo esperado (Sin Base)</Text>
+              <Text variant="bodySmall" style={{ fontWeight: '600' }}>
+                {formatCOP(closingExpected - closingBankTotal - closingCreditSales - closingExpenses)}
+              </Text>
+            </View>
+            <View style={styles.txRow}>
+              <Text variant="bodySmall" style={{ fontWeight: 'bold' }}>Efectivo esperado (Con Base)</Text>
+              <Text variant="bodySmall" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+                {formatCOP(closingOpeningBase + closingExpected - closingBankTotal - closingCreditSales - closingExpenses)}
+              </Text>
+            </View>
+
+            <Divider style={{ marginVertical: 6 }} />
+
+            {/* Físico contado vs discrepancia */}
+            {(() => {
+              const cashCounted = 
+                (closingDenoms.bills100k * 100000) +
+                (closingDenoms.bills50k * 50000) +
+                (closingDenoms.bills20k * 20000) +
+                (closingDenoms.bills10k * 10000) +
+                (closingDenoms.bills5k * 5000) +
+                (closingDenoms.bills2k * 2000) +
+                closingDenoms.coins;
+              const disc = cashCounted - closingOpeningBase - (closingExpected - closingBankTotal - closingCreditSales - closingExpenses);
+              return (
+                <>
+                  <View style={styles.txRow}>
+                    <Text variant="bodySmall">Efectivo Contado (Físico en Caja)</Text>
+                    <Text variant="bodySmall" style={{ fontWeight: 'bold', color: '#FFF' }}>
+                      {formatCOP(cashCounted)}
+                    </Text>
+                  </View>
+                  <View style={[styles.txRow, { marginTop: 4 }]}>
+                    <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Discrepancia (Diferencia)</Text>
+                    <Text
+                      variant="bodyMedium"
+                      style={{
+                        fontWeight: 'bold',
+                        color: Math.abs(disc) < 1000 ? '#388E3C' : '#D32F2F',
+                      }}
+                    >
+                      {formatCOP(disc)}
+                    </Text>
+                  </View>
+                </>
+              );
+            })()}
+          </ScrollView>
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 }}>
+            <Button
+              mode="text"
+              onPress={() => setApprovingClosing(null)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor="#388E3C"
+              textColor="#FFFFFF"
+              onPress={handleSaveAndApproveClosing}
+            >
+              Aprobar Cierre
             </Button>
           </View>
         </Modal>
@@ -1797,6 +2959,15 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginBottom: 12,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginBottom: 4,
+  },
+  tabChip: {
+    marginRight: 8,
   },
   sectionTitle: {
     marginBottom: 12,

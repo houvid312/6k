@@ -9,6 +9,15 @@ export interface CashAuditEntry {
   actualTotal: number;
   discrepancy: number;
   notes: string;
+  bills100k: number;
+  bills50k: number;
+  bills20k: number;
+  bills10k: number;
+  bills5k: number;
+  bills2k: number;
+  coins: number;
+  bankTotal: number;
+  cartera: number;
   createdAt?: string;
   updatedAt?: string;
 }

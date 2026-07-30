@@ -152,6 +152,11 @@ export class SaleService {
     isPaid: boolean = true,
     customerNote?: string,
     packagingSupplyId?: string,
+    isCredit: boolean = false,
+    debtorName?: string,
+    debtorType?: string,
+    debtorWorkerId?: string,
+    debtorCustomerId?: string,
   ): Promise<Sale> {
     const { saleItems, totalPortions, totalAmount, totalCostCop, grossMarginCop } = await this.buildSaleItems(items);
 
@@ -165,11 +170,16 @@ export class SaleService {
       totalCostCop,
       grossMarginCop,
       paymentMethod,
-      cashAmount,
-      bankAmount,
+      cashAmount: isCredit ? 0 : cashAmount,
+      bankAmount: isCredit ? 0 : bankAmount,
       observations: observations ?? '',
       isPaid,
       isDispatched: false,
+      isCredit,
+      debtorName,
+      debtorType,
+      debtorWorkerId,
+      debtorCustomerId,
       customerNote: customerNote ?? undefined,
       packagingSupplyId,
     } as Omit<Sale, 'id'>);
@@ -191,6 +201,11 @@ export class SaleService {
     isPaid: boolean = false,
     customerNote?: string,
     packagingSupplyId?: string,
+    isCredit: boolean = false,
+    debtorName?: string,
+    debtorType?: string,
+    debtorWorkerId?: string,
+    debtorCustomerId?: string,
   ): Promise<Sale> {
     const { saleItems, totalPortions, totalAmount, totalCostCop, grossMarginCop } = await this.buildSaleItems(items);
 
@@ -205,11 +220,16 @@ export class SaleService {
       totalCostCop,
       grossMarginCop,
       paymentMethod,
-      cashAmount,
-      bankAmount,
+      cashAmount: isCredit ? 0 : cashAmount,
+      bankAmount: isCredit ? 0 : bankAmount,
       observations: observations ?? '',
       isPaid,
       isDispatched: false,
+      isCredit,
+      debtorName,
+      debtorType,
+      debtorWorkerId,
+      debtorCustomerId,
       customerNote: customerNote ?? undefined,
       packagingSupplyId,
     });

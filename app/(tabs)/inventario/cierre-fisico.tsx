@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, Button, Card, Divider, Portal, Snackbar, SegmentedButtons, TextInput, useTheme, Searchbar } from 'react-native-paper';
+import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
@@ -12,7 +13,7 @@ import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
 import { PhysicalCountItem, ChecklistItem } from '../../../src/domain/entities';
-import { PACKAGING_SUPPLY_IDS } from '../../../src/domain/enums';
+import { InventoryLevel } from '../../../src/domain/enums';
 
 interface CountEntry {
   supplyId: string;
@@ -25,7 +26,7 @@ interface CountEntry {
 
 export default function CierreFisicoScreen() {
   const theme = useTheme();
-  const { physicalCountService, recipeRepo, checklistRepo } = useDI();
+  const { physicalCountService, recipeRepo, checklistRepo, stockMinimumRepo } = useDI();
   const { selectedStoreId, stores } = useAppStore();
   const { supplies: cachedSupplies, workers: cachedWorkers } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
@@ -53,15 +54,15 @@ export default function CierreFisicoScreen() {
   const selectedStore = stores.find((s) => s.id === selectedStoreId);
   const isProductionCenter = selectedStore?.isProductionCenter ?? false;
 
-  useEffect(() => {
-    if (cachedSupplies.length === 0 || !selectedStoreId) return;
+  const activeSupplies = useMemo(() => cachedSupplies.filter((s) => s.isActive !== false), [cachedSupplies]);
 
-    const packagingIds = new Set<string>(Object.values(PACKAGING_SUPPLY_IDS));
+  useEffect(() => {
+    if (activeSupplies.length === 0 || !selectedStoreId) return;
 
     if (isProductionCenter) {
-      // Centro de producción: mostrar todos los insumos
+      // Centro de producción: mostrar todos los insumos activos
       setCounts(
-        cachedSupplies.map((s) => ({
+        activeSupplies.map((s) => ({
           supplyId: s.id,
           supplyName: s.name,
           gramsPerBag: s.gramsPerBag,
@@ -72,9 +73,12 @@ export default function CierreFisicoScreen() {
       );
       setLoading(false);
     } else {
-      // Local: solo insumos de recetas + empaques
+      // Local: insumos activos (excluyendo 'RAW') que estén en recetas, sean 'OPERATIVE' o tengan Stock Mínimo > 0
       setLoading(true);
-      recipeRepo.getAll().then((recipes) => {
+      Promise.all([
+        recipeRepo.getAll(),
+        stockMinimumRepo.getByStoreAndLevel(selectedStoreId, InventoryLevel.STORE),
+      ]).then(([recipes, minimums]) => {
         const recipeSupplyIds = new Set<string>();
         for (const recipe of recipes) {
           for (const ingredient of recipe.ingredients) {
@@ -82,9 +86,15 @@ export default function CierreFisicoScreen() {
           }
         }
 
+        const minSupplyIds = new Set<string>(
+          minimums.filter((m) => m.minimumGrams > 0).map((m) => m.supplyId),
+        );
+
+        const nonRawSupplies = activeSupplies.filter((s) => s.category !== 'RAW');
+
         setCounts(
-          cachedSupplies
-            .filter((s) => recipeSupplyIds.has(s.id) || packagingIds.has(s.id))
+          nonRawSupplies
+            .filter((s) => recipeSupplyIds.has(s.id) || s.category === 'OPERATIVE' || minSupplyIds.has(s.id))
             .map((s) => ({
               supplyId: s.id,
               supplyName: s.name,
@@ -95,21 +105,9 @@ export default function CierreFisicoScreen() {
             })),
         );
         setLoading(false);
-      }).catch(() => {
-        setCounts(
-          cachedSupplies.map((s) => ({
-            supplyId: s.id,
-            supplyName: s.name,
-            gramsPerBag: s.gramsPerBag,
-            unit: s.unit,
-            bags: 0,
-            looseGrams: 0,
-          })),
-        );
-        setLoading(false);
       });
     }
-  }, [cachedSupplies, selectedStoreId, isProductionCenter]);
+  }, [activeSupplies, selectedStoreId, isProductionCenter, recipeRepo, stockMinimumRepo]);
 
   // Load checklist items
   useEffect(() => {
@@ -150,7 +148,8 @@ export default function CierreFisicoScreen() {
         totalGrams: c.bags * c.gramsPerBag + c.looseGrams,
       }));
 
-      const count = await physicalCountService.submitCount(selectedStoreId!, items, selectedWorkerId || undefined);
+      const targetLevel = isProductionCenter ? InventoryLevel.RAW : InventoryLevel.STORE;
+      const count = await physicalCountService.submitCount(selectedStoreId!, items, selectedWorkerId || undefined, targetLevel);
       showSuccess(`${count.items.length} insumos registrados. Inventario actualizado.`);
       resetForm();
     } catch {
@@ -168,6 +167,15 @@ export default function CierreFisicoScreen() {
   return (
     <ScreenContainer>
       <View style={styles.header}>
+        <Button
+          mode="text"
+          icon="arrow-left"
+          compact
+          onPress={() => router.replace('/(tabs)/ventas')}
+          style={{ alignSelf: 'flex-start', marginBottom: 8 }}
+        >
+          Volver a Ventas
+        </Button>
         <StoreSelector />
       </View>
 

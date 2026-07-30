@@ -12,3 +12,4 @@ export { ProductionService } from './ProductionService';
 export { DemandEstimationService } from './DemandEstimationService';
 export { AlertService } from './AlertService';
 export { WriteoffService } from './WriteoffService';
+export { AccountingService } from './AccountingService';

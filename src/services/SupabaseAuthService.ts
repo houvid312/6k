@@ -15,13 +15,13 @@ export class SupabaseAuthService implements IAuthService {
     });
 
     if (authError) {
-      return { success: false, error: 'Usuario o PIN incorrecto' };
+      return { success: false, error: authError.message };
     }
 
-    // 2. Obtener perfil del worker vinculado
+    // 2. Obtener perfil del worker vinculado con sus asignaciones de tienda
     const { data: worker, error: workerError } = await supabase
       .from('workers')
-      .select('id, name, username, user_role')
+      .select('id, name, username, user_role, worker_store_assignments(store_id)')
       .eq('username', username.toLowerCase())
       .eq('is_active', true)
       .single();
@@ -31,10 +31,13 @@ export class SupabaseAuthService implements IAuthService {
       return { success: false, error: 'Trabajador no encontrado' };
     }
 
+    const storeIds = (worker as any).worker_store_assignments?.map((wsa: any) => wsa.store_id) ?? [];
+
     this.currentUser = {
       id: worker.id,
       name: worker.name,
       role: worker.user_role as UserRole,
+      storeIds,
     };
 
     return { success: true, user: this.currentUser };
@@ -57,18 +60,20 @@ export class SupabaseAuthService implements IAuthService {
       return this.currentUser;
     }
 
-    // Recuperar perfil del worker desde la sesión
+    // Recuperar perfil del worker desde la sesión con sus asignaciones de tienda
     const { data: worker } = await supabase
       .from('workers')
-      .select('id, name, username, user_role')
+      .select('id, name, username, user_role, worker_store_assignments(store_id)')
       .eq('auth_user_id', session.user.id)
       .single();
 
     if (worker) {
+      const storeIds = (worker as any).worker_store_assignments?.map((wsa: any) => wsa.store_id) ?? [];
       this.currentUser = {
         id: worker.id,
         name: worker.name,
         role: worker.user_role as UserRole,
+        storeIds,
       };
     }
 

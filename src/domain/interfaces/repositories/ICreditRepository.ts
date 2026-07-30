@@ -9,4 +9,11 @@ export interface ICreditRepository {
   getActiveByWorker(workerId: string): Promise<CreditEntry[]>;
   applyPayment(input: Omit<CreditPayment, 'id' | 'createdAt'>): Promise<CreditPayment>;
   getPaymentsByStoreDateRange(storeId: string, from: string, to: string): Promise<CreditPayment[]>;
+  getPaymentsByCredit(creditId: string): Promise<CreditPayment[]>;
+  updatePaymentStatus(
+    paymentId: string,
+    status: 'CONFIRMED' | 'REJECTED',
+    incomeId?: string,
+  ): Promise<CreditPayment>;
+  getPaymentById(id: string): Promise<CreditPayment | null>;
 }

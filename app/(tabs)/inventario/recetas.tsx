@@ -26,7 +26,7 @@ interface RecipeCardState {
 export default function RecetasScreen() {
   const theme = useTheme();
   const { recipeRepo, inventoryService } = useDI();
-  const { products: cachedProducts, supplies } = useMasterDataStore();
+  const { products: cachedProducts, supplies, refreshMasterData } = useMasterDataStore();
   const { selectedStoreId } = useAppStore();
 
   const [loading, setLoading] = useState(true);
@@ -36,6 +36,10 @@ export default function RecetasScreen() {
   const [editSaving, setEditSaving] = useState(false);
   const [storeSupplyIds, setStoreSupplyIds] = useState<Set<string>>(new Set());
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
+
+  useEffect(() => {
+    refreshMasterData();
+  }, [refreshMasterData]);
 
   // Cargar insumos disponibles en nivel STORE para el picker
   useEffect(() => {
@@ -84,9 +88,13 @@ export default function RecetasScreen() {
 
   const supplyMap = new Map(supplies.map((s) => [s.id, s]));
 
-  // Opciones del picker: solo insumos en nivel STORE
-  const supplyOptions: SelectOption[] = supplies
-    .filter((s) => storeSupplyIds.has(s.id))
+  // Opciones del picker: insumos activos STORE o todos los activos si la sede aún no los tiene registrados
+  const activeSupplies = supplies.filter((s) => s.isActive !== false);
+  const availableSupplies = storeSupplyIds.size > 0 
+    ? activeSupplies.filter((s) => storeSupplyIds.has(s.id))
+    : activeSupplies;
+
+  const supplyOptions: SelectOption[] = (availableSupplies.length > 0 ? availableSupplies : activeSupplies)
     .map((s) => ({ value: s.id, label: s.name }));
 
   const startEditing = (card: RecipeCardState) => {

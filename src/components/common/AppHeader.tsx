@@ -23,7 +23,16 @@ export function AppHeader({ title }: Props) {
     router.replace('/login');
   };
 
-  const roleLabel = userRole === UserRole.ADMIN ? 'Admin' : 'Colaborador';
+  const roleLabel = (() => {
+    switch (userRole) {
+      case UserRole.GERENTE: return 'Gerente';
+      case UserRole.ADMIN_LOCAL: return 'Admin Local';
+      case UserRole.PREPARADOR: return 'Preparador';
+      case UserRole.RODY: return 'Rody';
+      case UserRole.VENDEDOR: return 'Vendedor';
+      default: return 'Colaborador';
+    }
+  })();
 
   return (
     <Appbar.Header style={{ backgroundColor: theme.colors.primary }}>

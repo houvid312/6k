@@ -20,6 +20,11 @@ interface SaleRow {
   observations: string | null;
   is_paid: boolean;
   is_dispatched: boolean;
+  is_credit: boolean;
+  debtor_name: string | null;
+  debtor_type: string | null;
+  debtor_worker_id: string | null;
+  debtor_customer_id: string | null;
   customer_note: string | null;
   packaging_supply_id: string | null;
   workers?: { name: string } | null;
@@ -118,6 +123,11 @@ function saleRowToEntity(row: SaleRow, items: SaleItem[]): Sale {
     observations: row.observations ?? undefined,
     isPaid: row.is_paid ?? true,
     isDispatched: row.is_dispatched ?? false,
+    isCredit: row.is_credit ?? false,
+    debtorName: row.debtor_name ?? undefined,
+    debtorType: row.debtor_type ?? undefined,
+    debtorWorkerId: row.debtor_worker_id ?? undefined,
+    debtorCustomerId: row.debtor_customer_id ?? undefined,
     customerNote: row.customer_note ?? undefined,
     workerName: row.workers?.name ?? undefined,
     packagingSupplyId: row.packaging_supply_id ?? undefined,
@@ -157,7 +167,7 @@ export class SupabaseSaleRepository implements ISaleRepository {
 
     const { data, error } = await supabase
       .from('sales')
-      .select('*, workers(name)')
+      .select('*, workers:workers!sales_worker_id_fkey(name)')
       .eq('store_id', storeId)
       .gte('created_at', fromUtc)
       .lte('created_at', toUtc)
@@ -171,13 +181,14 @@ export class SupabaseSaleRepository implements ISaleRepository {
     // Get sales that are not fully resolved (unpaid OR not dispatched)
     const { data, error } = await supabase
       .from('sales')
-      .select('*, workers(name)')
+      .select('*, workers:workers!sales_worker_id_fkey(name)')
       .eq('store_id', storeId)
       .or('is_paid.eq.false,is_dispatched.eq.false')
       .order('created_at', { ascending: false });
     if (error) throw error;
 
-    return this.hydrateSales(data as SaleRow[]);
+    const hydrated = await this.hydrateSales(data as SaleRow[]);
+    return hydrated.filter((sale) => !(sale.isCredit && sale.isDispatched));
   }
 
   async markAsPaid(saleId: string): Promise<void> {
@@ -213,9 +224,25 @@ export class SupabaseSaleRepository implements ISaleRepository {
   }
 
   async updatePaymentMethod(saleId: string, paymentMethod: string): Promise<void> {
+    const { data: sale, error: fetchError } = await supabase
+      .from('sales')
+      .select('total_amount, is_credit')
+      .eq('id', saleId)
+      .single();
+    if (fetchError || !sale) throw fetchError || new Error('Venta no encontrada');
+
+    const totalAmount = sale.total_amount;
+    const isCredit = sale.is_credit;
+    const cashAmount = (paymentMethod === 'EFECTIVO' && !isCredit) ? totalAmount : 0;
+    const bankAmount = (paymentMethod === 'TRANSFERENCIA' && !isCredit) ? totalAmount : 0;
+
     const { error } = await supabase
       .from('sales')
-      .update({ payment_method: paymentMethod })
+      .update({ 
+        payment_method: paymentMethod,
+        cash_amount: cashAmount,
+        bank_amount: bankAmount
+      })
       .eq('id', saleId);
     if (error) throw error;
   }
@@ -267,6 +294,11 @@ export class SupabaseSaleRepository implements ISaleRepository {
         observations: sale.observations ?? null,
         is_paid: sale.isPaid ?? true,
         is_dispatched: sale.isDispatched ?? false,
+        is_credit: sale.isCredit ?? false,
+        debtor_name: sale.debtorName ?? null,
+        debtor_type: sale.debtorType ?? null,
+        debtor_worker_id: sale.debtorWorkerId ?? null,
+        debtor_customer_id: sale.debtorCustomerId ?? null,
         customer_note: sale.customerNote ?? null,
         packaging_supply_id: sale.packagingSupplyId ?? null,
       })
@@ -383,6 +415,11 @@ export class SupabaseSaleRepository implements ISaleRepository {
       p_total_cost_cop: sale.totalCostCop ?? 0,
       p_gross_margin_cop: sale.grossMarginCop ?? sale.totalAmount - (sale.totalCostCop ?? 0),
       p_items: itemPayload,
+      p_is_credit: sale.isCredit ?? false,
+      p_debtor_name: sale.debtorName ?? null,
+      p_debtor_type: sale.debtorType ?? null,
+      p_debtor_worker_id: sale.debtorWorkerId ?? null,
+      p_debtor_customer_id: sale.debtorCustomerId ?? null,
     });
 
     if (error) throw error;
@@ -399,18 +436,19 @@ export class SupabaseSaleRepository implements ISaleRepository {
 
     const { data, error } = await supabase
       .from('sales')
-      .select('total_portions, total_amount, cash_amount, bank_amount')
+      .select('total_portions, total_amount, cash_amount, bank_amount, is_credit, is_paid')
       .eq('store_id', storeId)
       .gte('created_at', fromUtc)
       .lte('created_at', toUtc);
     if (error) throw error;
 
-    const rows = data as Pick<SaleRow, 'total_portions' | 'total_amount' | 'cash_amount' | 'bank_amount'>[];
+    const rows = data as (Pick<SaleRow, 'total_portions' | 'total_amount' | 'cash_amount' | 'bank_amount' | 'is_paid'> & { is_credit: boolean })[];
     return {
       totalPortions: rows.reduce((sum, r) => sum + r.total_portions, 0),
       totalAmount: rows.reduce((sum, r) => sum + r.total_amount, 0),
       totalCashAmount: rows.reduce((sum, r) => sum + r.cash_amount, 0),
       totalBankAmount: rows.reduce((sum, r) => sum + r.bank_amount, 0),
+      totalCreditAmount: rows.reduce((sum, r) => sum + (r.is_credit && !r.is_paid ? r.total_amount : 0), 0),
       salesCount: rows.length,
     };
   }

@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { FlatList, View, StyleSheet } from 'react-native';
 import { Card, Text, FAB, Chip, Divider, Button, useTheme } from 'react-native-paper';
-import { Link, router } from 'expo-router';
+import { Link, router, useFocusEffect } from 'expo-router';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
+import { StoreSelector } from '../../../src/components/common/StoreSelector';
+import { useAppStore } from '../../../src/stores/useAppStore';
 import { useDI } from '../../../src/di/providers';
 import { CreditEntry } from '../../../src/domain/entities';
 import { formatCOP } from '../../../src/utils/currency';
@@ -89,6 +91,7 @@ function buildDebtorSummaries(credits: CreditEntry[]): DebtorSummary[] {
 export default function CarteraScreen() {
   const theme = useTheme();
   const { creditService } = useDI();
+  const { selectedStoreId, stores } = useAppStore();
 
   const [allCredits, setAllCredits] = useState<CreditEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,25 +109,57 @@ export default function CarteraScreen() {
     }
   }, [creditService]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
+
+  const isProduction = useMemo(() => {
+    if (!selectedStoreId) return false;
+    const currentStore = stores.find(s => s.id === selectedStoreId);
+    return currentStore?.isProductionCenter ?? false;
+  }, [selectedStoreId, stores]);
+
+  const storeCredits = useMemo(() => {
+    if (!selectedStoreId) return allCredits;
+    if (isProduction) {
+      return allCredits.filter((c) => c.debtorType === 'LOCAL');
+    } else {
+      return allCredits.filter((c) => c.storeId === selectedStoreId && c.debtorType !== 'LOCAL');
+    }
+  }, [allCredits, selectedStoreId, isProduction]);
+
+  const payableCredits = useMemo(() => {
+    if (isProduction || !selectedStoreId) return [];
+    return allCredits.filter((c) => c.storeId === selectedStoreId && c.debtorType === 'LOCAL');
+  }, [allCredits, selectedStoreId, isProduction]);
 
   const activeDebtors = useMemo(
-    () => buildDebtorSummaries(allCredits.filter((c) => !c.isPaid)),
-    [allCredits],
+    () => buildDebtorSummaries(storeCredits.filter((c) => !c.isPaid)),
+    [storeCredits],
   );
 
   const historicalDebtors = useMemo(
-    () => buildDebtorSummaries(allCredits),
-    [allCredits],
+    () => buildDebtorSummaries(storeCredits),
+    [storeCredits],
+  );
+
+  const activePayables = useMemo(
+    () => buildDebtorSummaries(payableCredits.filter((c) => !c.isPaid)),
+    [payableCredits],
+  );
+
+  const historicalPayables = useMemo(
+    () => buildDebtorSummaries(payableCredits),
+    [payableCredits],
   );
 
   const totalCartera = activeDebtors.reduce((sum, d) => sum + d.totalBalance, 0);
 
   /** Summary stats */
   const stats = useMemo(() => {
-    const activeCredits = allCredits.filter((c) => !c.isPaid);
+    const activeCredits = storeCredits.filter((c) => !c.isPaid);
     const overdueCredits = activeCredits.filter((c) => isOverdue(c));
     const followUpCredits = activeCredits.filter((c) => needsFollowUpThisWeek(c));
 
@@ -132,7 +167,7 @@ export default function CarteraScreen() {
       overdueCount: overdueCredits.length,
       followUpCount: followUpCredits.length,
     };
-  }, [allCredits]);
+  }, [storeCredits]);
 
   /** Filtered debtors based on active filter */
   const filteredDebtors = useMemo(() => {
@@ -176,11 +211,17 @@ export default function CarteraScreen() {
       ? item.credits[0]
       : item.credits.find((credit) => !credit.isPaid) ?? item.credits[0];
 
+    const isLocalDebt = firstCredit?.debtorType === 'LOCAL';
+    const displayName = isLocalDebt && !isProduction 
+      ? 'Centro de Producción' 
+      : item.name;
+
     return (
     <Card
       style={[
         styles.card,
         item.hasOverdue && styles.cardOverdue,
+        isLocalDebt && !isProduction && { borderLeftWidth: 3, borderLeftColor: '#E63946' }
       ]}
       mode="elevated"
       onPress={() => {
@@ -193,11 +234,11 @@ export default function CarteraScreen() {
         <View style={styles.debtorRow}>
           <View style={styles.debtorInfo}>
             <Text variant="titleSmall" style={{ fontWeight: '600' }}>
-              {item.name}
+              {displayName}
             </Text>
             <View style={styles.chipRow}>
-              <Chip compact textStyle={{ fontSize: 10 }}>
-                {item.type}
+              <Chip compact textStyle={{ fontSize: 10 }} style={isLocalDebt && { backgroundColor: 'rgba(230, 57, 70, 0.15)' }}>
+                {isLocalDebt && !isProduction ? 'CUENTA POR PAGAR' : item.type}
               </Chip>
               <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                 {item.creditCount} credito{item.creditCount !== 1 ? 's' : ''}
@@ -254,6 +295,9 @@ export default function CarteraScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={styles.topSection}>
+        <StoreSelector />
+      </View>
       {/* Total banner */}
       <Card style={[styles.totalCard, { backgroundColor: theme.colors.primaryContainer }]} mode="contained">
         <Card.Content style={styles.totalContent}>
@@ -319,7 +363,7 @@ export default function CarteraScreen() {
 
       {loading ? (
         <LoadingIndicator message="Cargando cartera..." />
-      ) : visibleDebtors.length === 0 ? (
+      ) : (visibleDebtors.length === 0 && (!payableCredits || payableCredits.filter(c => activeFilter === 'historico' ? true : !c.isPaid).length === 0)) ? (
         <View style={styles.emptyWrapper}>
           <EmptyState
             icon="account-check"
@@ -355,6 +399,28 @@ export default function CarteraScreen() {
             keyExtractor={(item) => item.name}
             contentContainerStyle={styles.list}
             showsVerticalScrollIndicator={false}
+            ListHeaderComponent={() => {
+              const visiblePayables = activeFilter === 'historico' ? historicalPayables : activePayables;
+              if (visiblePayables.length === 0) return null;
+              return (
+                <View style={{ marginBottom: 16 }}>
+                  <Text variant="titleMedium" style={{ fontWeight: '700', marginBottom: 8, color: '#E63946' }}>
+                    Cuentas por Pagar al Centro de Producción
+                  </Text>
+                  {visiblePayables.map((item) => (
+                    <View key={item.name}>
+                      {renderDebtor({ item })}
+                    </View>
+                  ))}
+                  <Divider style={{ marginVertical: 12, backgroundColor: '#333' }} />
+                  {visibleDebtors.length > 0 && (
+                    <Text variant="titleMedium" style={{ fontWeight: '700', marginBottom: 8 }}>
+                      Clientes y Colaboradores
+                    </Text>
+                  )}
+                </View>
+              );
+            }}
           />
         </>
       )}
@@ -372,6 +438,11 @@ export default function CarteraScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  topSection: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 0,
   },
   totalCard: {
     margin: 16,

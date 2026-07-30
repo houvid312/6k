@@ -28,6 +28,9 @@ import {
   SupabaseAdditionCatalogRepository,
   SupabaseCashOpeningRepository,
   SupabaseChecklistRepository,
+  SupabaseCustomerRepository,
+  SupabaseIncomeRepository,
+  SupabaseInventoryAdjustmentRepository,
 } from '../data/repositories';
 import {
   SaleService,
@@ -44,6 +47,7 @@ import {
   DemandEstimationService,
   AlertService,
   WriteoffService,
+  AccountingService,
 } from '../services';
 
 // Repositories (Supabase)
@@ -76,22 +80,26 @@ const productStoreAssignmentRepo = new SupabaseProductStoreAssignmentRepository(
 const additionCatalogRepo = new SupabaseAdditionCatalogRepository();
 const cashOpeningRepo = new SupabaseCashOpeningRepository();
 const checklistRepo = new SupabaseChecklistRepository();
+const customerRepo = new SupabaseCustomerRepository();
+const incomeRepo = new SupabaseIncomeRepository();
+const inventoryAdjustmentRepo = new SupabaseInventoryAdjustmentRepository();
 
 // Services
 const saleService = new SaleService(saleRepo, inventoryRepo, recipeRepo, supplyRepo);
 const inventoryService = new InventoryService(inventoryRepo, supplyRepo);
 const transferService = new TransferService(transferRepo, inventoryRepo, supplyRepo);
 const validationService = new ValidationService(saleRepo, recipeRepo, inventoryRepo, writeoffRepo);
-const creditService = new CreditService(creditRepo);
+const creditService = new CreditService(creditRepo, expenseRepo, incomeRepo);
 const payrollService = new PayrollService(workerRepo, attendanceRepo, creditRepo, payrollRepo, expenseRepo);
 const dashboardService = new DashboardService(saleRepo, inventoryRepo, supplyRepo, expenseRepo, purchaseRepo, recipeRepo, productRepo);
 const authService = new SupabaseAuthService();
 const physicalCountService = new PhysicalCountService(physicalCountRepo, inventoryRepo);
 const productionService = new ProductionService(productionRecipeRepo, productionRecordRepo, inventoryRepo);
-const demandEstimationService = new DemandEstimationService(demandEstimateRepo, recipeRepo, inventoryRepo, supplyRepo, productRepo, productStoreAssignmentRepo);
+const demandEstimationService = new DemandEstimationService(demandEstimateRepo, recipeRepo, inventoryRepo, supplyRepo, productRepo, productStoreAssignmentRepo, stockMinimumRepo);
 const alertService = new AlertService(dailyAlertRepo, validationService, physicalCountRepo, supplyRepo, transferRepo);
-const writeoffService = new WriteoffService(writeoffRepo, inventoryRepo);
+const writeoffService = new WriteoffService(writeoffRepo, inventoryRepo, recipeRepo);
 const cashClosingService = new CashClosingService(cashClosingRepo, saleRepo, expenseRepo, alertService, cashOpeningRepo, scheduleRepo, attendanceRepo, workerRepo);
+const accountingService = new AccountingService(saleRepo, expenseRepo, purchaseRepo, supplyRepo, transferRepo, writeoffRepo);
 
 export const container = {
   // Repositories
@@ -124,6 +132,9 @@ export const container = {
   additionCatalogRepo,
   cashOpeningRepo,
   checklistRepo,
+  customerRepo,
+  incomeRepo,
+  inventoryAdjustmentRepo,
 
   // Services
   saleService,
@@ -140,4 +151,5 @@ export const container = {
   demandEstimationService,
   alertService,
   writeoffService,
+  accountingService,
 };

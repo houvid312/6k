@@ -13,6 +13,7 @@ export default function VentasLayout() {
         headerTintColor: '#F5F0EB',
         headerTitleStyle: { fontWeight: '600' },
         headerBackVisible: true,
+        headerRight: () => <HeaderUserMenu />,
       }}
     >
       <Stack.Screen
@@ -20,7 +21,6 @@ export default function VentasLayout() {
         options={{
           headerTitle: () => <HeaderLogo />,
           headerBackVisible: false,
-          headerRight: () => <HeaderUserMenu />,
         }}
       />
       <Stack.Screen
@@ -29,7 +29,6 @@ export default function VentasLayout() {
           headerTitle: () => <HeaderLogo />,
           headerBackVisible: true,
           headerBackTitle: 'Volver',
-          headerRight: () => <HeaderUserMenu />,
         }}
       />
       <Stack.Screen
@@ -38,7 +37,6 @@ export default function VentasLayout() {
           headerTitle: () => <HeaderLogo />,
           headerBackVisible: true,
           headerBackTitle: 'Volver',
-          headerRight: () => <HeaderUserMenu />,
         }}
       />
       <Stack.Screen
@@ -47,7 +45,6 @@ export default function VentasLayout() {
           title: 'Consumo por Ventas',
           headerBackVisible: true,
           headerBackTitle: 'Volver',
-          headerRight: () => <HeaderUserMenu />,
         }}
       />
       <Stack.Screen
@@ -56,7 +53,6 @@ export default function VentasLayout() {
           headerTitle: () => <HeaderLogo />,
           headerBackVisible: true,
           headerBackTitle: 'Volver',
-          headerRight: () => <HeaderUserMenu />,
         }}
       />
     </Stack>

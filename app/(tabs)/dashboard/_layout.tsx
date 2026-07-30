@@ -11,13 +11,13 @@ export default function DashboardLayout() {
         headerStyle: { backgroundColor: "#1A1A1A" },
         headerTintColor: '#F5F0EB',
         headerTitleStyle: { fontWeight: '600' },
+        headerRight: () => <HeaderUserMenu />,
       }}
     >
       <Stack.Screen
         name="index"
         options={{
           title: 'Dashboard',
-          headerRight: () => <HeaderUserMenu />,
         }}
       />
     </Stack>

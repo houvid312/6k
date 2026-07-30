@@ -20,7 +20,8 @@ const DB_TO_LEVEL: Record<string, InventoryLevel> = {
 interface WriteoffRow {
   id: string;
   store_id: string;
-  supply_id: string;
+  supply_id: string | null;
+  product_id?: string | null;
   level: string;
   quantity_grams: number;
   reason: string;
@@ -36,7 +37,8 @@ function toEntity(row: WriteoffRow): InventoryWriteoff {
   return {
     id: row.id,
     storeId: row.store_id,
-    supplyId: row.supply_id,
+    supplyId: row.supply_id ?? undefined,
+    productId: row.product_id ?? undefined,
     level: DB_TO_LEVEL[row.level] ?? InventoryLevel.STORE,
     quantityGrams: Number(row.quantity_grams),
     reason: row.reason as WriteoffReason,
@@ -57,7 +59,8 @@ export class SupabaseWriteoffRepository implements IWriteoffRepository {
       .from('inventory_writeoffs')
       .insert({
         store_id: writeoff.storeId,
-        supply_id: writeoff.supplyId,
+        supply_id: writeoff.supplyId ?? null,
+        product_id: writeoff.productId ?? null,
         level: LEVEL_TO_DB[writeoff.level],
         quantity_grams: writeoff.quantityGrams,
         reason: writeoff.reason,

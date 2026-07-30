@@ -27,3 +27,8 @@ export type { IProductStoreAssignmentRepository } from './IProductStoreAssignmen
 export type { IAdditionCatalogRepository } from './IAdditionCatalogRepository';
 export type { ICashOpeningRepository } from './ICashOpeningRepository';
 export type { IChecklistRepository } from './IChecklistRepository';
+export type { ICustomerRepository } from './ICustomerRepository';
+export type { IIncomeRepository } from './IIncomeRepository';
+export type { IInventoryAdjustmentRepository } from './IInventoryAdjustmentRepository';
+
+

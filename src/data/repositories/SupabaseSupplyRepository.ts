@@ -13,6 +13,9 @@ interface SupplyRow {
   commercial_price_cop: number | null;
   sale_price_cop: number | null;
   is_billable_to_store: boolean | null;
+  category?: string | null;
+  is_active?: boolean | null;
+  allow_local_purchase?: boolean | null;
 }
 
 // --- Mappers ---
@@ -22,11 +25,14 @@ function toEntity(row: SupplyRow): Supply {
     id: row.id,
     name: row.name,
     unit: row.unit as SupplyUnit,
-    gramsPerBag: row.grams_per_bag,
-    productionCostCop: row.production_cost_cop ?? 0,
-    commercialPriceCop: row.commercial_price_cop ?? 0,
-    salePriceCop: row.sale_price_cop ?? 0,
+    gramsPerBag: Number(row.grams_per_bag ?? 0),
+    productionCostCop: Number(row.production_cost_cop ?? 0),
+    commercialPriceCop: Number(row.commercial_price_cop ?? 0),
+    salePriceCop: Number(row.sale_price_cop ?? 0),
     isBillableToStore: row.is_billable_to_store ?? true,
+    category: (row.category as any) ?? 'PROCESSED',
+    isActive: row.is_active ?? true,
+    allowLocalPurchase: row.allow_local_purchase ?? false,
   };
 }
 
@@ -36,7 +42,7 @@ export class SupabaseSupplyRepository implements ISupplyRepository {
   async getAll(includeProductionCost = false): Promise<Supply[]> {
     const columns = includeProductionCost
       ? '*'
-      : 'id,name,unit,grams_per_bag,commercial_price_cop,sale_price_cop,is_billable_to_store';
+      : 'id,name,unit,grams_per_bag,commercial_price_cop,sale_price_cop,is_billable_to_store,category,is_active,allow_local_purchase';
     const { data, error } = await supabase
       .from('supplies')
       .select(columns);
@@ -68,6 +74,9 @@ export class SupabaseSupplyRepository implements ISupplyRepository {
         commercial_price_cop: supply.commercialPriceCop,
         sale_price_cop: supply.salePriceCop,
         is_billable_to_store: supply.isBillableToStore,
+        category: supply.category ?? 'PROCESSED',
+        is_active: supply.isActive ?? true,
+        allow_local_purchase: supply.allowLocalPurchase ?? false,
       })
       .select()
       .single();
@@ -84,6 +93,9 @@ export class SupabaseSupplyRepository implements ISupplyRepository {
     if (updates.commercialPriceCop !== undefined) row.commercial_price_cop = updates.commercialPriceCop;
     if (updates.salePriceCop !== undefined) row.sale_price_cop = updates.salePriceCop;
     if (updates.isBillableToStore !== undefined) row.is_billable_to_store = updates.isBillableToStore;
+    if (updates.category !== undefined) row.category = updates.category;
+    if (updates.isActive !== undefined) row.is_active = updates.isActive;
+    if (updates.allowLocalPurchase !== undefined) row.allow_local_purchase = updates.allowLocalPurchase;
 
     const { data, error } = await supabase
       .from('supplies')
@@ -93,5 +105,13 @@ export class SupabaseSupplyRepository implements ISupplyRepository {
       .single();
     if (error) throw error;
     return toEntity(data as SupplyRow);
+  }
+
+  async delete(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('supplies')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
   }
 }

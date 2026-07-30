@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { View, StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform, useWindowDimensions } from 'react-native';
 import {
   Text,
@@ -27,7 +27,7 @@ import { AdditionSelector } from '../../../src/components/ventas/AdditionSelecto
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useSaleStore, CartItem, CartItemAddition } from '../../../src/stores/useSaleStore';
-import { Product, Sale, ProductFormat, AdditionCatalogItem } from '../../../src/domain/entities';
+import { Product, Sale, ProductFormat, AdditionCatalogItem, Customer, Supply } from '../../../src/domain/entities';
 import {
   PaymentMethod,
   InventoryLevel,
@@ -46,9 +46,9 @@ import { colombiaDateRangeToUtc, formatDate, todayColombia } from '../../../src/
 
 export default function VentasScreen() {
   const theme = useTheme();
-  const { saleService, writeoffService, cashClosingService, expenseRepo, productFormatRepo, productStoreAssignmentRepo, additionCatalogRepo } = useDI();
+  const { saleService, writeoffService, cashClosingService, creditService, expenseRepo, productFormatRepo, productStoreAssignmentRepo, additionCatalogRepo, customerRepo, inventoryRepo } = useDI();
   const { selectedStoreId, userId, userRole } = useAppStore();
-  const { products: cachedProducts, supplies } = useMasterDataStore();
+  const { products: cachedProducts, supplies, workers } = useMasterDataStore();
   const {
     cart,
     cartPackagingSupplyId,
@@ -125,6 +125,35 @@ export default function VentasScreen() {
   const [compraTurnoDesc, setCompraTurnoDesc] = useState('');
   const [compraTurnoAmount, setCompraTurnoAmount] = useState(0);
   const [compraTurnoSubmitting, setCompraTurnoSubmitting] = useState(false);
+  const [salidaType, setSalidaType] = useState<string>('COMPRA');
+  const [salidaWorkerId, setSalidaWorkerId] = useState<string>('');
+  const [salidaPaymentMethod, setSalidaPaymentMethod] = useState<PaymentMethod>(PaymentMethod.EFECTIVO);
+  const [salidaSupplyId, setSalidaSupplyId] = useState<string>('');
+  const [salidaBags, setSalidaBags] = useState<string>('1');
+
+  const authorizedSupplies = useMemo(() => {
+    return supplies.filter((s: Supply) => (s.isActive ?? true) && s.allowLocalPurchase);
+  }, [supplies]);
+
+  const selectedAuthorizedSupply = useMemo(() => {
+    return authorizedSupplies.find((s: Supply) => s.id === salidaSupplyId);
+  }, [authorizedSupplies, salidaSupplyId]);
+
+  // Estados deudor para fiados (isPaid = false)
+  const [isCredit, setIsCredit] = useState<boolean>(false);
+  const [debtorType, setDebtorType] = useState<string>('TRABAJADOR');
+  const [debtorWorkerId, setDebtorWorkerId] = useState<string>('');
+  const [debtorCustomerId, setDebtorCustomerId] = useState<string>('');
+  const [debtorName, setDebtorName] = useState<string>('');
+
+  // Clientes y modal de registro de cliente
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [newCustomerModalVisible, setNewCustomerModalVisible] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+  const [newCustEmail, setNewCustEmail] = useState('');
+  const [newCustSubmitting, setNewCustSubmitting] = useState(false);
 
   // Porciones disponibles por tipo de pizza
   const [portionsModalVisible, setPortionsModalVisible] = useState(false);
@@ -134,6 +163,7 @@ export default function VentasScreen() {
 
   // Porciones vendidas hoy por producto
   const [soldPortions, setSoldPortions] = useState<Record<string, number>>({});
+  const [totalSalesToday, setTotalSalesToday] = useState(0);
 
   // Cargar porciones del día desde BD
   useEffect(() => {
@@ -145,32 +175,47 @@ export default function VentasScreen() {
         .select('product_id, portions')
         .eq('store_id', selectedStoreId)
         .eq('date', today);
+      const map: Record<string, number> = {};
       if (data && data.length > 0) {
-        const map: Record<string, number> = {};
         for (const row of data) map[row.product_id] = row.portions;
-        setAvailablePortions(map);
       }
+      setAvailablePortions(map);
     })();
   }, [selectedStoreId]);
 
-  // Cargar porciones vendidas hoy
+  // Cargar porciones vendidas hoy y total en dinero
   const loadSoldPortions = useCallback(async () => {
     if (!selectedStoreId) return;
     const today = todayColombia();
     const { fromUtc: startOfDay, toUtc: endOfDay } = colombiaDateRangeToUtc(today, today);
-    const { data } = await supabase
+
+    // 1. Porciones
+    const { data: itemData } = await supabase
       .from('sale_items')
       .select('product_id, portions, sales!inner(store_id, created_at)')
       .eq('sales.store_id', selectedStoreId)
       .gte('sales.created_at', startOfDay)
       .lte('sales.created_at', endOfDay);
 
-    if (data) {
+    if (itemData) {
       const map: Record<string, number> = {};
-      for (const row of data) {
+      for (const row of itemData) {
         map[row.product_id] = (map[row.product_id] ?? 0) + row.portions;
       }
       setSoldPortions(map);
+    }
+
+    // 2. Ventas totales en dinero
+    const { data: salesData } = await supabase
+      .from('sales')
+      .select('total_amount')
+      .eq('store_id', selectedStoreId)
+      .gte('created_at', startOfDay)
+      .lte('created_at', endOfDay);
+
+    if (salesData) {
+      const totalAmountToday = salesData.reduce((sum, s) => sum + s.total_amount, 0);
+      setTotalSalesToday(totalAmountToday);
     }
   }, [selectedStoreId]);
 
@@ -230,6 +275,49 @@ export default function VentasScreen() {
     })();
   }, [cachedProducts, productFormatRepo]);
 
+  const loadCustomers = useCallback(async () => {
+    setLoadingCustomers(true);
+    try {
+      const list = await customerRepo.getAll();
+      setCustomers(list.filter((c) => c.isActive));
+    } catch (e) {
+      console.error('Error loading customers:', e);
+    } finally {
+      setLoadingCustomers(false);
+    }
+  }, [customerRepo]);
+
+  useEffect(() => {
+    loadCustomers();
+  }, [loadCustomers]);
+
+  const handleCreateCustomer = useCallback(async () => {
+    if (!newCustName.trim()) {
+      Alert.alert('Error', 'Por favor ingresa el nombre del cliente');
+      return;
+    }
+    setNewCustSubmitting(true);
+    try {
+      const created = await customerRepo.create({
+        name: newCustName.trim(),
+        phone: newCustPhone.trim() || undefined,
+        email: newCustEmail.trim() || undefined,
+      });
+      await loadCustomers();
+      setDebtorCustomerId(created.id);
+      setDebtorName(created.name);
+      setNewCustomerModalVisible(false);
+      setNewCustName('');
+      setNewCustPhone('');
+      setNewCustEmail('');
+      setSnackbar({ visible: true, success: true, message: `Cliente registrado: ${created.name}` });
+    } catch (err) {
+      Alert.alert('Error', 'No se pudo registrar el cliente');
+    } finally {
+      setNewCustSubmitting(false);
+    }
+  }, [newCustName, newCustPhone, newCustEmail, customerRepo, loadCustomers]);
+
   const loadPendingSales = useCallback(async () => {
     if (!selectedStoreId) return;
     try {
@@ -245,62 +333,159 @@ export default function VentasScreen() {
   }, [loadPendingSales]);
 
   const handleBajaSubmit = useCallback(async () => {
-    const grams = parseFloat(bajaGrams);
-    if (!bajaSupplyId || !grams || grams <= 0) {
-      Alert.alert('Error', 'Selecciona un insumo e ingresa una cantidad valida');
-      return;
+    if (bajaMode === 'supply') {
+      const grams = parseFloat(bajaGrams);
+      if (!bajaSupplyId || !grams || grams <= 0) {
+        Alert.alert('Error', 'Selecciona un insumo e ingresa una cantidad valida');
+        return;
+      }
+      setBajaSubmitting(true);
+      try {
+        await writeoffService.createRequest(
+          selectedStoreId,
+          bajaSupplyId,
+          Number(bajaLevel) as InventoryLevel,
+          grams,
+          bajaReason,
+          bajaNotes,
+          userId,
+        );
+        setBajaModalVisible(false);
+        setBajaSupplyId('');
+        setBajaGrams('');
+        setBajaNotes('');
+        setBajaReason(WriteoffReason.DAMAGED);
+        setBajaLevel(String(InventoryLevel.STORE));
+        setSnackbar({ visible: true, success: true, message: 'Baja registrada. Pendiente de aprobacion.' });
+      } catch {
+        setSnackbar({ visible: true, success: false, message: 'Error al registrar la baja' });
+      } finally {
+        setBajaSubmitting(false);
+      }
+    } else {
+      const portions = parseInt(bajaPortions, 10);
+      if (!bajaProductId || !portions || portions <= 0) {
+        Alert.alert('Error', 'Selecciona un producto e ingresa una cantidad valida');
+        return;
+      }
+      setBajaSubmitting(true);
+      try {
+        await writeoffService.createRequest(
+          selectedStoreId,
+          undefined,
+          InventoryLevel.STORE,
+          portions,
+          bajaReason,
+          bajaNotes,
+          userId,
+          bajaProductId,
+        );
+        setBajaModalVisible(false);
+        setBajaProductId('');
+        setBajaPortions('');
+        setBajaNotes('');
+        setBajaReason(WriteoffReason.DAMAGED);
+        setSnackbar({ visible: true, success: true, message: 'Baja registrada. Pendiente de aprobacion.' });
+      } catch {
+        setSnackbar({ visible: true, success: false, message: 'Error al registrar la baja' });
+      } finally {
+        setBajaSubmitting(false);
+      }
     }
-    setBajaSubmitting(true);
-    try {
-      await writeoffService.createRequest(
-        selectedStoreId,
-        bajaSupplyId,
-        Number(bajaLevel) as InventoryLevel,
-        grams,
-        bajaReason,
-        bajaNotes,
-        userId,
-      );
-      setBajaModalVisible(false);
-      setBajaSupplyId('');
-      setBajaGrams('');
-      setBajaNotes('');
-      setBajaReason(WriteoffReason.DAMAGED);
-      setBajaLevel(String(InventoryLevel.STORE));
-      setSnackbar({ visible: true, success: true, message: 'Baja registrada. Pendiente de aprobacion.' });
-    } catch {
-      setSnackbar({ visible: true, success: false, message: 'Error al registrar la baja' });
-    } finally {
-      setBajaSubmitting(false);
-    }
-  }, [bajaSupplyId, bajaGrams, bajaLevel, bajaReason, bajaNotes, selectedStoreId, userId, writeoffService]);
+  }, [
+    bajaMode,
+    bajaSupplyId,
+    bajaGrams,
+    bajaLevel,
+    bajaProductId,
+    bajaPortions,
+    bajaReason,
+    bajaNotes,
+    selectedStoreId,
+    userId,
+    writeoffService,
+  ]);
 
   // V7: Compra en turno handler
   const handleCompraTurnoSubmit = useCallback(async () => {
-    if (!compraTurnoDesc.trim() || compraTurnoAmount <= 0) {
-      Alert.alert('Error', 'Ingresa una descripcion y un monto valido');
+    if (salidaType === 'ADELANTO' && !salidaWorkerId) {
+      Alert.alert('Error', 'Por favor selecciona el trabajador para el adelanto');
+      return;
+    }
+    if (salidaType === 'COMPRA' && !salidaSupplyId && !compraTurnoDesc.trim()) {
+      Alert.alert('Error', 'Por favor ingresa una descripción para la compra o selecciona un insumo');
+      return;
+    }
+    if (compraTurnoAmount <= 0) {
+      Alert.alert('Error', 'Ingresa un monto válido');
       return;
     }
     setCompraTurnoSubmitting(true);
     try {
+      const selectedWorker = workers.find((w) => w.id === salidaWorkerId);
+      const category = salidaType === 'ADELANTO' ? 'Adelanto' : 'Compra Turno';
+      let desc = compraTurnoDesc.trim();
+      let totalGramsAdded = 0;
+
+      if (salidaType === 'COMPRA' && selectedAuthorizedSupply) {
+        const bagsCount = parseFloat(salidaBags) || 1;
+        totalGramsAdded = bagsCount * selectedAuthorizedSupply.gramsPerBag;
+        const detailStr = `${bagsCount} bolsa(s) / ${totalGramsAdded}g`;
+        desc = desc
+          ? `Compra local: ${selectedAuthorizedSupply.name} (${detailStr}) - ${desc}`
+          : `Compra local: ${selectedAuthorizedSupply.name} (${detailStr})`;
+      } else if (salidaType === 'ADELANTO') {
+        desc = `Adelanto a ${selectedWorker ? selectedWorker.name : 'trabajador'}${compraTurnoDesc.trim() ? `: ${compraTurnoDesc.trim()}` : ''}`;
+      }
+
+      const payMethod = salidaType === 'ADELANTO' ? salidaPaymentMethod : PaymentMethod.EFECTIVO;
+
       await expenseRepo.create({
         date: todayColombia(),
         storeId: selectedStoreId,
-        category: 'Compra Turno',
-        description: compraTurnoDesc.trim(),
+        category,
+        description: desc,
         amount: compraTurnoAmount,
-        paymentMethod: PaymentMethod.EFECTIVO,
+        paymentMethod: payMethod,
+        workerId: salidaType === 'ADELANTO' ? salidaWorkerId : undefined,
+        isFixed: category === 'Adelanto',
       });
+
+      if (salidaType === 'COMPRA' && selectedAuthorizedSupply && totalGramsAdded > 0) {
+        await inventoryRepo.addGrams(selectedStoreId, selectedAuthorizedSupply.id, totalGramsAdded, InventoryLevel.STORE);
+      }
+
       setCompraTurnoVisible(false);
       setCompraTurnoDesc('');
       setCompraTurnoAmount(0);
-      setSnackbar({ visible: true, success: true, message: `Compra registrada: ${formatCOP(compraTurnoAmount)}` });
+      setSalidaType('COMPRA');
+      setSalidaWorkerId('');
+      setSalidaSupplyId('');
+      setSalidaBags('1');
+      setSalidaPaymentMethod(PaymentMethod.EFECTIVO);
+
+      let successMsg = `Compra registrada: ${formatCOP(compraTurnoAmount)}`;
+      if (salidaType === 'ADELANTO') {
+        successMsg = `Adelanto registrado: ${formatCOP(compraTurnoAmount)}`;
+      } else if (selectedAuthorizedSupply && totalGramsAdded > 0) {
+        successMsg = `Compra de ${selectedAuthorizedSupply.name} registrada (${formatCOP(compraTurnoAmount)}) y +${totalGramsAdded}g cargados al inventario.`;
+      }
+
+      setSnackbar({
+        visible: true,
+        success: true,
+        message: successMsg,
+      });
     } catch {
-      setSnackbar({ visible: true, success: false, message: 'Error al registrar la compra' });
+      setSnackbar({
+        visible: true,
+        success: false,
+        message: salidaType === 'ADELANTO' ? 'Error al registrar el adelanto' : 'Error al registrar la compra',
+      });
     } finally {
       setCompraTurnoSubmitting(false);
     }
-  }, [compraTurnoDesc, compraTurnoAmount, selectedStoreId, expenseRepo]);
+  }, [compraTurnoDesc, compraTurnoAmount, selectedStoreId, expenseRepo, inventoryRepo, salidaType, salidaWorkerId, salidaSupplyId, salidaBags, selectedAuthorizedSupply, salidaPaymentMethod, workers]);
 
   const selectedProduct = products.find((p) => p.id === selectedProductId);
   const getPackagingSalePrice = useCallback((packagingSupplyId?: string) => {
@@ -687,12 +872,28 @@ export default function VentasScreen() {
     setBankAmount(sale.bankAmount);
     setAmountReceived(0);
     setIsPaid(sale.isPaid);
+    setIsCredit(sale.isCredit ?? false);
+    setDebtorType(sale.debtorType ?? 'TRABAJADOR');
+    setDebtorWorkerId(sale.debtorWorkerId ?? '');
+    setDebtorCustomerId(sale.debtorCustomerId ?? '');
+    setDebtorName(sale.debtorName ?? '');
     setObservations(sale.observations ?? '');
     setReadyToConfirm(false);
     scrollToTop();
   }, [saleToCartItems, scrollToTop, setCart]);
 
   const handleSubmitSale = useCallback(async () => {
+    if (!isPaid && isCredit) {
+      if (debtorType === 'TRABAJADOR' && !debtorWorkerId) {
+        setSnackbar({ visible: true, success: false, message: 'Por favor selecciona el trabajador a quien se le fía' });
+        return;
+      }
+      if (debtorType === 'CLIENTE' && !debtorCustomerId) {
+        setSnackbar({ visible: true, success: false, message: 'Por favor selecciona el cliente a quien se le fía' });
+        return;
+      }
+    }
+
     const mixedAmounts = normalizeMixedPayment();
     const effectiveCash = paymentMethod === PaymentMethod.TRANSFERENCIA ? 0
       : paymentMethod === PaymentMethod.EFECTIVO ? totalAmount
@@ -737,6 +938,11 @@ export default function VentasScreen() {
             isPaid,
             customerNoteForSubmit,
             cartPackagingSupplyId,
+            isCredit,
+            debtorName || undefined,
+            debtorType || undefined,
+            debtorWorkerId || undefined,
+            debtorCustomerId || undefined,
           )
         : await saleService.createSale(
             selectedStoreId,
@@ -748,10 +954,15 @@ export default function VentasScreen() {
             isPaid,
             customerNoteForSubmit,
             cartPackagingSupplyId,
+            isCredit,
+            debtorName || undefined,
+            debtorType || undefined,
+            debtorWorkerId || undefined,
+            debtorCustomerId || undefined,
           );
 
       const totalPortions = submittedCart.reduce((sum, i) => sum + i.portions, 0);
-      const paidLabel = isPaid ? '' : ' (PENDIENTE DE PAGO)';
+      const paidLabel = isPaid ? '' : isCredit ? ' (FIADO)' : ' (PENDIENTE DE PAGO)';
 
       clearCart();
       setEditingSale(null);
@@ -761,6 +972,11 @@ export default function VentasScreen() {
       setPaymentMethod(PaymentMethod.EFECTIVO);
       setObservations('');
       setIsPaid(false);
+      setIsCredit(false);
+      setDebtorType('TRABAJADOR');
+      setDebtorWorkerId('');
+      setDebtorCustomerId('');
+      setDebtorName('');
       setReadyToConfirm(false);
 
       setSnackbar({
@@ -774,6 +990,7 @@ export default function VentasScreen() {
       applyPortionDelta(previousSale, submittedCart);
 
       loadPendingSales();
+      loadSoldPortions();
     } catch (error) {
       console.error('Error registrando venta:', error);
       setSnackbar({
@@ -784,7 +1001,7 @@ export default function VentasScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [applyPortionDelta, cart, cartPackagingSupplyId, clearCart, editingSale, isPaid, loadPendingSales, normalizeMixedPayment, observations, paymentMethod, saleService, selectedStoreId, totalAmount]);
+  }, [applyPortionDelta, cart, cartPackagingSupplyId, clearCart, editingSale, isPaid, isCredit, debtorType, debtorWorkerId, debtorCustomerId, debtorName, loadPendingSales, loadSoldPortions, normalizeMixedPayment, observations, paymentMethod, saleService, selectedStoreId, totalAmount]);
 
   const handleFabPress = useCallback(() => {
     if (cart.length === 0) {
@@ -806,13 +1023,13 @@ export default function VentasScreen() {
   const updatePendingSale = useCallback((saleId: string, updates: Partial<Sale>): boolean => {
     const merged = pendingSales.map((s) => s.id === saleId ? { ...s, ...updates } : s);
     const completed = merged.find((s) => s.id === saleId);
-    const isFullyDone = !!(completed && completed.isPaid && completed.isDispatched);
+    const isFullyDone = !!(completed && (completed.isPaid || completed.isCredit) && completed.isDispatched);
     if (editingSale?.id === saleId && completed) {
       setEditingSale(completed);
       if (updates.isPaid !== undefined) setIsPaid(updates.isPaid);
       if (updates.paymentMethod !== undefined) handlePaymentMethodChange(updates.paymentMethod);
     }
-    setPendingSales(merged.filter((s) => !(s.isPaid && s.isDispatched)));
+    setPendingSales(merged.filter((s) => !((s.isPaid || s.isCredit) && s.isDispatched)));
     return isFullyDone;
   }, [editingSale, handlePaymentMethodChange, pendingSales, setPendingSales]);
 
@@ -880,18 +1097,83 @@ export default function VentasScreen() {
       behavior={Platform.OS === 'web' ? undefined : Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
-      <ScrollView
-        ref={scrollRef}
-        contentContainerStyle={[styles.scrollContent, { minHeight: windowHeight }]}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Header */}
+      {/* Sticky Header and Quick Actions Bar */}
+      <View style={{ paddingHorizontal: 12, paddingTop: 12, backgroundColor: theme.colors.background }}>
         <View style={styles.headerRow}>
           <StoreSelector excludeProductionCenter />
           <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
             {formatDate(new Date())}
           </Text>
         </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4, flexGrow: 0 }}>
+          <View style={styles.navRow}>
+            <Button
+              mode="outlined"
+              icon="cash-minus"
+              compact
+              onPress={() => {
+                setSalidaType('COMPRA');
+                setSalidaWorkerId('');
+                setCompraTurnoDesc('');
+                setCompraTurnoAmount(0);
+                setCompraTurnoVisible(true);
+              }}
+            >
+              Salida Caja
+            </Button>
+            <Button
+              mode="outlined"
+              icon="package-variant-remove"
+              compact
+              onPress={() => {
+                if (userRole !== UserRole.GERENTE && userRole !== UserRole.ADMIN_LOCAL) setBajaLevel(String(InventoryLevel.STORE));
+                setBajaModalVisible(true);
+              }}
+            >
+              Baja
+            </Button>
+            <Button
+              mode="outlined"
+              icon="clipboard-check-outline"
+              compact
+              onPress={() => router.push('/(tabs)/inventario/cierre-fisico')}
+            >
+              Conteo
+            </Button>
+            <Button
+              mode="outlined"
+              icon="cash-lock"
+              compact
+              onPress={() => router.push('/(tabs)/ventas/cierre-caja')}
+            >
+              Cierre
+            </Button>
+            <Button
+              mode="outlined"
+              icon="history"
+              compact
+              onPress={() => router.push('/(tabs)/ventas/historial')}
+            >
+              Historial
+            </Button>
+            <Button
+              mode="outlined"
+              icon="food"
+              compact
+              onPress={() => router.push('/(tabs)/ventas/consumo-ventas')}
+            >
+              Consumo
+            </Button>
+          </View>
+        </ScrollView>
+      </View>
+
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={[styles.scrollContent, { minHeight: windowHeight, paddingTop: 4 }]}
+        keyboardShouldPersistTaps="handled"
+      >
 
         {/* V1: Cash opening banner */}
         {needsOpening && (
@@ -968,6 +1250,15 @@ export default function VentasScreen() {
                       >
                         Pagado
                       </Chip>
+                    ) : sale.isCredit ? (
+                      <Chip
+                        compact
+                        icon="account-cash"
+                        textStyle={{ fontSize: 11, color: '#FFB74D' }}
+                        style={{ backgroundColor: '#4E342E' }}
+                      >
+                        Fiado a: {sale.debtorName || 'Cliente'}
+                      </Chip>
                     ) : (
                       <>
                         <Button
@@ -1035,7 +1326,7 @@ export default function VentasScreen() {
                   </View>
 
                   {/* Change calculator for unpaid cash sales */}
-                  {!sale.isPaid && (sale.paymentMethod === PaymentMethod.EFECTIVO || sale.paymentMethod === PaymentMethod.MIXTO) && (
+                  {!sale.isPaid && !sale.isCredit && (sale.paymentMethod === PaymentMethod.EFECTIVO || sale.paymentMethod === PaymentMethod.MIXTO) && (
                     <View style={{ marginTop: 6 }}>
                       <CurrencyInput
                         value={received}
@@ -1113,93 +1404,196 @@ export default function VentasScreen() {
               onPackagingChange={setCartPackaging}
             />
 
-            {/* V4: Payment method, isPaid, and observations always visible */}
-            <Divider style={styles.divider} />
+            {cart.length > 0 && (
+              <>
+                {/* V4: Payment method, isPaid, and observations always visible */}
+                <Divider style={styles.divider} />
 
-            <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 8 }}>
-              Metodo de Pago
-            </Text>
-            <PaymentMethodPicker value={paymentMethod} onChange={handlePaymentMethodChange} />
+                <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 8 }}>
+                  Metodo de Pago
+                </Text>
+                <PaymentMethodPicker value={paymentMethod} onChange={handlePaymentMethodChange} />
 
-            {cart.length > 0 && paymentMethod === PaymentMethod.MIXTO && (
-              <View style={styles.mixtoInputs}>
-                <CurrencyInput
-                  value={cashAmount}
-                  onChangeValue={handleMixedCashChange}
-                  label="Efectivo"
-                  style={styles.halfInput}
+                {paymentMethod === PaymentMethod.MIXTO && (
+                  <View style={styles.mixtoInputs}>
+                    <CurrencyInput
+                      value={cashAmount}
+                      onChangeValue={handleMixedCashChange}
+                      label="Efectivo"
+                      style={styles.halfInput}
+                    />
+                    <CurrencyInput
+                      value={bankAmount}
+                      onChangeValue={handleMixedBankChange}
+                      label="Transferencia"
+                      style={styles.halfInput}
+                    />
+                  </View>
+                )}
+
+                {/* V5: Calculadora de cambio */}
+                {(paymentMethod === PaymentMethod.EFECTIVO || paymentMethod === PaymentMethod.MIXTO) && (
+                  <View style={{ marginTop: 10 }}>
+                    <CurrencyInput
+                      value={amountReceived}
+                      onChangeValue={setAmountReceived}
+                      label="Monto Recibido"
+                    />
+                    {amountReceived > 0 && (() => {
+                      const cashPortion = paymentMethod === PaymentMethod.MIXTO ? normalizeMixedPayment().cash : totalAmount;
+                      const change = amountReceived - cashPortion;
+                      return (
+                        <Text
+                          variant="titleMedium"
+                          style={{
+                            fontWeight: 'bold',
+                            marginTop: 6,
+                            color: change >= 0 ? '#4CAF50' : '#F44336',
+                          }}
+                        >
+                          Cambio: {formatCOP(Math.max(0, change))}
+                          {change < 0 ? ` (Faltan ${formatCOP(Math.abs(change))})` : ''}
+                        </Text>
+                      );
+                    })()}
+                  </View>
+                )}
+
+                <Divider style={styles.divider} />
+
+                {/* Paid toggle — always visible */}
+                <View style={styles.paidRow}>
+                  <Text variant="bodyMedium" style={{ flex: 1 }}>
+                    {isPaid ? 'Pagado' : 'Pendiente de pago'}
+                  </Text>
+                  <Chip
+                    selected={isPaid}
+                    onPress={() => {
+                      const next = !isPaid;
+                      setIsPaid(next);
+                      if (next) {
+                        setDebtorType('TRABAJADOR');
+                        setDebtorWorkerId('');
+                        setDebtorName('');
+                      }
+                    }}
+                    mode="flat"
+                    selectedColor={isPaid ? theme.colors.primary : theme.colors.error}
+                    style={{
+                      backgroundColor: isPaid
+                        ? theme.colors.primaryContainer
+                        : theme.colors.errorContainer,
+                    }}
+                  >
+                    {isPaid ? 'Pagado' : 'No pagado'}
+                  </Chip>
+                </View>
+
+                {!isPaid && (
+                  <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.elevation.level1, borderRadius: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
+                        ¿Registrar como Crédito (Fiado)?
+                      </Text>
+                      <Chip
+                        selected={isCredit}
+                        onPress={() => {
+                          const next = !isCredit;
+                          setIsCredit(next);
+                          if (!next) {
+                            setDebtorType('TRABAJADOR');
+                            setDebtorWorkerId('');
+                            setDebtorName('');
+                          }
+                        }}
+                        mode="flat"
+                        selectedColor={isCredit ? theme.colors.primary : theme.colors.onSurfaceVariant}
+                        style={{
+                          backgroundColor: isCredit
+                            ? theme.colors.primaryContainer
+                            : theme.colors.surfaceVariant,
+                        }}
+                      >
+                        {isCredit ? 'Fiar' : 'No fiar'}
+                      </Chip>
+                    </View>
+
+                    {isCredit && (
+                      <>
+                        <SegmentedButtons
+                          value={debtorType}
+                          onValueChange={(val) => {
+                            setDebtorType(val);
+                            setDebtorWorkerId('');
+                            setDebtorCustomerId('');
+                            setDebtorName('');
+                          }}
+                          buttons={[
+                            { value: 'TRABAJADOR', label: 'Trabajador' },
+                            { value: 'CLIENTE', label: 'Cliente Especial' },
+                          ]}
+                          style={{ marginBottom: 12 }}
+                          density="small"
+                        />
+
+                        {debtorType === 'TRABAJADOR' ? (
+                          <SearchableSelect
+                            options={workers
+                              .filter((w) => w.isActive)
+                              .map((w) => ({ value: w.id, label: w.name, subtitle: w.role }))}
+                            selectedValue={debtorWorkerId}
+                            placeholder="Seleccionar Trabajador"
+                            icon="account"
+                            onSelect={(id) => {
+                              setDebtorWorkerId(id);
+                              const w = workers.find((x) => x.id === id);
+                              setDebtorName(w ? w.name : '');
+                            }}
+                          />
+                        ) : (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <View style={{ flex: 1 }}>
+                              <SearchableSelect
+                                options={customers.map((c) => ({ value: c.id, label: c.name, subtitle: c.phone || 'Sin teléfono' }))}
+                                selectedValue={debtorCustomerId}
+                                placeholder="Seleccionar Cliente"
+                                icon="account-tie"
+                                onSelect={(id) => {
+                                  setDebtorCustomerId(id);
+                                  const c = customers.find((x) => x.id === id);
+                                  setDebtorName(c ? c.name : '');
+                                }}
+                              />
+                            </View>
+                            <IconButton
+                              icon="plus"
+                              mode="contained"
+                              containerColor={theme.colors.primaryContainer}
+                              iconColor={theme.colors.onPrimaryContainer}
+                              onPress={() => setNewCustomerModalVisible(true)}
+                              style={{ margin: 0 }}
+                            />
+                          </View>
+                        )}
+                      </>
+                    )}
+                  </View>
+                )}
+
+                <Divider style={styles.divider} />
+
+                <TextInput
+                  label="Observaciones (opcional)"
+                  value={observations}
+                  onChangeText={setObservations}
+                  mode="outlined"
+                  multiline
+                  numberOfLines={2}
+                  dense
+                  style={styles.observationsInput}
                 />
-                <CurrencyInput
-                  value={bankAmount}
-                  onChangeValue={handleMixedBankChange}
-                  label="Transferencia"
-                  style={styles.halfInput}
-                />
-              </View>
+              </>
             )}
-
-            {/* V5: Calculadora de cambio */}
-            {cart.length > 0 && (paymentMethod === PaymentMethod.EFECTIVO || paymentMethod === PaymentMethod.MIXTO) && (
-              <View style={{ marginTop: 10 }}>
-                <CurrencyInput
-                  value={amountReceived}
-                  onChangeValue={setAmountReceived}
-                  label="Monto Recibido"
-                />
-                {amountReceived > 0 && (() => {
-                  const cashPortion = paymentMethod === PaymentMethod.MIXTO ? normalizeMixedPayment().cash : totalAmount;
-                  const change = amountReceived - cashPortion;
-                  return (
-                    <Text
-                      variant="titleMedium"
-                      style={{
-                        fontWeight: 'bold',
-                        marginTop: 6,
-                        color: change >= 0 ? '#4CAF50' : '#F44336',
-                      }}
-                    >
-                      Cambio: {formatCOP(Math.max(0, change))}
-                      {change < 0 ? ` (Faltan ${formatCOP(Math.abs(change))})` : ''}
-                    </Text>
-                  );
-                })()}
-              </View>
-            )}
-
-            <Divider style={styles.divider} />
-
-            {/* Paid toggle — always visible */}
-            <View style={styles.paidRow}>
-              <Text variant="bodyMedium" style={{ flex: 1 }}>
-                {isPaid ? 'Pagado' : 'Pendiente de pago'}
-              </Text>
-              <Chip
-                selected={isPaid}
-                onPress={() => setIsPaid(!isPaid)}
-                mode="flat"
-                selectedColor={isPaid ? theme.colors.primary : theme.colors.error}
-                style={{
-                  backgroundColor: isPaid
-                    ? theme.colors.primaryContainer
-                    : theme.colors.errorContainer,
-                }}
-              >
-                {isPaid ? 'Pagado' : 'No pagado'}
-              </Chip>
-            </View>
-
-            <Divider style={styles.divider} />
-
-            <TextInput
-              label="Observaciones (opcional)"
-              value={observations}
-              onChangeText={setObservations}
-              mode="outlined"
-              multiline
-              numberOfLines={2}
-              dense
-              style={styles.observationsInput}
-            />
           </Card.Content>
         </Card>
 
@@ -1211,6 +1605,7 @@ export default function VentasScreen() {
             selectedId={selectedProductId ?? undefined}
             availablePortions={portionsSet ? availablePortions : undefined}
             soldPortions={Object.keys(soldPortions).length > 0 ? soldPortions : undefined}
+            totalSalesToday={totalSalesToday}
           />
         </View>
 
@@ -1234,62 +1629,7 @@ export default function VentasScreen() {
             : 'Cargar porciones disponibles'}
         </Button>
 
-        {/* Quick nav — moved to bottom (V2) */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12, flexGrow: 0 }}>
-          <View style={styles.navRow}>
-            <Button
-              mode="outlined"
-              icon="history"
-              compact
-              onPress={() => router.push('/(tabs)/ventas/historial')}
-            >
-              Historial
-            </Button>
-            <Button
-              mode="outlined"
-              icon="cash-lock"
-              compact
-              onPress={() => router.push('/(tabs)/ventas/cierre-caja')}
-            >
-              Cierre
-            </Button>
-            <Button
-              mode="outlined"
-              icon="clipboard-check-outline"
-              compact
-              onPress={() => router.push('/(tabs)/inventario/cierre-fisico')}
-            >
-              Conteo
-            </Button>
-            <Button
-              mode="outlined"
-              icon="package-variant-remove"
-              compact
-              onPress={() => {
-              if (userRole !== UserRole.ADMIN) setBajaLevel(String(InventoryLevel.STORE));
-              setBajaModalVisible(true);
-            }}
-            >
-              Baja
-            </Button>
-            <Button
-              mode="outlined"
-              icon="food"
-              compact
-              onPress={() => router.push('/(tabs)/ventas/consumo-ventas')}
-            >
-              Consumo
-            </Button>
-            <Button
-              mode="outlined"
-              icon="cart-plus"
-              compact
-              onPress={() => setCompraTurnoVisible(true)}
-            >
-              Compra Turno
-            </Button>
-          </View>
-        </ScrollView>
+        {/* Nav row removed from bottom */}
 
       </ScrollView>
 
@@ -1483,12 +1823,18 @@ export default function VentasScreen() {
               buttonColor="#E63946"
               textColor="#FFFFFF"
               onPress={() => {
-                // Sumar lo ingresado al disponible actual
+                // Sumar lo ingresado al disponible actual, restando lo ya vendido si es primera carga
                 const updated = { ...availablePortions };
                 for (const [id, val] of Object.entries(portionsInput)) {
                   const n = parseInt(val, 10);
                   if (n > 0) {
-                    updated[id] = (updated[id] ?? 0) + n;
+                    const isAlreadyLoaded = availablePortions[id] !== undefined;
+                    if (isAlreadyLoaded) {
+                      updated[id] = (updated[id] ?? 0) + n;
+                    } else {
+                      const sold = soldPortions[id] ?? 0;
+                      updated[id] = Math.max(0, n - sold);
+                    }
                   }
                 }
                 setAvailablePortions(updated);
@@ -1542,7 +1888,7 @@ export default function VentasScreen() {
                   onSelect={setBajaSupplyId}
                 />
 
-                {userRole === UserRole.ADMIN ? (
+                {userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL ? (
                   <>
                     <Text variant="labelLarge" style={{ marginBottom: 6 }}>Nivel de inventario</Text>
                     <SegmentedButtons
@@ -1651,7 +1997,7 @@ export default function VentasScreen() {
         </Modal>
       </Portal>
 
-      {/* V7: Compra en Turno Modal */}
+      {/* V7: Salida de Caja Modal */}
       <Portal>
         <Modal
           visible={compraTurnoVisible}
@@ -1659,11 +2005,100 @@ export default function VentasScreen() {
           contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
         >
           <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 4 }}>
-            Compra en Turno
+            Salida de Caja
           </Text>
           <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>
-            Registra compras de insumos con dinero de la caja
+            Registra egresos o adelantos con dinero en efectivo de la caja
           </Text>
+
+          <SegmentedButtons
+            value={salidaType}
+            onValueChange={(val) => {
+              setSalidaType(val);
+              setSalidaWorkerId('');
+            }}
+            buttons={[
+              { value: 'COMPRA', label: 'Compra Insumos' },
+              { value: 'ADELANTO', label: 'Adelanto Nómina' },
+            ]}
+            style={{ marginBottom: 16 }}
+            density="small"
+          />
+
+          {salidaType === 'COMPRA' && (
+            <View style={{ marginBottom: 12 }}>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 4 }}>
+                Insumo Autorizado (Cargue directo a inventario):
+              </Text>
+              <SearchableSelect
+                options={[
+                  { value: '', label: 'Ninguno (Gasto general sin inventario)' },
+                  ...authorizedSupplies.map((s: Supply) => ({
+                    value: s.id,
+                    label: s.name,
+                    subtitle: `${s.gramsPerBag}g/bolsa • Autorizado`,
+                  })),
+                ]}
+                selectedValue={salidaSupplyId}
+                placeholder="Seleccionar Insumo Autorizado (Opcional)"
+                icon="cube-outline"
+                onSelect={(val) => {
+                  setSalidaSupplyId(val);
+                  setSalidaBags('1');
+                }}
+              />
+
+              {selectedAuthorizedSupply && (
+                <View style={{ marginTop: 10, padding: 10, backgroundColor: theme.colors.surfaceVariant, borderRadius: 8 }}>
+                  <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.primary, marginBottom: 6 }}>
+                    📦 Cargue Directo: {selectedAuthorizedSupply.name}
+                  </Text>
+                  <TextInput
+                    label="Cantidad de Bolsas / Unidades"
+                    value={salidaBags}
+                    onChangeText={setSalidaBags}
+                    keyboardType="decimal-pad"
+                    mode="outlined"
+                    dense
+                    style={{ marginBottom: 4 }}
+                  />
+                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                    Se cargarán {((parseFloat(salidaBags) || 0) * selectedAuthorizedSupply.gramsPerBag).toLocaleString()}g al inventario del local.
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {salidaType === 'ADELANTO' && (
+            <>
+              <View style={{ marginBottom: 12 }}>
+                <SearchableSelect
+                  options={workers
+                    .filter((w) => w.isActive)
+                    .map((w) => ({ value: w.id, label: w.name, subtitle: w.role }))}
+                  selectedValue={salidaWorkerId}
+                  placeholder="Seleccionar Trabajador"
+                  icon="account"
+                  onSelect={setSalidaWorkerId}
+                />
+              </View>
+              <Text variant="bodyMedium" style={{ fontWeight: '600', marginBottom: 8, marginTop: 4 }}>
+                Medio de Pago
+              </Text>
+              <SegmentedButtons
+                value={salidaPaymentMethod}
+                onValueChange={(val) => setSalidaPaymentMethod(val as PaymentMethod)}
+                buttons={[
+                  { value: PaymentMethod.EFECTIVO, label: 'Efectivo' },
+                  { value: PaymentMethod.TRANSFERENCIA, label: 'Banco' },
+                ]}
+                style={{ marginBottom: 12 }}
+                density="small"
+              />
+            </>
+          )}
+
           <TextInput
             label="Descripcion"
             value={compraTurnoDesc}
@@ -1671,6 +2106,7 @@ export default function VentasScreen() {
             mode="outlined"
             dense
             style={{ marginBottom: 12 }}
+            placeholder={salidaType === 'ADELANTO' ? 'Opcional (Ej. Primera quincena)' : 'Opcional si elegiste insumo, u obligatorio si es gasto general'}
           />
           <CurrencyInput
             value={compraTurnoAmount}
@@ -1683,10 +2119,78 @@ export default function VentasScreen() {
               mode="contained"
               onPress={handleCompraTurnoSubmit}
               loading={compraTurnoSubmitting}
-              disabled={!compraTurnoDesc.trim() || compraTurnoAmount <= 0 || compraTurnoSubmitting}
+              disabled={
+                compraTurnoAmount <= 0 ||
+                compraTurnoSubmitting ||
+                (salidaType === 'COMPRA' && !salidaSupplyId && !compraTurnoDesc.trim()) ||
+                (salidaType === 'ADELANTO' && !salidaWorkerId)
+              }
               buttonColor="#E63946"
             >
-              Registrar Compra
+              Registrar Salida
+            </Button>
+          </View>
+        </Modal>
+      </Portal>
+
+      {/* V7: Registrar Cliente Modal */}
+      <Portal>
+        <Modal
+          visible={newCustomerModalVisible}
+          onDismiss={() => {
+            if (!newCustSubmitting) {
+              setNewCustomerModalVisible(false);
+              setNewCustName('');
+              setNewCustPhone('');
+              setNewCustEmail('');
+            }
+          }}
+          contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
+        >
+          <Text variant="titleLarge" style={{ fontWeight: 'bold', marginBottom: 4 }}>
+            Registrar Nuevo Cliente
+          </Text>
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>
+            Crea un cliente nuevo para habilitarle ventas a crédito
+          </Text>
+          <TextInput
+            label="Nombre Completo"
+            value={newCustName}
+            onChangeText={setNewCustName}
+            mode="outlined"
+            dense
+            style={{ marginBottom: 12 }}
+          />
+          <TextInput
+            label="Teléfono (Opcional)"
+            value={newCustPhone}
+            onChangeText={setNewCustPhone}
+            mode="outlined"
+            dense
+            keyboardType="phone-pad"
+            style={{ marginBottom: 12 }}
+          />
+          <TextInput
+            label="Correo Electrónico (Opcional)"
+            value={newCustEmail}
+            onChangeText={setNewCustEmail}
+            mode="outlined"
+            dense
+            keyboardType="email-address"
+            style={{ marginBottom: 16 }}
+          />
+          <View style={styles.modalActions}>
+            <Button onPress={() => setNewCustomerModalVisible(false)} disabled={newCustSubmitting}>
+              Cancelar
+            </Button>
+            <Button
+              mode="contained"
+              onPress={handleCreateCustomer}
+              loading={newCustSubmitting}
+              disabled={!newCustName.trim() || newCustSubmitting}
+              buttonColor="#E63946"
+            >
+              Registrar Cliente
             </Button>
           </View>
         </Modal>

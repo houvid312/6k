@@ -41,7 +41,7 @@ const EMPTY_FORM: NewRecipeForm = {
 export default function RecetasProduccionScreen() {
   const theme = useTheme();
   const { productionRecipeRepo } = useDI();
-  const { supplies } = useMasterDataStore();
+  const { supplies, refreshMasterData } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [recipes, setRecipes] = useState<ProductionRecipe[]>([]);
@@ -53,7 +53,13 @@ export default function RecetasProduccionScreen() {
   const [editState, setEditState] = useState<EditState | null>(null);
   const [editSaving, setEditSaving] = useState(false);
 
-  const supplySelectOptions = supplies.map((s) => ({ value: s.id, label: s.name, subtitle: `${s.gramsPerBag}g/bolsa` }));
+  useEffect(() => {
+    refreshMasterData();
+  }, [refreshMasterData]);
+
+  const supplySelectOptions = supplies
+    .filter((s) => s.isActive !== false)
+    .map((s) => ({ value: s.id, label: s.name, subtitle: `${s.gramsPerBag}g/bolsa` }));
 
   const loadData = useCallback(async () => {
     setLoading(true);

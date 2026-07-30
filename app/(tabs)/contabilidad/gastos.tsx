@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { TextInput, Button, Text, Card, Menu, Divider, Portal, Snackbar, useTheme } from 'react-native-paper';
+import { TextInput, Button, Text, Card, Menu, Divider, Portal, Snackbar, useTheme, Chip } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { PaymentMethodPicker } from '../../../src/components/ventas/PaymentMethodPicker';
@@ -12,11 +12,11 @@ import { Expense } from '../../../src/domain/entities';
 import { PaymentMethod } from '../../../src/domain/enums';
 import { EXPENSE_CATEGORIES } from '../../../src/utils/constants';
 import { formatCOP } from '../../../src/utils/currency';
-import { formatDate } from '../../../src/utils/dates';
+import { formatDate, todayColombia } from '../../../src/utils/dates';
 
 export default function GastosScreen() {
   const theme = useTheme();
-  const { expenseRepo } = useDI();
+  const { expenseRepo, purchaseRepo, supplyRepo } = useDI();
   const { selectedStoreId } = useAppStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
@@ -26,16 +26,47 @@ export default function GastosScreen() {
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.EFECTIVO);
+  const [isFixed, setIsFixed] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [suppliesMap, setSuppliesMap] = useState<Record<string, string>>({});
 
   const loadExpenses = useCallback(async () => {
     try {
-      const all = await expenseRepo.getAll(selectedStoreId);
-      setExpenses(all.reverse());
-    } catch {
+      const [allExpenses, allPurchases, allSupplies] = await Promise.all([
+        expenseRepo.getAll(selectedStoreId),
+        purchaseRepo.getAll(selectedStoreId),
+        supplyRepo.getAll(),
+      ]);
+
+      const supMap: Record<string, string> = {};
+      allSupplies.forEach(s => {
+        supMap[s.id] = s.name;
+      });
+      setSuppliesMap(supMap);
+
+      // Map purchases to look like Expense items for display
+      const mappedPurchases: Expense[] = allPurchases.map(p => ({
+        id: p.id,
+        storeId: p.storeId,
+        date: p.timestamp ? p.timestamp.split('T')[0] : todayColombia(),
+        category: 'Compra Insumo',
+        description: `${supMap[p.supplyId] || 'Insumo'} (${p.quantityGrams}g) - Prov: ${p.supplier}`,
+        amount: p.priceCOP,
+        paymentMethod: p.paymentMethod,
+        isFixed: false,
+        createdAt: p.timestamp || todayColombia(),
+      }));
+
+      // Combine both lists and sort by date descending
+      const combined = [...allExpenses, ...mappedPurchases];
+      combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      
+      setExpenses(combined);
+    } catch (err) {
+      console.error('Error loading expenses and purchases:', err);
       setExpenses([]);
     }
-  }, [selectedStoreId, expenseRepo]);
+  }, [selectedStoreId, expenseRepo, purchaseRepo, supplyRepo]);
 
   useEffect(() => {
     loadExpenses();
@@ -54,12 +85,13 @@ export default function GastosScreen() {
     setSubmitting(true);
     try {
       await expenseRepo.create({
-        date: new Date().toISOString(),
+        date: todayColombia(),
         storeId: selectedStoreId,
         category,
         description: description || category,
         amount,
         paymentMethod,
+        isFixed,
       });
       setCategory('');
       setDescription('');
@@ -71,7 +103,7 @@ export default function GastosScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [category, description, amount, paymentMethod, selectedStoreId, expenseRepo, loadExpenses, showSuccess, showError]);
+  }, [category, description, amount, paymentMethod, isFixed, selectedStoreId, expenseRepo, loadExpenses, showSuccess, showError]);
 
   return (
     <ScreenContainer>
@@ -100,6 +132,7 @@ export default function GastosScreen() {
             onPress={() => {
               setCategory(cat);
               setCategoryMenuVisible(false);
+              setIsFixed(['Arriendo', 'Servicios', 'Nomina'].includes(cat));
             }}
             title={cat}
           />
@@ -120,6 +153,30 @@ export default function GastosScreen() {
         label="Monto"
         style={styles.input}
       />
+
+      <Text variant="bodyMedium" style={{ fontWeight: '600', marginVertical: 8 }}>
+        Tipo de Gasto (Estructura de Costos)
+      </Text>
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+        <Chip
+          selected={isFixed}
+          onPress={() => setIsFixed(true)}
+          mode={isFixed ? 'flat' : 'outlined'}
+          icon="lock"
+          style={isFixed ? { backgroundColor: theme.colors.primaryContainer } : undefined}
+        >
+          Fijo
+        </Chip>
+        <Chip
+          selected={!isFixed}
+          onPress={() => setIsFixed(false)}
+          mode={!isFixed ? 'flat' : 'outlined'}
+          icon="chart-bell-curve-cumulative"
+          style={!isFixed ? { backgroundColor: theme.colors.primaryContainer } : undefined}
+        >
+          Variable
+        </Chip>
+      </View>
 
       <Text variant="bodyMedium" style={{ fontWeight: '600', marginVertical: 8 }}>
         Metodo de Pago

@@ -12,8 +12,8 @@ import { useSnackbar } from '../../../src/hooks';
 import { useCashClosingStore } from '../../../src/stores/useCashClosingStore';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate, todayColombia } from '../../../src/utils/dates';
-import { CashClosing } from '../../../src/domain/entities';
-import { ClosingStatus, UserRole } from '../../../src/domain/enums';
+import { CashClosing, Expense } from '../../../src/domain/entities';
+import { ClosingStatus, UserRole, PaymentMethod } from '../../../src/domain/enums';
 
 const STATUS_CONFIG: Record<ClosingStatus, { label: string; color: string; icon: string }> = {
   [ClosingStatus.DRAFT]: { label: 'Borrador', color: '#F57C00', icon: 'pencil' },
@@ -37,31 +37,38 @@ export default function CierreCajaScreen() {
     setCashBase,
     getTotal,
     reset,
+    setCurrentStore,
   } = useCashClosingStore();
 
   const [expectedTotal, setExpectedTotal] = useState(0);
+  const [totalCredit, setTotalCredit] = useState(0);
+  const [dayExpenses, setDayExpenses] = useState<Expense[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [existingClosing, setExistingClosing] = useState<CashClosing | null>(null);
 
   const today = todayColombia();
   const actualTotal = getTotal();
-  const discrepancy = actualTotal - cashBase - (expectedTotal - expenses);
-  const isAdmin = userRole === UserRole.ADMIN;
+  const discrepancy = actualTotal - cashBase - (expectedTotal - totalCredit - expenses);
+  const isAdmin = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
   const isEditable = !existingClosing || existingClosing.status === ClosingStatus.DRAFT;
   const isReadOnly = !isEditable;
 
   useEffect(() => {
+    setCurrentStore(selectedStoreId);
     (async () => {
       try {
         const summary = await cashClosingService.getDailyExpected(selectedStoreId, today);
         const existing = await cashClosingService.getClosingByDate(selectedStoreId, today);
         setExistingClosing(existing);
+        setTotalCredit(summary.totalCreditAmount ?? 0);
 
         // Auto-load expenses from today (Compra Turno, etc.)
         let totalExpenses = 0;
         try {
-          const dayExpenses = await expenseRepo.getByDateRange(selectedStoreId, today, today + 'T23:59:59');
-          totalExpenses = dayExpenses.reduce((sum, e) => sum + e.amount, 0);
+          const dbExpenses = await expenseRepo.getByDateRange(selectedStoreId, today, today + 'T23:59:59');
+          setDayExpenses(dbExpenses);
+          const cashExpenses = dbExpenses.filter(e => e.paymentMethod === PaymentMethod.EFECTIVO);
+          totalExpenses = cashExpenses.reduce((sum, e) => sum + e.amount, 0);
         } catch { /* ignore */ }
 
         // Auto-load opening base
@@ -86,9 +93,10 @@ export default function CierreCajaScreen() {
         }
       } catch {
         setExpectedTotal(0);
+        setTotalCredit(0);
       }
     })();
-  }, [selectedStoreId, today, cashClosingService, expenseRepo, setBankTotal, setCashBase, setDenomination, setExpenses]);
+  }, [selectedStoreId, today, cashClosingService, expenseRepo, setBankTotal, setCashBase, setDenomination, setExpenses, setCurrentStore]);
 
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
@@ -177,6 +185,22 @@ export default function CierreCajaScreen() {
       ? 'Cierre del dia confirmado'
       : 'Cierre del dia aprobado';
 
+  const cashAdvances = dayExpenses
+    .filter((e) => e.category === 'Adelanto' && e.paymentMethod === PaymentMethod.EFECTIVO)
+    .reduce((sum, e) => sum + e.amount, 0);
+
+  const bankAdvances = dayExpenses
+    .filter((e) => e.category === 'Adelanto' && e.paymentMethod === PaymentMethod.TRANSFERENCIA)
+    .reduce((sum, e) => sum + e.amount, 0);
+
+  const cashPurchases = dayExpenses
+    .filter((e) => e.category !== 'Adelanto' && e.paymentMethod === PaymentMethod.EFECTIVO)
+    .reduce((sum, e) => sum + e.amount, 0);
+
+  const bankPurchases = dayExpenses
+    .filter((e) => e.category !== 'Adelanto' && e.paymentMethod === PaymentMethod.TRANSFERENCIA)
+    .reduce((sum, e) => sum + e.amount, 0);
+
   return (
     <ScreenContainer>
       <View style={styles.header}>
@@ -218,17 +242,7 @@ export default function CierreCajaScreen() {
         </Card>
       )}
 
-      {/* Expected */}
-      <Card style={styles.card} mode="elevated">
-        <Card.Content>
-          <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 8 }}>
-            Ventas Esperadas
-          </Text>
-          <Text variant="headlineSmall" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
-            {formatCOP(expectedTotal)}
-          </Text>
-        </Card.Content>
-      </Card>
+
 
       {/* Denominations */}
       <Card style={styles.card} mode="elevated">
@@ -266,52 +280,125 @@ export default function CierreCajaScreen() {
             value={expenses}
             onChangeValue={setExpenses}
             label="Gastos del Dia"
-            disabled={isReadOnly}
+            disabled
           />
         </Card.Content>
       </Card>
 
-      {/* Summary */}
+      {/* Unified Summary Card */}
       <Card style={styles.card} mode="elevated">
         <Card.Content>
-          <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 12 }}>
-            Resumen
+          <Text variant="titleMedium" style={{ fontWeight: 'bold', marginBottom: 12, color: theme.colors.primary }}>
+            Resumen de Jornada
           </Text>
+
+          {/* Base */}
           <View style={styles.summaryRow}>
-            <Text variant="bodyMedium">Base de apertura</Text>
-            <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurfaceVariant }}>
+            <Text variant="bodyMedium">Base del día (Apertura)</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#E2B13C' }}>
               {formatCOP(cashBase)}
             </Text>
           </View>
+
+          <Divider style={{ marginVertical: 8 }} />
+
+          {/* Ventas desglosadas */}
           <View style={styles.summaryRow}>
-            <Text variant="bodyMedium">Efectivo contado</Text>
-            <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
-              {formatCOP(cashTotal)}
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Total Ventas</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>
+              {formatCOP(expectedTotal)}
             </Text>
           </View>
-          <View style={styles.summaryRow}>
-            <Text variant="bodyMedium">Transferencias</Text>
-            <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
+          <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Efectivo Esperado (Ventas)</Text>
+            <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
+              {formatCOP(expectedTotal - bankTotal - totalCredit)}
+            </Text>
+          </View>
+          <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Transferencias (Bancos)</Text>
+            <Text variant="bodySmall" style={{ color: '#388E3C' }}>
               {formatCOP(bankTotal)}
             </Text>
           </View>
-          <View style={styles.summaryRow}>
-            <Text variant="bodyMedium">Total real (- base)</Text>
-            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>
-              {formatCOP(actualTotal - cashBase)}
+          <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Fiados (Cartera)</Text>
+            <Text variant="bodySmall" style={{ color: '#1976D2' }}>
+              {formatCOP(totalCredit)}
             </Text>
           </View>
+
           <Divider style={{ marginVertical: 8 }} />
+
+          {/* Egresos desglosados */}
           <View style={styles.summaryRow}>
-            <Text variant="bodyMedium">Esperado (- gastos)</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Total Egresos (Compras/Gastos)</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#D32F2F' }}>
+              -{formatCOP(cashPurchases + bankPurchases)}
+            </Text>
+          </View>
+          <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Compras en Efectivo (Salida de Caja)</Text>
+            <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
+              {formatCOP(cashPurchases)}
+            </Text>
+          </View>
+          <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Compras por Banco (Transferencia)</Text>
+            <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
+              {formatCOP(bankPurchases)}
+            </Text>
+          </View>
+
+          <Divider style={{ marginVertical: 8 }} />
+
+          {/* Adelantos desglosados */}
+          <View style={styles.summaryRow}>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Adelantos a Colaboradores (Cartera)</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#1976D2' }}>
+              {formatCOP(cashAdvances + bankAdvances)}
+            </Text>
+          </View>
+          <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Adelantos en Efectivo (Salida de Caja)</Text>
+            <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
+              {formatCOP(cashAdvances)}
+            </Text>
+          </View>
+          <View style={[styles.summaryRow, { paddingLeft: 12 }]}>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>└ Adelantos por Banco (Transferencia)</Text>
+            <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
+              {formatCOP(bankAdvances)}
+            </Text>
+          </View>
+
+          <Divider style={{ marginVertical: 8 }} />
+
+          {/* Efectivo con y sin base */}
+          <View style={styles.summaryRow}>
+            <Text variant="bodyMedium">Efectivo esperado (Sin Base)</Text>
             <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
-              {formatCOP(expectedTotal - expenses)}
+              {formatCOP(expectedTotal - bankTotal - totalCredit - expenses)}
             </Text>
           </View>
           <View style={styles.summaryRow}>
-            <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>
-              Discrepancia
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Efectivo esperado (Con Base)</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+              {formatCOP(cashBase + expectedTotal - bankTotal - totalCredit - expenses)}
             </Text>
+          </View>
+
+          <Divider style={{ marginVertical: 8 }} />
+
+          {/* Físico contado vs discrepancia */}
+          <View style={styles.summaryRow}>
+            <Text variant="bodyMedium">Efectivo Contado (Físico en Caja)</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#FFF' }}>
+              {formatCOP(cashTotal)}
+            </Text>
+          </View>
+          <View style={[styles.summaryRow, { marginTop: 4 }]}>
+            <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>Discrepancia (Diferencia)</Text>
             <Text
               variant="titleMedium"
               style={{

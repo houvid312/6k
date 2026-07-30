@@ -66,7 +66,7 @@ export class CashClosingService {
     const summary = await this.saleRepo.getDailySummary(storeId, date);
     const expectedTotal = summary.totalAmount;
 
-    const discrepancy = calculateDiscrepancy(actualTotal, expectedTotal, expenses, openingBase);
+    const discrepancy = actualTotal - openingBase - (expectedTotal - summary.totalCreditAmount - expenses);
 
     const closing = await this.cashClosingRepo.create({
       storeId,
@@ -110,7 +110,7 @@ export class CashClosingService {
 
     const summary = await this.saleRepo.getDailySummary(storeId, date);
     const expectedTotal = summary.totalAmount;
-    const discrepancy = calculateDiscrepancy(actualTotal, expectedTotal, expenses, openingBase);
+    const discrepancy = actualTotal - openingBase - (expectedTotal - summary.totalCreditAmount - expenses);
 
     const closing = await this.cashClosingRepo.update(id, {
       denominations,
