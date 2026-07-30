@@ -56,12 +56,14 @@ export class DemandEstimationService {
   }
 
   /**
-   * Cross-references demand with recipes to calculate required grams per supply.
+   * Cross-references demand with recipes to calculate required grams per supply across one or multiple days.
    */
   async calculateRequiredSupplies(
     storeId: string,
-    dayOfWeek: number,
+    daysOfWeek: number | number[],
   ): Promise<Map<string, number>> {
+    const days = Array.isArray(daysOfWeek) ? daysOfWeek : [daysOfWeek];
+
     // Productos activos globalmente
     const allProducts = await this.productRepo.getAll();
     const globallyActiveIds = new Set(allProducts.filter((p) => p.isActive).map((p) => p.id));
@@ -69,20 +71,22 @@ export class DemandEstimationService {
     // Productos habilitados para esta sede
     const assignedIds = new Set(await this.productStoreAssignmentRepo.getProductIdsByStore(storeId));
 
-    const demand = await this.demandRepo.getByStoreAndDay(storeId, dayOfWeek);
     const supplyGrams = new Map<string, number>();
 
-    for (const d of demand) {
-      // Saltar si el producto está inactivo globalmente o no asignado a esta sede
-      if (!globallyActiveIds.has(d.productId) || !assignedIds.has(d.productId)) continue;
+    for (const day of days) {
+      const demand = await this.demandRepo.getByStoreAndDay(storeId, day);
+      for (const d of demand) {
+        // Saltar si el producto está inactivo globalmente o no asignado a esta sede
+        if (!globallyActiveIds.has(d.productId) || !assignedIds.has(d.productId)) continue;
 
-      const recipe = await this.recipeRepo.getByProductId(d.productId);
-      if (!recipe) continue;
+        const recipe = await this.recipeRepo.getByProductId(d.productId);
+        if (!recipe) continue;
 
-      for (const ingredient of recipe.ingredients) {
-        const grams = ingredient.gramsPerPortion * d.estimatedPortions;
-        const current = supplyGrams.get(ingredient.supplyId) ?? 0;
-        supplyGrams.set(ingredient.supplyId, current + grams);
+        for (const ingredient of recipe.ingredients) {
+          const grams = ingredient.gramsPerPortion * d.estimatedPortions;
+          const current = supplyGrams.get(ingredient.supplyId) ?? 0;
+          supplyGrams.set(ingredient.supplyId, current + grams);
+        }
       }
     }
 
@@ -91,14 +95,14 @@ export class DemandEstimationService {
 
   /**
    * Generates a suggested transfer: what a destination store needs based on
-   * demand estimates and stock minimums minus current inventory.
+   * demand estimates across one or multiple days and stock minimums minus current inventory.
    * Returns editable requirements that the shipment screen turns into transfer items.
    */
   async generateSuggestedTransfer(
     toStoreId: string,
-    dayOfWeek: number,
+    daysOfWeek: number | number[],
   ): Promise<SupplyRequirement[]> {
-    const requiredMap = await this.calculateRequiredSupplies(toStoreId, dayOfWeek);
+    const requiredMap = await this.calculateRequiredSupplies(toStoreId, daysOfWeek);
     const supplies = await this.supplyRepo.getAll();
     const supplyMap = new Map(supplies.map((s) => [s.id, s]));
 
