@@ -159,8 +159,20 @@ export default function HistorialScreen() {
       !!item.packagingSupplyId &&
       ((item.packagingTotal ?? 0) > 0 || item.items.some((si) => (si.packagingQuantity ?? 0) > 0));
 
+    const isCreditSale = item.isCredit || (!item.isPaid && !!item.debtorName) || !!item.debtorName;
+
     return (
-      <Card style={styles.saleCard} mode="elevated">
+      <Card
+        style={[
+          styles.saleCard,
+          isCreditSale && {
+            borderLeftWidth: 6,
+            borderLeftColor: item.isPaid ? '#FFB74D' : '#E63946',
+            backgroundColor: item.isPaid ? '#1E1B18' : '#221616',
+          },
+        ]}
+        mode="elevated"
+      >
         <Card.Content>
           {/* Header: fecha + chips */}
           <View style={styles.saleHeader}>
@@ -168,6 +180,16 @@ export default function HistorialScreen() {
               {formatDateTime(item.timestamp)}
             </Text>
             <View style={styles.chipsRow}>
+              {isCreditSale && (
+                <Chip
+                  icon="account-clock"
+                  compact
+                  textStyle={{ fontSize: 11, fontWeight: 'bold', color: item.isPaid ? '#FFB74D' : '#FF8A80' }}
+                  style={{ backgroundColor: item.isPaid ? '#4E2C14' : '#5C1D1D' }}
+                >
+                  {item.isPaid ? `FIADO (PAGADO)` : `FIADO: ${item.debtorName || 'Deudor'}`}
+                </Chip>
+              )}
               <Chip
                 icon={PAYMENT_ICONS[item.paymentMethod]}
                 compact
@@ -232,6 +254,25 @@ export default function HistorialScreen() {
             })}
           </View>
 
+          {/* Credit / Debtor Info Banner */}
+          {(isCreditSale || item.debtorName) && (
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: item.isPaid ? '#2E2215' : '#3A1414',
+              borderRadius: 8,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              marginTop: 8,
+              borderWidth: 1,
+              borderColor: item.isPaid ? '#5D4037' : '#7A1C1C',
+            }}>
+              <Text variant="labelSmall" style={{ color: item.isPaid ? '#FFB74D' : '#FF8A80', fontWeight: 'bold' }}>
+                🚩 VENTA FIADA {item.debtorType ? `(${item.debtorType})` : ''}: {item.debtorName || 'Sin deudor especificado'} {item.isPaid ? '· [PAGADO]' : '· [PENDIENTE DE PAGO]'}
+              </Text>
+            </View>
+          )}
+
           {/* Notes */}
           {(item.customerNote || item.observations) ? (
             <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontStyle: 'italic', marginTop: 4 }} numberOfLines={2}>
@@ -284,20 +325,20 @@ export default function HistorialScreen() {
             </View>
             <View style={styles.actionButtons}>
               {item.isPaid ? (
-                <Chip compact icon="check-circle" textStyle={{ fontSize: 11, color: '#66BB6A' }} style={{ backgroundColor: '#1C3D2A' }}>
-                  Pagado
+                <Chip compact icon="check-circle" textStyle={{ fontSize: 11, color: isCreditSale ? '#FFB74D' : '#66BB6A' }} style={{ backgroundColor: isCreditSale ? '#3E2723' : '#1C3D2A' }}>
+                  {isCreditSale ? 'Fiado Pagado' : 'Pagado'}
                 </Chip>
               ) : (
                 <Button
                   mode="contained"
                   compact
                   onPress={() => handleMarkAsPaid(item)}
-                  buttonColor="#388E3C"
+                  buttonColor={isCreditSale ? '#D32F2F' : '#388E3C'}
                   textColor="#FFFFFF"
-                  icon="check"
-                  labelStyle={{ fontSize: 12 }}
+                  icon={isCreditSale ? 'currency-usd' : 'check'}
+                  labelStyle={{ fontSize: 12, fontWeight: isCreditSale ? 'bold' : 'normal' }}
                 >
-                  Ya pago
+                  {isCreditSale ? 'Cobrar Fiado' : 'Ya pago'}
                 </Button>
               )}
               {item.isDispatched ? (
