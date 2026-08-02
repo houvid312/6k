@@ -11,7 +11,7 @@ import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
 import { Transfer } from '../../../src/domain/entities';
-import { TransferStatus } from '../../../src/domain/enums';
+import { TransferStatus, UserRole } from '../../../src/domain/enums';
 
 type ConfirmAction = 'receive' | 'cancel' | 'transit';
 
@@ -57,7 +57,8 @@ const CONFIRM_CONFIG: Record<ConfirmAction, { title: string; message: string; la
 export default function TrasladosScreen() {
   const theme = useTheme();
   const { transferService } = useDI();
-  const { selectedStoreId } = useAppStore();
+  const { selectedStoreId, userRole } = useAppStore();
+  const isRody = userRole === UserRole.RODY;
   const { supplies } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
@@ -91,6 +92,7 @@ export default function TrasladosScreen() {
   }, [loadTransfers]);
 
   const openConfirm = (transfer: Transfer, action: ConfirmAction) => {
+    if (isRody) return;
     setSelectedTransfer(transfer);
     setConfirmAction(action);
   };
@@ -103,7 +105,7 @@ export default function TrasladosScreen() {
   const handleConfirmAction = useCallback(async () => {
     const transferId = selectedTransfer?.id;
     const action = confirmAction;
-    if (!transferId || !action) return;
+    if (!transferId || !action || isRody) return;
 
     setActionLoading(true);
     try {
@@ -125,7 +127,7 @@ export default function TrasladosScreen() {
       setSelectedTransfer(null);
       await loadTransfers();
     }
-  }, [selectedTransfer, confirmAction, transferService, loadTransfers, showSuccess, showError]);
+  }, [selectedTransfer, confirmAction, transferService, loadTransfers, showSuccess, showError, isRody]);
 
   const handleCreateTransfer = useCallback(async () => {
     router.push('/(tabs)/inventario/sugerencia-envio');
@@ -135,26 +137,28 @@ export default function TrasladosScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <View style={styles.header}>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <Button
-            mode="contained"
-            icon="plus"
-            onPress={handleCreateTransfer}
-            style={{ borderRadius: 8, flex: 1 }}
-          >
-            Nuevo Traslado
-          </Button>
-          <Button
-            mode="outlined"
-            icon="calculator"
-            onPress={() => router.push('/(tabs)/inventario/sugerencia-envio')}
-            style={{ borderRadius: 8, flex: 1 }}
-          >
-            Sugerencia
-          </Button>
+      {!isRody && (
+        <View style={styles.header}>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Button
+              mode="contained"
+              icon="plus"
+              onPress={handleCreateTransfer}
+              style={{ borderRadius: 8, flex: 1 }}
+            >
+              Nuevo Traslado
+            </Button>
+            <Button
+              mode="outlined"
+              icon="calculator"
+              onPress={() => router.push('/(tabs)/inventario/sugerencia-envio')}
+              style={{ borderRadius: 8, flex: 1 }}
+            >
+              Sugerencia
+            </Button>
+          </View>
         </View>
-      </View>
+      )}
 
       {loading ? (
         <LoadingIndicator message="Cargando traslados..." />
@@ -167,9 +171,9 @@ export default function TrasladosScreen() {
             <TransferOrderCard
               transfer={item}
               supplyMap={supplyMap}
-              onMarkInTransit={(t) => openConfirm(t, 'transit')}
-              onReceive={(t) => openConfirm(t, 'receive')}
-              onCancel={(t) => openConfirm(t, 'cancel')}
+              onMarkInTransit={isRody ? undefined : (t) => openConfirm(t, 'transit')}
+              onReceive={isRody ? undefined : (t) => openConfirm(t, 'receive')}
+              onCancel={isRody ? undefined : (t) => openConfirm(t, 'cancel')}
             />
           )}
           keyExtractor={(item) => item.id}

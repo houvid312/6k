@@ -9,6 +9,7 @@ import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
+import { UserRole } from '../../../src/domain/enums';
 import { SupplyRequirement } from '../../../src/services/DemandEstimationService';
 import { nowColombia } from '../../../src/utils/dates';
 import { formatCOP } from '../../../src/utils/currency';
@@ -47,7 +48,7 @@ function parseBagCount(value?: string): number {
 export default function SugerenciaEnvioScreen() {
   const theme = useTheme();
   const { demandEstimationService, transferService } = useDI();
-  const { selectedStoreId, stores } = useAppStore();
+  const { selectedStoreId, stores, userRole } = useAppStore();
   const { supplies, refreshMasterData } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
@@ -59,8 +60,12 @@ export default function SugerenciaEnvioScreen() {
   const [calculated, setCalculated] = useState(false);
 
   React.useEffect(() => {
+    if (userRole === UserRole.RODY) {
+      router.replace('/(tabs)/inventario/traslados');
+      return;
+    }
     refreshMasterData();
-  }, [refreshMasterData]);
+  }, [userRole, refreshMasterData]);
 
   const supplyMap = new Map(supplies.map((s) => [s.id, s]));
 
