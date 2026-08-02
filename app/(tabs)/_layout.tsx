@@ -14,8 +14,9 @@ export default function TabLayout() {
   const showTab = (tabName: string) => {
     switch (userRole) {
       case UserRole.GERENTE:
-      case UserRole.RODY:
         return true;
+      case UserRole.RODY:
+        return ['inventario', 'dashboard'].includes(tabName);
       case UserRole.ADMIN_LOCAL:
         return ['ventas', 'inventario', 'cartera', 'rrhh', 'dashboard', 'contabilidad'].includes(tabName);
       case UserRole.PREPARADOR:
