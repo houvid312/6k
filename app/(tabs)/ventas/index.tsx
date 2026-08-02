@@ -531,6 +531,10 @@ export default function VentasScreen() {
   const renderPackagingSelector = useCallback((quantity: number) => {
     if (selectedProduct?.category !== 'PIZZA') return null;
     const selectedPrice = getPackagingSalePrice(selectedPackagingSupplyId);
+    const isBox = selectedPackagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_FAMILIAR
+      || selectedPackagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_MEDIANA;
+    const selectedFormat = formatsByProductId[selectedProductId ?? '']?.find((f) => f.id === selectedFormatId);
+    const calcPkgQty = (selectedFormat?.portions === 1 && isBox) ? 1 : quantity;
 
     return (
       <View style={styles.modalPackagingSection}>
@@ -573,12 +577,12 @@ export default function VentasScreen() {
         </View>
         {selectedPackagingSupplyId && (
           <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 4 }}>
-            {PACKAGING_LABEL_BY_ID[selectedPackagingSupplyId] ?? 'Empaque'} · {quantity} und. · {formatCOP(selectedPrice * quantity)}
+            {PACKAGING_LABEL_BY_ID[selectedPackagingSupplyId] ?? 'Empaque'} · {calcPkgQty} und. · {formatCOP(selectedPrice * calcPkgQty)}
           </Text>
         )}
       </View>
     );
-  }, [getPackagingSalePrice, selectedPackagingSupplyId, selectedProduct?.category, theme.colors.onSurfaceVariant, theme.colors.primary, theme.colors.primaryContainer, theme.colors.surfaceVariant]);
+  }, [formatsByProductId, getPackagingSalePrice, selectedFormatId, selectedPackagingSupplyId, selectedProduct?.category, selectedProductId, theme.colors.onSurfaceVariant, theme.colors.primary, theme.colors.primaryContainer, theme.colors.surfaceVariant]);
 
   const handleProductSelect = useCallback((productId: string) => {
     const product = products.find((p) => p.id === productId);
@@ -649,6 +653,10 @@ export default function VentasScreen() {
     const format = formatsByProductId[selectedProduct.id]?.find((f) => f.id === selectedFormatId);
     if (!format) return;
 
+    const isBox = selectedPackagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_FAMILIAR
+      || selectedPackagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_MEDIANA;
+    const pkgQty = (format.portions === 1 && isBox) ? 1 : modalQuantity;
+
     addToCart({
       productId: selectedProduct.id,
       productName: selectedProduct.name,
@@ -661,6 +669,7 @@ export default function VentasScreen() {
       packagingSupplyId: selectedPackagingSupplyId,
       packagingLabel: selectedPackagingSupplyId ? PACKAGING_LABEL_BY_ID[selectedPackagingSupplyId] : undefined,
       packagingUnitPrice: getPackagingSalePrice(selectedPackagingSupplyId),
+      packagingQuantity: selectedPackagingSupplyId ? pkgQty : 0,
     });
     setSizeModalVisible(false);
     setSelectedProductId(null);

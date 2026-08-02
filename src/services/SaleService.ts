@@ -1,5 +1,5 @@
 import { Recipe, Sale, SaleItem, Supply } from '../domain/entities';
-import { PaymentMethod } from '../domain/enums';
+import { PaymentMethod, PACKAGING_SUPPLY_IDS } from '../domain/enums';
 import { ISaleRepository, DailySummary, IInventoryRepository, IRecipeRepository, ISupplyRepository, IProductRepository } from '../domain/interfaces/repositories';
 
 export interface CreateSaleItemAdditionInput {
@@ -87,7 +87,10 @@ export class SaleService {
       const isPizza = !product || product.category === 'PIZZA';
       const portions = isPizza ? item.portionsPerUnit * item.quantity : 0;
       const additionsTotal = (item.additions ?? []).reduce((s, a) => s + a.price * a.quantity, 0);
-      const packagingQuantity = item.packagingSupplyId ? (item.packagingQuantity ?? item.quantity) : 0;
+      const isBox = item.packagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_FAMILIAR
+        || item.packagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_MEDIANA;
+      const defaultPkgQty = (item.portionsPerUnit === 1 && isBox) ? 1 : item.quantity;
+      const packagingQuantity = item.packagingSupplyId ? (item.packagingQuantity ?? defaultPkgQty) : 0;
       const packagingUnitPrice = item.packagingUnitPrice ?? 0;
       const packagingTotal = packagingUnitPrice * packagingQuantity;
       const subtotal = item.unitPrice * item.quantity + additionsTotal + packagingTotal;
