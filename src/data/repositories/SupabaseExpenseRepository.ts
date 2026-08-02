@@ -2,6 +2,7 @@ import { supabase } from '../../lib/supabase';
 import { Expense } from '../../domain/entities';
 import { IExpenseRepository } from '../../domain/interfaces/repositories';
 import { PaymentMethod } from '../../domain/enums';
+import { colombiaDateRangeToUtc } from '../../utils/dates';
 
 // --- Row type ---
 
@@ -106,12 +107,15 @@ export class SupabaseExpenseRepository implements IExpenseRepository {
     from: string,
     to: string,
   ): Promise<Expense[]> {
+    const cleanFrom = from.slice(0, 10);
+    const cleanTo = to.slice(0, 10);
+    const { fromUtc, toUtc } = colombiaDateRangeToUtc(cleanFrom, cleanTo);
+
     const { data, error } = await supabase
       .from('expenses')
       .select('*')
       .eq('store_id', storeId)
-      .gte('date', from)
-      .lte('date', to)
+      .or(`and(date.gte.${fromUtc},date.lte.${toUtc}),and(date.gte.${cleanFrom},date.lte.${cleanTo}T23:59:59.999),and(date.gte.${cleanFrom},date.lte.${cleanTo})`)
       .order('date', { ascending: false });
     if (error) throw error;
     return (data as ExpenseRow[]).map(toEntity);

@@ -8,6 +8,7 @@ import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { DenominationCounter } from '../../../src/components/ventas/DenominationCounter';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
 import { useCashClosingStore } from '../../../src/stores/useCashClosingStore';
 import { formatCOP } from '../../../src/utils/currency';
@@ -27,6 +28,7 @@ export default function CierreCajaScreen() {
   const activeDate = params.date || todayColombia();
   const { cashClosingService, expenseRepo } = useDI();
   const { selectedStoreId, userRole } = useAppStore();
+  const { workers } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
   const {
     denominations,
@@ -63,14 +65,16 @@ export default function CierreCajaScreen() {
         setExistingClosing(existing);
         setTotalCredit(summary.totalCreditAmount ?? 0);
 
-        // Auto-load expenses from activeDate (Compra Turno, etc.)
+        // Auto-load expenses from activeDate (Compra Turno, Adelantos, etc.)
         let totalExpenses = 0;
         try {
-          const dbExpenses = await expenseRepo.getByDateRange(selectedStoreId, activeDate, activeDate + 'T23:59:59');
+          const dbExpenses = await expenseRepo.getByDateRange(selectedStoreId, activeDate, activeDate);
           setDayExpenses(dbExpenses);
           const cashExpenses = dbExpenses.filter(e => e.paymentMethod === PaymentMethod.EFECTIVO);
           totalExpenses = cashExpenses.reduce((sum, e) => sum + e.amount, 0);
-        } catch { /* ignore */ }
+        } catch (err) {
+          console.error('Error cargando egresos:', err);
+        }
 
         // Auto-load opening base
         try {
@@ -85,7 +89,7 @@ export default function CierreCajaScreen() {
             setDenomination(key as keyof CashClosing['denominations'], count);
           }
           setBankTotal(shouldRecalculateDraft ? summary.totalBankAmount : existing.bankTotal);
-          setExpenses(shouldRecalculateDraft ? totalExpenses : existing.expenses);
+          setExpenses(totalExpenses);
           setExpectedTotal(shouldRecalculateDraft ? summary.totalAmount : existing.expectedTotal);
         } else {
           setExpectedTotal(summary.totalAmount);
@@ -410,6 +414,72 @@ export default function CierreCajaScreen() {
               {formatCOP(discrepancy)}
             </Text>
           </View>
+        </Card.Content>
+      </Card>
+
+      {/* Salidas de Caja y Egresos del Día (Desglose Itemizado) */}
+      <Card style={styles.card} mode="elevated">
+        <Card.Content>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>
+              💸 Salidas de Caja y Egresos ({dayExpenses.length})
+            </Text>
+            <Chip compact textStyle={{ fontSize: 11, fontWeight: 'bold' }} style={{ backgroundColor: '#3E1F1F' }}>
+              <Text style={{ color: '#FF8A80' }}>Total: {formatCOP(dayExpenses.reduce((s, e) => s + e.amount, 0))}</Text>
+            </Chip>
+          </View>
+
+          {dayExpenses.length === 0 ? (
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontStyle: 'italic', textAlign: 'center', marginVertical: 8 }}>
+              No hay salidas de caja o egresos registrados para esta jornada.
+            </Text>
+          ) : (
+            dayExpenses.map((e) => {
+              const isCash = e.paymentMethod === PaymentMethod.EFECTIVO;
+              const isAdvance = e.category === 'Adelanto';
+              const worker = workers.find((w) => w.id === e.workerId);
+              const workerName = worker ? worker.name : null;
+              return (
+                <View
+                  key={e.id}
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    paddingVertical: 8,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                    borderBottomColor: theme.colors.outlineVariant,
+                  }}
+                >
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
+                      {isAdvance ? '👤' : '💸'} {e.description || e.category}
+                    </Text>
+                    {isAdvance && workerName && (
+                      <Text variant="labelSmall" style={{ color: '#FFB74D', marginTop: 2, fontWeight: 'bold' }}>
+                        Trabajador: {workerName}
+                      </Text>
+                    )}
+                    <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                      <Chip
+                        compact
+                        textStyle={{ fontSize: 10, color: isCash ? '#FF8A80' : '#64B5F6' }}
+                        style={{ backgroundColor: isCash ? '#3E1F1F' : '#1A3A5C' }}
+                      >
+                        {isCash ? '💵 Efectivo (Descuenta Caja)' : '💳 Transferencia (Banco)'}
+                      </Chip>
+                      <Chip compact textStyle={{ fontSize: 10, color: '#AAA' }} style={{ backgroundColor: '#2A2A2A' }}>
+                        {e.category}
+                      </Chip>
+                    </View>
+                  </View>
+                  <Text variant="titleSmall" style={{ fontWeight: 'bold', color: isCash ? '#E63946' : '#FFB74D' }}>
+                    {formatCOP(e.amount)}
+                  </Text>
+                </View>
+              );
+            })
+          )}
         </Card.Content>
       </Card>
 
