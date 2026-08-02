@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { FlatList, View, StyleSheet } from 'react-native';
-import { Button, Card, Text, Chip, Divider, Snackbar, useTheme, Searchbar } from 'react-native-paper';
+import { Button, Card, Text, Chip, Divider, Snackbar, useTheme, Searchbar, Portal, Dialog, SegmentedButtons } from 'react-native-paper';
 import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { EmptyState } from '../../../src/components/common/EmptyState';
@@ -9,7 +9,7 @@ import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { Sale } from '../../../src/domain/entities';
-import { PaymentMethod, PACKAGING_LABEL_BY_ID } from '../../../src/domain/enums';
+import { PaymentMethod, UserRole, PACKAGING_LABEL_BY_ID } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate, formatDateTime, toISODate, todayColombia } from '../../../src/utils/dates';
 import { useSaleStore } from '../../../src/stores/useSaleStore';
@@ -24,7 +24,8 @@ const PAYMENT_ICONS: Record<PaymentMethod, string> = {
 export default function HistorialScreen() {
   const theme = useTheme();
   const { saleService } = useDI();
-  const { selectedStoreId } = useAppStore();
+  const { selectedStoreId, userRole } = useAppStore();
+  const isGlobalRole = userRole === UserRole.GERENTE || userRole === UserRole.RODY;
   const { products } = useMasterDataStore();
   const { salesDate } = useSaleStore();
 
@@ -32,6 +33,9 @@ export default function HistorialScreen() {
 
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editingPaymentSale, setEditingPaymentSale] = useState<Sale | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>(PaymentMethod.EFECTIVO);
+  const [savingPaymentMethod, setSavingPaymentMethod] = useState(false);
   const [filter, setFilter] = useState<'jornada' | 'hoy' | 'ayer' | 'semana' | 'mes'>(
     isRetroactive ? 'jornada' : 'hoy'
   );
@@ -111,6 +115,37 @@ export default function HistorialScreen() {
       setSnackbar({ visible: true, success: false, message: 'Error al marcar como despachada' });
     }
   }, [saleService]);
+
+  const handleOpenEditPayment = (sale: Sale) => {
+    setEditingPaymentSale(sale);
+    setSelectedPaymentMethod(sale.paymentMethod);
+  };
+
+  const handleSavePaymentMethod = async () => {
+    if (!editingPaymentSale) return;
+    setSavingPaymentMethod(true);
+    try {
+      await saleService.updatePaymentMethod(editingPaymentSale.id, selectedPaymentMethod);
+      setSales((prev) =>
+        prev.map((s) => (s.id === editingPaymentSale.id ? { ...s, paymentMethod: selectedPaymentMethod } : s))
+      );
+      setSnackbar({
+        visible: true,
+        success: true,
+        message: `Método de pago actualizado a ${selectedPaymentMethod}`,
+      });
+      setEditingPaymentSale(null);
+    } catch (err) {
+      console.error('Error al actualizar método de pago:', err);
+      setSnackbar({
+        visible: true,
+        success: false,
+        message: 'Error al cambiar el método de pago',
+      });
+    } finally {
+      setSavingPaymentMethod(false);
+    }
+  };
 
   const getProductName = (productId: string) =>
     products.find((p) => p.id === productId)?.name ?? productId;
@@ -194,8 +229,9 @@ export default function HistorialScreen() {
                 icon={PAYMENT_ICONS[item.paymentMethod]}
                 compact
                 textStyle={{ fontSize: 11 }}
+                onPress={isGlobalRole ? () => handleOpenEditPayment(item) : undefined}
               >
-                {item.paymentMethod}
+                {item.paymentMethod} {isGlobalRole ? '✏️' : ''}
               </Chip>
               {totalPackaging > 0 && (
                 <Chip
@@ -411,6 +447,46 @@ export default function HistorialScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      <Portal>
+        <Dialog
+          visible={!!editingPaymentSale}
+          onDismiss={() => setEditingPaymentSale(null)}
+          style={{ backgroundColor: '#1E1E1E' }}
+        >
+          <Dialog.Title style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
+            Editar Método de Pago
+          </Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium" style={{ color: '#999', marginBottom: 16 }}>
+              Corrige el método de pago para esta venta de {formatCOP(editingPaymentSale?.totalAmount ?? 0)}:
+            </Text>
+            <SegmentedButtons
+              value={selectedPaymentMethod}
+              onValueChange={(v) => setSelectedPaymentMethod(v as PaymentMethod)}
+              buttons={[
+                { value: PaymentMethod.EFECTIVO, label: 'Efectivo' },
+                { value: PaymentMethod.TRANSFERENCIA, label: 'Transferencia' },
+                { value: PaymentMethod.MIXTO, label: 'Mixto' },
+              ]}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setEditingPaymentSale(null)} textColor="#999">
+              Cancelar
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor="#E63946"
+              onPress={handleSavePaymentMethod}
+              loading={savingPaymentMethod}
+              disabled={savingPaymentMethod}
+            >
+              Guardar Cambio
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
 
       <Snackbar
         visible={snackbar.visible}
