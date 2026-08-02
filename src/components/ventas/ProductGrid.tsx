@@ -47,6 +47,8 @@ interface Props {
   availablePortions?: Record<string, number>;
   soldPortions?: Record<string, number>;
   soldPackaging?: Record<string, number>;
+  soldAdditionsCount?: number;
+  soldDiamondAdditionsCount?: number;
   totalSalesToday?: number;
 }
 
@@ -57,7 +59,17 @@ function getPortionColor(count: number): string {
   return '#388E3C';
 }
 
-export function ProductGrid({ products, onSelect, selectedId, availablePortions, soldPortions, soldPackaging, totalSalesToday }: Props) {
+export function ProductGrid({
+  products,
+  onSelect,
+  selectedId,
+  availablePortions,
+  soldPortions,
+  soldPackaging,
+  soldAdditionsCount,
+  soldDiamondAdditionsCount,
+  totalSalesToday,
+}: Props) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const [gridWidth, setGridWidth] = useState(0);
@@ -174,7 +186,7 @@ export function ProductGrid({ products, onSelect, selectedId, availablePortions,
       </View>
 
       {/* Total sold summary bar */}
-      {(soldPortions || soldPackaging) && (totalSoldPizzaPortions > 0 || totalSoldBeverages > 0 || packagingSummary.length > 0) && (
+      {(soldPortions || soldPackaging || soldAdditionsCount || soldDiamondAdditionsCount) && (totalSoldPizzaPortions > 0 || totalSoldBeverages > 0 || packagingSummary.length > 0 || (soldAdditionsCount ?? 0) > 0 || (soldDiamondAdditionsCount ?? 0) > 0) && (
         <View style={[styles.totalSoldRow, { backgroundColor: theme.colors.surfaceVariant, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }]}>
           <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             {totalSoldPizzaPortions > 0 && (
@@ -185,6 +197,16 @@ export function ProductGrid({ products, onSelect, selectedId, availablePortions,
             {totalSoldBeverages > 0 && (
               <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
                 🥤 Bebidas: <Text style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>{totalSoldBeverages}</Text>
+              </Text>
+            )}
+            {soldAdditionsCount !== undefined && soldAdditionsCount > 0 && (
+              <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
+                ➕ Adiciones: <Text style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>{soldAdditionsCount}</Text>
+              </Text>
+            )}
+            {soldDiamondAdditionsCount !== undefined && soldDiamondAdditionsCount > 0 && (
+              <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
+                💎 Ingr. Diamante: <Text style={{ fontWeight: 'bold', color: '#FFB74D' }}>{soldDiamondAdditionsCount}</Text>
               </Text>
             )}
             {packagingSummary.map((pkg) => (

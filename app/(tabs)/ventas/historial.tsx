@@ -119,10 +119,13 @@ export default function HistorialScreen() {
     let totalPizzaPortions = 0;
     let totalBeverages = 0;
     let totalPackaging = 0;
+    let totalAdditions = 0;
+    let totalDiamondAdditions = 0;
 
     for (const si of item.items) {
       const product = products.find((p) => p.id === si.productId);
       const cat = product?.category;
+      const isDiamondItem = (product?.name ?? '').toLowerCase().includes('diamante') || (si.formatName ?? '').toLowerCase().includes('diamante');
 
       if (cat === 'BEBIDA') {
         totalBeverages += si.quantity;
@@ -131,6 +134,15 @@ export default function HistorialScreen() {
       } else {
         if (si.portions > 0) {
           totalPizzaPortions += si.portions;
+        }
+      }
+
+      if (si.additions && si.additions.length > 0) {
+        const addCount = si.additions.reduce((s, a) => s + a.quantity, 0);
+        if (isDiamondItem) {
+          totalDiamondAdditions += addCount;
+        } else {
+          totalAdditions += addCount;
         }
       }
 
@@ -181,6 +193,7 @@ export default function HistorialScreen() {
           {/* Items detail */}
           <View style={styles.itemsList}>
             {item.items.map((si) => {
+              const isDiamondItem = getProductName(si.productId).toLowerCase().includes('diamante') || (si.formatName ?? '').toLowerCase().includes('diamante');
               const hasSiPkg =
                 !!si.packagingSupplyId &&
                 ((si.packagingQuantity ?? 0) > 0 || (si.packagingUnitPrice ?? 0) > 0 || (si.packagingTotal ?? 0) > 0);
@@ -200,8 +213,17 @@ export default function HistorialScreen() {
                       {formatCOP(si.subtotal)}
                     </Text>
                   </View>
+                  {si.additions && si.additions.length > 0 && (
+                    <View style={{ marginLeft: 8, marginTop: 2 }}>
+                      {si.additions.map((a) => (
+                        <Text key={a.additionCatalogId || a.name} variant="labelSmall" style={{ color: isDiamondItem ? '#FFB74D' : theme.colors.onSurfaceVariant, fontSize: 10 }}>
+                          {isDiamondItem ? '💎' : '➕'} {a.name}{a.quantity > 1 ? ` (x${a.quantity})` : ''} (+{formatCOP(a.price * a.quantity)})
+                        </Text>
+                      ))}
+                    </View>
+                  )}
                   {hasSiPkg && (
-                    <Text variant="labelSmall" style={{ color: '#FFB74D', fontSize: 10, marginLeft: 8 }}>
+                    <Text variant="labelSmall" style={{ color: '#FFB74D', fontSize: 10, marginLeft: 8, marginTop: 2 }}>
                       📦 Empaque: {si.packagingLabel ?? PACKAGING_LABEL_BY_ID[si.packagingSupplyId!] ?? 'Caja'} (x{si.packagingQuantity || 1})
                     </Text>
                   )}
@@ -241,6 +263,16 @@ export default function HistorialScreen() {
                 {totalBeverages > 0 && (
                   <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
                     🥤 {totalBeverages} beb.
+                  </Text>
+                )}
+                {totalAdditions > 0 && (
+                  <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                    ➕ {totalAdditions} adic.
+                  </Text>
+                )}
+                {totalDiamondAdditions > 0 && (
+                  <Text variant="labelSmall" style={{ color: '#FFB74D', fontWeight: '600' }}>
+                    💎 {totalDiamondAdditions} diam.
                   </Text>
                 )}
                 {totalPackaging > 0 && (

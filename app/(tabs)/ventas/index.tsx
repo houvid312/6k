@@ -169,6 +169,8 @@ export default function VentasScreen() {
   // Porciones vendidas hoy por producto
   const [soldPortions, setSoldPortions] = useState<Record<string, number>>({});
   const [soldPackaging, setSoldPackaging] = useState<Record<string, number>>({});
+  const [soldAdditionsCount, setSoldAdditionsCount] = useState(0);
+  const [soldDiamondAdditionsCount, setSoldDiamondAdditionsCount] = useState(0);
   const [totalSalesToday, setTotalSalesToday] = useState(0);
 
   // Cargar porciones del día desde BD
@@ -198,13 +200,15 @@ export default function VentasScreen() {
     // 1. Porciones, bebidas y empaques por item
     const { data: itemData } = await supabase
       .from('sale_items')
-      .select('product_id, portions, quantity, packaging_supply_id, packaging_quantity, packaging_total, sales!inner(id, store_id, created_at)')
+      .select('id, product_id, format_name, portions, quantity, packaging_supply_id, packaging_quantity, packaging_total, sales!inner(id, store_id, created_at)')
       .eq('sales.store_id', selectedStoreId)
       .gte('sales.created_at', startOfDay)
       .lte('sales.created_at', endOfDay);
 
     const portionMap: Record<string, number> = {};
     const packagingMap: Record<string, number> = {};
+    let normalAddCount = 0;
+    let diamondAddCount = 0;
 
     if (itemData) {
       for (const row of itemData) {
@@ -215,7 +219,31 @@ export default function VentasScreen() {
           packagingMap[row.packaging_supply_id] = (packagingMap[row.packaging_supply_id] ?? 0) + qty;
         }
       }
+
+      const itemIds = itemData.map((it) => it.id);
+      if (itemIds.length > 0) {
+        const { data: addData } = await supabase
+          .from('sale_item_additions')
+          .select('sale_item_id, quantity')
+          .in('sale_item_id', itemIds);
+
+        if (addData) {
+          for (const add of addData) {
+            const itemRow = itemData.find((it) => it.id === add.sale_item_id);
+            const product = products.find((p) => p.id === itemRow?.product_id);
+            const isDiamond = (product?.name ?? '').toLowerCase().includes('diamante') || (itemRow?.format_name ?? '').toLowerCase().includes('diamante');
+            if (isDiamond) {
+              diamondAddCount += add.quantity;
+            } else {
+              normalAddCount += add.quantity;
+            }
+          }
+        }
+      }
     }
+
+    setSoldAdditionsCount(normalAddCount);
+    setSoldDiamondAdditionsCount(diamondAddCount);
 
     // 2. Ventas totales en dinero y empaques a nivel de orden
     const { data: salesData } = await supabase
@@ -241,7 +269,7 @@ export default function VentasScreen() {
 
     setSoldPortions(portionMap);
     setSoldPackaging(packagingMap);
-  }, [selectedStoreId, salesDate]);
+  }, [selectedStoreId, salesDate, products]);
 
   useEffect(() => {
     loadSoldPortions();
@@ -1683,6 +1711,8 @@ export default function VentasScreen() {
             availablePortions={portionsSet ? availablePortions : undefined}
             soldPortions={Object.keys(soldPortions).length > 0 ? soldPortions : undefined}
             soldPackaging={Object.keys(soldPackaging).length > 0 ? soldPackaging : undefined}
+            soldAdditionsCount={soldAdditionsCount}
+            soldDiamondAdditionsCount={soldDiamondAdditionsCount}
             totalSalesToday={totalSalesToday}
           />
         </View>

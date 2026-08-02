@@ -90,15 +90,24 @@ export function CartSummary({ items, onRemove, onUpdateQuantity, onUpdateNote, p
             {/* Additions list */}
             {item.additions.length > 0 && (
               <View style={styles.additionsList}>
-                {item.additions.map((a) => (
-                  <Text
-                    key={a.additionCatalogId}
-                    variant="labelSmall"
-                    style={{ color: theme.colors.onSurfaceVariant, marginLeft: 32 }}
-                  >
-                    + {a.name}{a.quantity > 1 ? ` x${a.quantity}` : ''} ({formatCOP(a.price * a.quantity)})
-                  </Text>
-                ))}
+                {item.additions.map((a) => {
+                  const isDiamondItem =
+                    item.productName.toLowerCase().includes('diamante') ||
+                    item.formatName.toLowerCase().includes('diamante');
+                  return (
+                    <Text
+                      key={a.additionCatalogId}
+                      variant="labelSmall"
+                      style={{
+                        color: isDiamondItem ? '#FFB74D' : theme.colors.onSurfaceVariant,
+                        marginLeft: 32,
+                        fontWeight: isDiamondItem ? '600' : 'normal',
+                      }}
+                    >
+                      {isDiamondItem ? '💎' : '➕'} {a.name}{a.quantity > 1 ? ` (x${a.quantity})` : ''} (+{formatCOP(a.price * a.quantity)})
+                    </Text>
+                  );
+                })}
               </View>
             )}
 
