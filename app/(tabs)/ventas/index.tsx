@@ -495,18 +495,23 @@ export default function VentasScreen() {
   const selectedProduct = products.find((p) => p.id === selectedProductId);
   const getPackagingSalePrice = useCallback((packagingSupplyId?: string) => {
     if (!packagingSupplyId) return 0;
-    const supply = supplies.find((s) => s.id === packagingSupplyId);
-    if (supply && supply.salePriceCop > 0) return supply.salePriceCop;
 
     const label = (PACKAGING_LABEL_BY_ID[packagingSupplyId] ?? '').toLowerCase();
-    const matchingProduct = cachedProducts.find((p) => (
-      p.id === packagingSupplyId || (p.category === 'OTRO' && label && p.name.toLowerCase().includes(label))
+
+    // 1. Prioridad: Precio del Formato de Producto configurado en Productos (Categoría OTRO)
+    const matchingProduct = cachedProducts.find((p) => p.category === 'OTRO' && (
+      p.id === packagingSupplyId || (label && p.name.toLowerCase().includes(label))
     ));
     if (matchingProduct) {
       const formats = formatsByProductId[matchingProduct.id]?.filter((f) => f.isActive) ?? [];
       if (formats.length > 0 && formats[0].price > 0) return formats[0].price;
     }
 
+    // 2. Prioridad: Precio de venta registrado en el Insumo
+    const supply = supplies.find((s) => s.id === packagingSupplyId);
+    if (supply && supply.salePriceCop > 0) return supply.salePriceCop;
+
+    // 3. Respaldo estático
     return PACKAGING_SALE_PRICE_COP_BY_ID[packagingSupplyId] ?? 0;
   }, [cachedProducts, formatsByProductId, supplies]);
 
@@ -1736,7 +1741,10 @@ export default function VentasScreen() {
             const fmt = formatsByProductId[selectedProduct?.id ?? '']?.find((f) => f.id === selectedFormatId);
             if (!fmt) return null;
             const additionsTotal = selectedAdditions.reduce((s, a) => s + a.price * a.quantity, 0);
-            const packagingTotal = getPackagingSalePrice(selectedPackagingSupplyId) * (selectedPackagingSupplyId ? modalQuantity : 0);
+            const isBox = selectedPackagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_FAMILIAR
+              || selectedPackagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_MEDIANA;
+            const modalPkgQty = (fmt.portions === 1 && isBox) ? 1 : modalQuantity;
+            const packagingTotal = getPackagingSalePrice(selectedPackagingSupplyId) * (selectedPackagingSupplyId ? modalPkgQty : 0);
             return (
             <View style={styles.sizeInfo}>
               <Text variant="bodyLarge" style={{ fontWeight: '600' }}>
