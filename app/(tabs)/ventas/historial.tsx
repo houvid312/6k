@@ -123,14 +123,18 @@ export default function HistorialScreen() {
         }
       }
 
-      if (si.packagingSupplyId) {
-        totalPackaging += si.packagingQuantity || 1;
+      const hasPackagingAttached =
+        !!si.packagingSupplyId &&
+        ((si.packagingQuantity ?? 0) > 0 || (si.packagingUnitPrice ?? 0) > 0 || (si.packagingTotal ?? 0) > 0);
+
+      if (hasPackagingAttached) {
+        totalPackaging += si.packagingQuantity && si.packagingQuantity > 0 ? si.packagingQuantity : 1;
       }
     }
 
-    if (item.packagingSupplyId && !item.items.some((si) => si.packagingSupplyId)) {
-      totalPackaging += 1;
-    }
+    const hasOrderPackaging =
+      !!item.packagingSupplyId &&
+      ((item.packagingTotal ?? 0) > 0 || item.items.some((si) => (si.packagingQuantity ?? 0) > 0));
 
     return (
       <Card style={styles.saleCard} mode="elevated">
@@ -155,7 +159,7 @@ export default function HistorialScreen() {
                   textStyle={{ fontSize: 11, color: '#FFB74D' }}
                   style={{ backgroundColor: '#3E2723' }}
                 >
-                  {item.packagingSupplyId
+                  {hasOrderPackaging && item.packagingSupplyId
                     ? (PACKAGING_LABEL_BY_ID[item.packagingSupplyId] ?? 'Con Empaque')
                     : `${totalPackaging} empaque(s)`}
                 </Chip>
@@ -165,29 +169,34 @@ export default function HistorialScreen() {
 
           {/* Items detail */}
           <View style={styles.itemsList}>
-            {item.items.map((si) => (
-              <View key={si.id} style={{ marginBottom: 4 }}>
-                <View style={styles.itemRow}>
-                  <Text variant="bodySmall" style={{ flex: 1, color: theme.colors.onSurface }}>
-                    {getProductName(si.productId)}
-                  </Text>
-                  <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, minWidth: 40 }}>
-                    {si.formatName}
-                  </Text>
-                  <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, minWidth: 20, textAlign: 'center' }}>
-                    x{si.quantity}
-                  </Text>
-                  <Text variant="bodySmall" style={{ fontWeight: '600', minWidth: 65, textAlign: 'right' }}>
-                    {formatCOP(si.subtotal)}
-                  </Text>
+            {item.items.map((si) => {
+              const hasSiPkg =
+                !!si.packagingSupplyId &&
+                ((si.packagingQuantity ?? 0) > 0 || (si.packagingUnitPrice ?? 0) > 0 || (si.packagingTotal ?? 0) > 0);
+              return (
+                <View key={si.id} style={{ marginBottom: 4 }}>
+                  <View style={styles.itemRow}>
+                    <Text variant="bodySmall" style={{ flex: 1, color: theme.colors.onSurface }}>
+                      {getProductName(si.productId)}
+                    </Text>
+                    <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, minWidth: 40 }}>
+                      {si.formatName}
+                    </Text>
+                    <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, minWidth: 20, textAlign: 'center' }}>
+                      x{si.quantity}
+                    </Text>
+                    <Text variant="bodySmall" style={{ fontWeight: '600', minWidth: 65, textAlign: 'right' }}>
+                      {formatCOP(si.subtotal)}
+                    </Text>
+                  </View>
+                  {hasSiPkg && (
+                    <Text variant="labelSmall" style={{ color: '#FFB74D', fontSize: 10, marginLeft: 8 }}>
+                      📦 Empaque: {si.packagingLabel ?? PACKAGING_LABEL_BY_ID[si.packagingSupplyId!] ?? 'Caja'} (x{si.packagingQuantity || 1})
+                    </Text>
+                  )}
                 </View>
-                {si.packagingSupplyId && (
-                  <Text variant="labelSmall" style={{ color: '#FFB74D', fontSize: 10, marginLeft: 8 }}>
-                    📦 Empaque: {si.packagingLabel ?? PACKAGING_LABEL_BY_ID[si.packagingSupplyId] ?? 'Caja'} (x{si.packagingQuantity || 1})
-                  </Text>
-                )}
-              </View>
-            ))}
+              );
+            })}
           </View>
 
           {/* Notes */}
