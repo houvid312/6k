@@ -167,7 +167,7 @@ export class SupabaseSaleRepository implements ISaleRepository {
 
     let query = supabase
       .from('sales')
-      .select('*, workers:workers!sales_worker_id_fkey(name)')
+      .select('*, workers(name)')
       .gte('created_at', fromUtc)
       .lte('created_at', toUtc)
       .order('created_at', { ascending: false });
@@ -186,7 +186,7 @@ export class SupabaseSaleRepository implements ISaleRepository {
     // Get sales that are not fully resolved (unpaid OR not dispatched)
     const { data, error } = await supabase
       .from('sales')
-      .select('*, workers:workers!sales_worker_id_fkey(name)')
+      .select('*, workers(name)')
       .eq('store_id', storeId)
       .or('is_paid.eq.false,is_dispatched.eq.false')
       .order('created_at', { ascending: false });

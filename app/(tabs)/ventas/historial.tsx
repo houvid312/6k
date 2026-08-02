@@ -11,7 +11,8 @@ import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { Sale } from '../../../src/domain/entities';
 import { PaymentMethod, PACKAGING_LABEL_BY_ID } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
-import { formatDateTime, toISODate, todayColombia } from '../../../src/utils/dates';
+import { formatDate, formatDateTime, toISODate, todayColombia } from '../../../src/utils/dates';
+import { useSaleStore } from '../../../src/stores/useSaleStore';
 
 const PAYMENT_ICONS: Record<PaymentMethod, string> = {
   [PaymentMethod.EFECTIVO]: 'cash',
@@ -25,10 +26,15 @@ export default function HistorialScreen() {
   const { saleService } = useDI();
   const { selectedStoreId } = useAppStore();
   const { products } = useMasterDataStore();
+  const { salesDate } = useSaleStore();
+
+  const isRetroactive = salesDate !== todayColombia();
 
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'hoy' | 'ayer' | 'semana' | 'mes'>('hoy');
+  const [filter, setFilter] = useState<'jornada' | 'hoy' | 'ayer' | 'semana' | 'mes'>(
+    isRetroactive ? 'jornada' : 'hoy'
+  );
 
   const loadSales = useCallback(async () => {
     setLoading(true);
@@ -37,7 +43,11 @@ export default function HistorialScreen() {
       let startDate: string;
       let endDate: string;
 
-      if (filter === 'hoy') {
+      if (filter === 'jornada') {
+        const activeDate = salesDate || today;
+        startDate = `${activeDate}T00:00:00`;
+        endDate = `${activeDate}T23:59:59`;
+      } else if (filter === 'hoy') {
         startDate = `${today}T00:00:00`;
         endDate = `${today}T23:59:59`;
       } else if (filter === 'ayer') {
@@ -69,7 +79,7 @@ export default function HistorialScreen() {
     } finally {
       setLoading(false);
     }
-  }, [selectedStoreId, filter, saleService]);
+  }, [selectedStoreId, filter, salesDate, saleService]);
 
   const [snackbar, setSnackbar] = useState<{ visible: boolean; success: boolean; message: string }>({
     visible: false,
@@ -297,7 +307,7 @@ export default function HistorialScreen() {
 
       {/* Filter chips */}
       <View style={styles.filterRow}>
-        {(['hoy', 'ayer', 'semana', 'mes'] as const).map((f) => (
+        {(isRetroactive ? (['jornada', 'hoy', 'ayer', 'semana', 'mes'] as const) : (['hoy', 'ayer', 'semana', 'mes'] as const)).map((f) => (
           <Chip
             key={f}
             selected={filter === f}
@@ -305,7 +315,7 @@ export default function HistorialScreen() {
             mode={filter === f ? 'flat' : 'outlined'}
             style={filter === f ? { backgroundColor: theme.colors.primaryContainer } : undefined}
           >
-            {f === 'hoy' ? 'Hoy' : f === 'ayer' ? 'Ayer' : f === 'semana' ? 'Semana' : 'Mes'}
+            {f === 'jornada' ? `📅 ${formatDate(salesDate)}` : f === 'hoy' ? 'Hoy' : f === 'ayer' ? 'Ayer' : f === 'semana' ? 'Semana' : 'Mes'}
           </Chip>
         ))}
       </View>
