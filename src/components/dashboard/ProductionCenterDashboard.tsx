@@ -79,6 +79,11 @@ export function ProductionCenterDashboard({ storeId, startDate, endDate, totalDa
 
   const loadProductionData = useCallback(async () => {
     if (!storeId) return;
+    const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+    if (!DATE_REGEX.test(startDate) || !DATE_REGEX.test(endDate)) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       // 1. Fetch Global 6K Sales (Consolidado de todas las sedes)

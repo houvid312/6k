@@ -94,11 +94,22 @@ export default function DashboardScreen() {
       setLoading(false);
       return;
     }
+
+    const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+    if (!DATE_REGEX.test(startDateStr) || !DATE_REGEX.test(endDateStr)) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       // Calculate exact operating days between startDateStr and endDateStr
       const startObj = new Date(`${startDateStr}T00:00:00-05:00`);
       const endObj = new Date(`${endDateStr}T23:59:59-05:00`);
+      if (isNaN(startObj.getTime()) || isNaN(endObj.getTime())) {
+        setLoading(false);
+        return;
+      }
       const daysCount = Math.max(1, Math.ceil((endObj.getTime() - startObj.getTime()) / (1000 * 3600 * 24)));
       setTotalDays(daysCount);
 

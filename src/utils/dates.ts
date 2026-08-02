@@ -55,6 +55,7 @@ export function colombiaDateRangeToUtc(
  * Formats a date as DD/MM/YYYY using Colombia timezone.
  */
 export function formatDate(date: string | Date): string {
+  if (!date) return '';
   if (typeof date === 'string') {
     const dateOnly = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (dateOnly) {
@@ -63,52 +64,78 @@ export function formatDate(date: string | Date): string {
   }
 
   const d = typeof date === 'string' ? new Date(date) : date;
-  const parts = new Intl.DateTimeFormat('es-CO', {
-    timeZone: TIMEZONE,
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  }).formatToParts(d);
-  const day = parts.find((p) => p.type === 'day')?.value ?? '01';
-  const month = parts.find((p) => p.type === 'month')?.value ?? '01';
-  const year = parts.find((p) => p.type === 'year')?.value ?? '2026';
-  return `${day}/${month}/${year}`;
+  if (!d || isNaN(d.getTime())) {
+    return typeof date === 'string' ? date : '';
+  }
+
+  try {
+    const parts = new Intl.DateTimeFormat('es-CO', {
+      timeZone: TIMEZONE,
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).formatToParts(d);
+    const day = parts.find((p) => p.type === 'day')?.value ?? '01';
+    const month = parts.find((p) => p.type === 'month')?.value ?? '01';
+    const year = parts.find((p) => p.type === 'year')?.value ?? '2026';
+    return `${day}/${month}/${year}`;
+  } catch {
+    return typeof date === 'string' ? date : '';
+  }
 }
 
 /**
  * Formats a date as DD/MM/YYYY HH:mm using Colombia timezone.
  */
 export function formatDateTime(date: string | Date): string {
+  if (!date) return '';
   const d = typeof date === 'string' ? new Date(date) : date;
-  return new Intl.DateTimeFormat('es-CO', {
-    timeZone: TIMEZONE,
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(d);
+  if (!d || isNaN(d.getTime())) {
+    return typeof date === 'string' ? date : '';
+  }
+  try {
+    return new Intl.DateTimeFormat('es-CO', {
+      timeZone: TIMEZONE,
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(d);
+  } catch {
+    return typeof date === 'string' ? date : '';
+  }
 }
 
 /**
  * Formats a time as h:mm a.m./p.m. using Colombia timezone.
  */
 export function formatTime(date: string | Date): string {
+  if (!date) return '';
   const d = typeof date === 'string' ? new Date(date) : date;
-  return new Intl.DateTimeFormat('es-CO', {
-    timeZone: TIMEZONE,
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  }).format(d);
+  if (!d || isNaN(d.getTime())) {
+    return typeof date === 'string' ? date : '';
+  }
+  try {
+    return new Intl.DateTimeFormat('es-CO', {
+      timeZone: TIMEZONE,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(d);
+  } catch {
+    return typeof date === 'string' ? date : '';
+  }
 }
 
 /**
  * Checks if a date is today in Colombia timezone.
  */
 export function isToday(date: string | Date): boolean {
+  if (!date) return false;
   const d = typeof date === 'string' ? new Date(date) : date;
+  if (!d || isNaN(d.getTime())) return false;
   const dateStr = toISODateTZ(d);
   const todayStr = todayColombia();
   return dateStr === todayStr;
