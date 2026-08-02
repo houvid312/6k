@@ -499,8 +499,8 @@ export default function VentasScreen() {
     if (supply && supply.salePriceCop > 0) return supply.salePriceCop;
 
     const label = (PACKAGING_LABEL_BY_ID[packagingSupplyId] ?? '').toLowerCase();
-    const matchingProduct = products.find((p) => p.category === 'OTRO' && (
-      p.id === packagingSupplyId || (label && p.name.toLowerCase().includes(label))
+    const matchingProduct = cachedProducts.find((p) => (
+      p.id === packagingSupplyId || (p.category === 'OTRO' && label && p.name.toLowerCase().includes(label))
     ));
     if (matchingProduct) {
       const formats = formatsByProductId[matchingProduct.id]?.filter((f) => f.isActive) ?? [];
@@ -508,7 +508,7 @@ export default function VentasScreen() {
     }
 
     return PACKAGING_SALE_PRICE_COP_BY_ID[packagingSupplyId] ?? 0;
-  }, [formatsByProductId, products, supplies]);
+  }, [cachedProducts, formatsByProductId, supplies]);
 
   const suggestPackagingSupplyId = useCallback((format?: ProductFormat) => {
     if (!format) return undefined;
