@@ -234,6 +234,7 @@ ALTER FUNCTION "public"."authenticate_worker"("worker_name" "text", "worker_pin"
 
 CREATE OR REPLACE FUNCTION "public"."can_access_transfer"("from_store" "uuid", "to_store" "uuid") RETURNS boolean
     LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
     AS $$
 DECLARE
   current_role user_role;
@@ -243,9 +244,11 @@ BEGIN
   FROM workers w
   WHERE w.auth_user_id = auth.uid()
   LIMIT 1;
+
   IF current_role IN ('GERENTE', 'PREPARADOR', 'RODY') THEN
     RETURN TRUE;
   END IF;
+
   IF current_role IN ('ADMIN_LOCAL', 'VENDEDOR') THEN
     RETURN EXISTS (
       SELECT 1 FROM worker_store_assignments
@@ -253,6 +256,7 @@ BEGIN
         AND store_id IN (from_store, to_store)
     );
   END IF;
+
   RETURN FALSE;
 END;
 $$;
@@ -437,6 +441,7 @@ ALTER FUNCTION "public"."deduct_store_inventory"("p_store_id" "uuid", "p_supply_
 
 CREATE OR REPLACE FUNCTION "public"."get_auth_worker_id"() RETURNS "uuid"
     LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
     AS $$
   SELECT id FROM workers
   WHERE auth_user_id = auth.uid()
@@ -449,6 +454,7 @@ ALTER FUNCTION "public"."get_auth_worker_id"() OWNER TO "postgres";
 
 CREATE OR REPLACE FUNCTION "public"."get_user_role"() RETURNS "public"."user_role"
     LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
     AS $$
   SELECT w.user_role FROM workers w
   WHERE w.auth_user_id = auth.uid()
@@ -489,30 +495,30 @@ ALTER FUNCTION "public"."is_accounting_period_locked"("p_store_id" "uuid", "p_da
 
 
 CREATE OR REPLACE FUNCTION "public"."is_admin_or_assigned_local"("target_store_id" "uuid") RETURNS boolean
-    LANGUAGE "plpgsql" SECURITY DEFINER
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
 DECLARE
-  v_user_role user_role;
-  v_worker_id UUID;
+  current_role user_role;
+  current_worker_id UUID;
 BEGIN
-  -- 1. Obtener rol y id del trabajador autenticado (usando variables no reservadas)
-  SELECT w.user_role, w.id INTO v_user_role, v_worker_id
-  FROM public.workers w
+  SELECT w.user_role, w.id INTO current_role, current_worker_id
+  FROM workers w
   WHERE w.auth_user_id = auth.uid()
   LIMIT 1;
-  -- 2. Si es Gerente (CEO), tiene acceso completo
-  IF v_user_role = 'GERENTE' THEN
+
+  IF current_role IN ('GERENTE', 'RODY') THEN
     RETURN TRUE;
   END IF;
-  -- 3. Si es Admin Local o Vendedor, verificar asignación
-  IF v_user_role IN ('ADMIN_LOCAL', 'VENDEDOR') THEN
+
+  IF current_role IN ('ADMIN_LOCAL', 'VENDEDOR', 'PREPARADOR') THEN
     RETURN EXISTS (
-      SELECT 1 FROM public.worker_store_assignments
-      WHERE worker_id = v_worker_id
+      SELECT 1 FROM worker_store_assignments
+      WHERE worker_id = current_worker_id
         AND store_id = target_store_id
     );
   END IF;
+
   RETURN FALSE;
 END;
 $$;
@@ -2509,7 +2515,12 @@ CREATE TABLE IF NOT EXISTS "public"."credit_payments" (
     "source" "text" DEFAULT 'PAYROLL'::"text" NOT NULL,
     "notes" "text",
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    CONSTRAINT "credit_payments_amount_check" CHECK (("amount" > 0))
+    "payment_method" "public"."payment_method" DEFAULT 'TRANSFERENCIA'::"public"."payment_method" NOT NULL,
+    "status" "text" DEFAULT 'CONFIRMED'::"text" NOT NULL,
+    "expense_id" "uuid",
+    "income_id" "uuid",
+    CONSTRAINT "credit_payments_amount_check" CHECK (("amount" > 0)),
+    CONSTRAINT "credit_payments_status_check" CHECK (("status" = ANY (ARRAY['PENDING'::"text", 'CONFIRMED'::"text", 'REJECTED'::"text"])))
 );
 
 
@@ -2605,6 +2616,23 @@ CREATE TABLE IF NOT EXISTS "public"."inventory" (
 
 
 ALTER TABLE "public"."inventory" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."inventory_adjustments" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "store_id" "uuid" NOT NULL,
+    "supply_id" "uuid" NOT NULL,
+    "level" character varying(20) NOT NULL,
+    "previous_quantity_grams" numeric DEFAULT 0 NOT NULL,
+    "new_quantity_grams" numeric DEFAULT 0 NOT NULL,
+    "difference_grams" numeric DEFAULT 0 NOT NULL,
+    "reason" character varying(255) NOT NULL,
+    "user_id" "uuid",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."inventory_adjustments" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."inventory_writeoffs" (
@@ -2974,7 +3002,11 @@ CREATE TABLE IF NOT EXISTS "public"."supplies" (
     "production_cost_cop" numeric(12,2) DEFAULT 0 NOT NULL,
     "commercial_price_cop" integer DEFAULT 0 NOT NULL,
     "is_billable_to_store" boolean DEFAULT true NOT NULL,
-    "sale_price_cop" integer DEFAULT 0 NOT NULL
+    "sale_price_cop" integer DEFAULT 0 NOT NULL,
+    "category" "text" DEFAULT 'PROCESSED'::"text" NOT NULL,
+    "is_active" boolean DEFAULT true NOT NULL,
+    "allow_local_purchase" boolean DEFAULT false NOT NULL,
+    CONSTRAINT "supplies_category_check" CHECK (("category" = ANY (ARRAY['RAW'::"text", 'PROCESSED'::"text", 'OPERATIVE'::"text"])))
 );
 
 
@@ -3150,6 +3182,11 @@ ALTER TABLE ONLY "public"."expenses"
 
 ALTER TABLE ONLY "public"."incomes"
     ADD CONSTRAINT "incomes_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."inventory_adjustments"
+    ADD CONSTRAINT "inventory_adjustments_pkey" PRIMARY KEY ("id");
 
 
 
@@ -3746,6 +3783,16 @@ ALTER TABLE ONLY "public"."credit_payments"
 
 
 ALTER TABLE ONLY "public"."credit_payments"
+    ADD CONSTRAINT "credit_payments_expense_id_fkey" FOREIGN KEY ("expense_id") REFERENCES "public"."expenses"("id") ON DELETE SET NULL;
+
+
+
+ALTER TABLE ONLY "public"."credit_payments"
+    ADD CONSTRAINT "credit_payments_income_id_fkey" FOREIGN KEY ("income_id") REFERENCES "public"."incomes"("id") ON DELETE SET NULL;
+
+
+
+ALTER TABLE ONLY "public"."credit_payments"
     ADD CONSTRAINT "credit_payments_payroll_entry_id_fkey" FOREIGN KEY ("payroll_entry_id") REFERENCES "public"."payroll_entries"("id") ON DELETE SET NULL;
 
 
@@ -3812,6 +3859,21 @@ ALTER TABLE ONLY "public"."expenses"
 
 ALTER TABLE ONLY "public"."incomes"
     ADD CONSTRAINT "incomes_store_id_fkey" FOREIGN KEY ("store_id") REFERENCES "public"."stores"("id");
+
+
+
+ALTER TABLE ONLY "public"."inventory_adjustments"
+    ADD CONSTRAINT "inventory_adjustments_store_id_fkey" FOREIGN KEY ("store_id") REFERENCES "public"."stores"("id");
+
+
+
+ALTER TABLE ONLY "public"."inventory_adjustments"
+    ADD CONSTRAINT "inventory_adjustments_supply_id_fkey" FOREIGN KEY ("supply_id") REFERENCES "public"."supplies"("id");
+
+
+
+ALTER TABLE ONLY "public"."inventory_adjustments"
+    ADD CONSTRAINT "inventory_adjustments_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id");
 
 
 
@@ -4134,14 +4196,6 @@ CREATE POLICY "Admin manage accounting_period_locks" ON "public"."accounting_per
 
 
 
-CREATE POLICY "Admin manage product_store_assignments" ON "public"."product_store_assignments" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage purchases" ON "public"."purchases" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
 CREATE POLICY "Admin manage recipe_ingredients" ON "public"."recipe_ingredients" USING (true) WITH CHECK (true);
 
 
@@ -4223,6 +4277,10 @@ CREATE POLICY "Authenticated read demand_estimates" ON "public"."demand_estimate
 
 
 
+CREATE POLICY "Authenticated read inventory_adjustments" ON "public"."inventory_adjustments" FOR SELECT TO "authenticated" USING (true);
+
+
+
 CREATE POLICY "Authenticated read physical_count_items" ON "public"."physical_count_items" FOR SELECT TO "authenticated" USING (true);
 
 
@@ -4280,10 +4338,6 @@ CREATE POLICY "Authenticated read sale_item_additions" ON "public"."sale_item_ad
 
 
 CREATE POLICY "Authenticated read shift_portions" ON "public"."shift_portions" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
-
-
-
-CREATE POLICY "Authenticated read stock_minimums" ON "public"."stock_minimums" FOR SELECT TO "authenticated" USING (true);
 
 
 
@@ -4352,6 +4406,10 @@ CREATE POLICY "Colaborador update expenses" ON "public"."expenses" FOR UPDATE TO
 
 
 
+CREATE POLICY "Gerente insert inventory_adjustments" ON "public"."inventory_adjustments" FOR INSERT TO "authenticated" WITH CHECK ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR ("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role")));
+
+
+
 CREATE POLICY "Inventory operators delete daily_alerts" ON "public"."daily_alerts" FOR DELETE TO "authenticated" USING ("public"."is_inventory_operator"());
 
 
@@ -4411,7 +4469,11 @@ ALTER TABLE "public"."closing_checklist_items" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."credit_entries" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "credit_entries_policy" ON "public"."credit_entries" TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
+CREATE POLICY "credit_entries_policy" ON "public"."credit_entries" TO "authenticated" USING (("public"."is_admin_or_assigned_local"("store_id") OR (("transfer_id" IS NOT NULL) AND (EXISTS ( SELECT 1
+   FROM "public"."transfers" "t"
+  WHERE (("t"."id" = "credit_entries"."transfer_id") AND "public"."is_admin_or_assigned_local"("t"."from_store_id"))))))) WITH CHECK (("public"."is_admin_or_assigned_local"("store_id") OR (("transfer_id" IS NOT NULL) AND (EXISTS ( SELECT 1
+   FROM "public"."transfers" "t"
+  WHERE (("t"."id" = "credit_entries"."transfer_id") AND "public"."is_admin_or_assigned_local"("t"."from_store_id")))))));
 
 
 
@@ -4420,9 +4482,13 @@ ALTER TABLE "public"."credit_payments" ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "credit_payments_policy" ON "public"."credit_payments" TO "authenticated" USING ((EXISTS ( SELECT 1
    FROM "public"."credit_entries" "ce"
-  WHERE (("ce"."id" = "credit_payments"."credit_entry_id") AND "public"."is_admin_or_assigned_local"("ce"."store_id"))))) WITH CHECK ((EXISTS ( SELECT 1
+  WHERE (("ce"."id" = "credit_payments"."credit_entry_id") AND ("public"."is_admin_or_assigned_local"("ce"."store_id") OR (("ce"."transfer_id" IS NOT NULL) AND (EXISTS ( SELECT 1
+           FROM "public"."transfers" "t"
+          WHERE (("t"."id" = "ce"."transfer_id") AND "public"."is_admin_or_assigned_local"("t"."from_store_id")))))))))) WITH CHECK ((EXISTS ( SELECT 1
    FROM "public"."credit_entries" "ce"
-  WHERE (("ce"."id" = "credit_payments"."credit_entry_id") AND "public"."is_admin_or_assigned_local"("ce"."store_id")))));
+  WHERE (("ce"."id" = "credit_payments"."credit_entry_id") AND ("public"."is_admin_or_assigned_local"("ce"."store_id") OR (("ce"."transfer_id" IS NOT NULL) AND (EXISTS ( SELECT 1
+           FROM "public"."transfers" "t"
+          WHERE (("t"."id" = "ce"."transfer_id") AND "public"."is_admin_or_assigned_local"("t"."from_store_id"))))))))));
 
 
 
@@ -4458,6 +4524,9 @@ CREATE POLICY "incomes_policy" ON "public"."incomes" TO "authenticated" USING ("
 
 
 ALTER TABLE "public"."inventory" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."inventory_adjustments" ENABLE ROW LEVEL SECURITY;
 
 
 CREATE POLICY "inventory_select_policy" ON "public"."inventory" FOR SELECT TO "authenticated" USING ((("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'PREPARADOR'::"public"."user_role"])) OR "public"."is_admin_or_assigned_local"("store_id")));
@@ -4532,6 +4601,14 @@ CREATE POLICY "product_prices_policy" ON "public"."product_prices" TO "authentic
 ALTER TABLE "public"."product_store_assignments" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "product_store_assignments_select_policy" ON "public"."product_store_assignments" FOR SELECT TO "authenticated" USING (true);
+
+
+
+CREATE POLICY "product_store_assignments_write_policy" ON "public"."product_store_assignments" TO "authenticated" USING (("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'RODY'::"public"."user_role", 'ADMIN_LOCAL'::"public"."user_role"]))) WITH CHECK (("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'RODY'::"public"."user_role", 'ADMIN_LOCAL'::"public"."user_role"])));
+
+
+
 ALTER TABLE "public"."production_recipe_inputs" ENABLE ROW LEVEL SECURITY;
 
 
@@ -4568,6 +4645,10 @@ CREATE POLICY "products_policy" ON "public"."products" TO "authenticated" USING 
 
 
 ALTER TABLE "public"."purchases" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "purchases_policy" ON "public"."purchases" TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
+
 
 
 ALTER TABLE "public"."recipe_ingredients" ENABLE ROW LEVEL SECURITY;
@@ -4644,6 +4725,14 @@ CREATE POLICY "stock_minimums_policy" ON "public"."stock_minimums" TO "authentic
 
 
 
+CREATE POLICY "stock_minimums_select_policy" ON "public"."stock_minimums" FOR SELECT TO "authenticated" USING (true);
+
+
+
+CREATE POLICY "stock_minimums_write_policy" ON "public"."stock_minimums" TO "authenticated" USING (("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'RODY'::"public"."user_role", 'ADMIN_LOCAL'::"public"."user_role"]))) WITH CHECK (("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'RODY'::"public"."user_role", 'ADMIN_LOCAL'::"public"."user_role"])));
+
+
+
 ALTER TABLE "public"."stores" ENABLE ROW LEVEL SECURITY;
 
 
@@ -4687,6 +4776,10 @@ CREATE POLICY "worker_store_assignments_write_policy" ON "public"."worker_store_
 
 
 ALTER TABLE "public"."workers" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "workers_select_policy" ON "public"."workers" FOR SELECT TO "authenticated" USING (true);
+
 
 
 CREATE POLICY "workers_write_policy" ON "public"."workers" TO "authenticated" USING ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND (EXISTS ( SELECT 1
@@ -5216,6 +5309,12 @@ GRANT ALL ON TABLE "public"."incomes" TO "service_role";
 GRANT ALL ON TABLE "public"."inventory" TO "anon";
 GRANT ALL ON TABLE "public"."inventory" TO "authenticated";
 GRANT ALL ON TABLE "public"."inventory" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."inventory_adjustments" TO "anon";
+GRANT ALL ON TABLE "public"."inventory_adjustments" TO "authenticated";
+GRANT ALL ON TABLE "public"."inventory_adjustments" TO "service_role";
 
 
 
