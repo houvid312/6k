@@ -9,7 +9,7 @@ import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { Sale } from '../../../src/domain/entities';
-import { PaymentMethod } from '../../../src/domain/enums';
+import { PaymentMethod, PACKAGING_LABEL_BY_ID } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDateTime, toISODate, todayColombia } from '../../../src/utils/dates';
 
@@ -104,111 +104,173 @@ export default function HistorialScreen() {
   const getProductName = (productId: string) =>
     products.find((p) => p.id === productId)?.name ?? productId;
 
-  const renderSale = ({ item }: { item: Sale }) => (
-    <Card style={styles.saleCard} mode="elevated">
-      <Card.Content>
-        {/* Header: fecha + chips */}
-        <View style={styles.saleHeader}>
-          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-            {formatDateTime(item.timestamp)}
-          </Text>
-          <View style={styles.chipsRow}>
-            <Chip
-              icon={PAYMENT_ICONS[item.paymentMethod]}
-              compact
-              textStyle={{ fontSize: 11 }}
-            >
-              {item.paymentMethod}
-            </Chip>
-          </View>
-        </View>
+  const renderSale = ({ item }: { item: Sale }) => {
+    let totalPizzaPortions = 0;
+    let totalBeverages = 0;
+    let totalPackaging = 0;
 
-        {/* Items detail */}
-        <View style={styles.itemsList}>
-          {item.items.map((si) => (
-            <View key={si.id} style={styles.itemRow}>
-              <Text variant="bodySmall" style={{ flex: 1, color: theme.colors.onSurface }}>
-                {getProductName(si.productId)}
-              </Text>
-              <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, minWidth: 40 }}>
-                {si.formatName}
-              </Text>
-              <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, minWidth: 20, textAlign: 'center' }}>
-                x{si.quantity}
-              </Text>
-              <Text variant="bodySmall" style={{ fontWeight: '600', minWidth: 65, textAlign: 'right' }}>
-                {formatCOP(si.subtotal)}
-              </Text>
+    for (const si of item.items) {
+      const product = products.find((p) => p.id === si.productId);
+      const cat = product?.category;
+
+      if (cat === 'BEBIDA') {
+        totalBeverages += si.quantity;
+      } else if (cat === 'OTRO') {
+        totalPackaging += si.quantity;
+      } else {
+        if (si.portions > 0) {
+          totalPizzaPortions += si.portions;
+        }
+      }
+
+      if (si.packagingSupplyId) {
+        totalPackaging += si.packagingQuantity || 1;
+      }
+    }
+
+    if (item.packagingSupplyId && !item.items.some((si) => si.packagingSupplyId)) {
+      totalPackaging += 1;
+    }
+
+    return (
+      <Card style={styles.saleCard} mode="elevated">
+        <Card.Content>
+          {/* Header: fecha + chips */}
+          <View style={styles.saleHeader}>
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+              {formatDateTime(item.timestamp)}
+            </Text>
+            <View style={styles.chipsRow}>
+              <Chip
+                icon={PAYMENT_ICONS[item.paymentMethod]}
+                compact
+                textStyle={{ fontSize: 11 }}
+              >
+                {item.paymentMethod}
+              </Chip>
+              {totalPackaging > 0 && (
+                <Chip
+                  icon="package-variant-closed"
+                  compact
+                  textStyle={{ fontSize: 11, color: '#FFB74D' }}
+                  style={{ backgroundColor: '#3E2723' }}
+                >
+                  {item.packagingSupplyId
+                    ? (PACKAGING_LABEL_BY_ID[item.packagingSupplyId] ?? 'Con Empaque')
+                    : `${totalPackaging} empaque(s)`}
+                </Chip>
+              )}
             </View>
-          ))}
-        </View>
-
-        {/* Notes */}
-        {(item.customerNote || item.observations) ? (
-          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontStyle: 'italic', marginTop: 4 }} numberOfLines={2}>
-            {[item.customerNote, item.observations].filter(Boolean).join(' · ')}
-          </Text>
-        ) : null}
-
-        {/* Worker */}
-        {item.workerName ? (
-          <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, opacity: 0.6, fontSize: 10, marginTop: 2 }}>
-            {item.workerName}
-          </Text>
-        ) : null}
-
-        <Divider style={{ marginVertical: 8 }} />
-
-        {/* Footer: total + action */}
-        <View style={styles.saleFooter}>
-          <View>
-            <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
-              {formatCOP(item.totalAmount)}
-            </Text>
-            <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-              {item.totalPortions} porciones
-            </Text>
           </View>
-          <View style={styles.actionButtons}>
-            {item.isPaid ? (
-              <Chip compact icon="check-circle" textStyle={{ fontSize: 11, color: '#66BB6A' }} style={{ backgroundColor: '#1C3D2A' }}>
-                Pagado
-              </Chip>
-            ) : (
-              <Button
-                mode="contained"
-                compact
-                onPress={() => handleMarkAsPaid(item)}
-                buttonColor="#388E3C"
-                textColor="#FFFFFF"
-                icon="check"
-                labelStyle={{ fontSize: 12 }}
-              >
-                Ya pago
-              </Button>
-            )}
-            {item.isDispatched ? (
-              <Chip compact icon="check-circle" textStyle={{ fontSize: 11, color: '#64B5F6' }} style={{ backgroundColor: '#1A3A5C' }}>
-                Despachado
-              </Chip>
-            ) : (
-              <Button
-                mode="contained"
-                compact
-                onPress={() => handleMarkAsDispatched(item)}
-                buttonColor="#1565C0"
-                textColor="#FFFFFF"
-                icon="truck-delivery"
-                labelStyle={{ fontSize: 12 }}
-              >
-                Despachar
-              </Button>
-            )}
+
+          {/* Items detail */}
+          <View style={styles.itemsList}>
+            {item.items.map((si) => (
+              <View key={si.id} style={{ marginBottom: 4 }}>
+                <View style={styles.itemRow}>
+                  <Text variant="bodySmall" style={{ flex: 1, color: theme.colors.onSurface }}>
+                    {getProductName(si.productId)}
+                  </Text>
+                  <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, minWidth: 40 }}>
+                    {si.formatName}
+                  </Text>
+                  <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, minWidth: 20, textAlign: 'center' }}>
+                    x{si.quantity}
+                  </Text>
+                  <Text variant="bodySmall" style={{ fontWeight: '600', minWidth: 65, textAlign: 'right' }}>
+                    {formatCOP(si.subtotal)}
+                  </Text>
+                </View>
+                {si.packagingSupplyId && (
+                  <Text variant="labelSmall" style={{ color: '#FFB74D', fontSize: 10, marginLeft: 8 }}>
+                    📦 Empaque: {si.packagingLabel ?? PACKAGING_LABEL_BY_ID[si.packagingSupplyId] ?? 'Caja'} (x{si.packagingQuantity || 1})
+                  </Text>
+                )}
+              </View>
+            ))}
           </View>
-        </View>
-      </Card.Content>
-    </Card>
-  );
+
+          {/* Notes */}
+          {(item.customerNote || item.observations) ? (
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontStyle: 'italic', marginTop: 4 }} numberOfLines={2}>
+              {[item.customerNote, item.observations].filter(Boolean).join(' · ')}
+            </Text>
+          ) : null}
+
+          {/* Worker */}
+          {item.workerName ? (
+            <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, opacity: 0.6, fontSize: 10, marginTop: 2 }}>
+              {item.workerName}
+            </Text>
+          ) : null}
+
+          <Divider style={{ marginVertical: 8 }} />
+
+          {/* Footer: total + action */}
+          <View style={styles.saleFooter}>
+            <View>
+              <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+                {formatCOP(item.totalAmount)}
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                {totalPizzaPortions > 0 && (
+                  <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                    🍕 {totalPizzaPortions} porc.
+                  </Text>
+                )}
+                {totalBeverages > 0 && (
+                  <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                    🥤 {totalBeverages} beb.
+                  </Text>
+                )}
+                {totalPackaging > 0 && (
+                  <Text variant="labelSmall" style={{ color: '#FFB74D', fontWeight: '600' }}>
+                    📦 {totalPackaging} emp.
+                  </Text>
+                )}
+              </View>
+            </View>
+            <View style={styles.actionButtons}>
+              {item.isPaid ? (
+                <Chip compact icon="check-circle" textStyle={{ fontSize: 11, color: '#66BB6A' }} style={{ backgroundColor: '#1C3D2A' }}>
+                  Pagado
+                </Chip>
+              ) : (
+                <Button
+                  mode="contained"
+                  compact
+                  onPress={() => handleMarkAsPaid(item)}
+                  buttonColor="#388E3C"
+                  textColor="#FFFFFF"
+                  icon="check"
+                  labelStyle={{ fontSize: 12 }}
+                >
+                  Ya pago
+                </Button>
+              )}
+              {item.isDispatched ? (
+                <Chip compact icon="check-circle" textStyle={{ fontSize: 11, color: '#64B5F6' }} style={{ backgroundColor: '#1A3A5C' }}>
+                  Despachado
+                </Chip>
+              ) : (
+                <Button
+                  mode="contained"
+                  compact
+                  onPress={() => handleMarkAsDispatched(item)}
+                  buttonColor="#1565C0"
+                  textColor="#FFFFFF"
+                  icon="truck-delivery"
+                  labelStyle={{ fontSize: 12 }}
+                >
+                  Despachar
+                </Button>
+              )}
+            </View>
+          </View>
+        </Card.Content>
+      </Card>
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
