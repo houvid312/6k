@@ -8,4 +8,5 @@ export interface IWorkerRepository {
   getByRole(role: WorkerRole): Promise<Worker[]>;
   create(worker: Omit<Worker, 'id'>): Promise<Worker>;
   update(id: string, data: Partial<Omit<Worker, 'id'>>): Promise<Worker>;
+  delete(id: string): Promise<void>;
 }

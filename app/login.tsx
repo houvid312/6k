@@ -131,27 +131,6 @@ export default function LoginScreen() {
           >
             Ingresar
           </Button>
-
-          <View style={styles.hint}>
-            <Text style={styles.hintTitle}>CUENTAS</Text>
-
-            <View style={styles.hintRow}>
-              <Text style={styles.hintUser}>david</Text>
-              <Text style={styles.hintPin}>600000</Text>
-              <View style={styles.hintBadge}><Text style={styles.hintBadgeText}>Admin</Text></View>
-            </View>
-            <View style={styles.hintRow}>
-              <Text style={styles.hintUser}>esteban</Text>
-              <Text style={styles.hintPin}>600100</Text>
-              <View style={styles.hintBadge}><Text style={styles.hintBadgeText}>Admin</Text></View>
-            </View>
-            <View style={styles.hintRow}>
-              <Text style={styles.hintUser}>maria</Text>
-              <Text style={styles.hintPin}>567800</Text>
-              <View style={[styles.hintBadge, { backgroundColor: '#3A3A3A' }]}><Text style={styles.hintBadgeText}>Preparador</Text></View>
-            </View>
-
-          </View>
         </Surface>
       </View>
     </KeyboardAvoidingView>
@@ -259,49 +238,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 1,
-  },
-  hint: {
-    marginTop: 16,
-    padding: 12,
-    backgroundColor: '#242424',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#2E2E2E',
-  },
-  hintTitle: {
-    fontSize: 10,
-    color: '#5C5650',
-    fontWeight: '700',
-    marginBottom: 10,
-    letterSpacing: 2,
-  },
-  hintRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 6,
-    gap: 10,
-  },
-  hintUser: {
-    fontSize: 14,
-    color: '#F5F0EB',
-    fontWeight: '600',
-    width: 56,
-  },
-  hintPin: {
-    fontSize: 14,
-    color: '#D4A843',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    width: 64,
-  },
-  hintBadge: {
-    backgroundColor: '#3D1518',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  hintBadgeText: {
-    fontSize: 10,
-    color: '#E63946',
-    fontWeight: '600',
   },
 });

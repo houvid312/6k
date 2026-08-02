@@ -165,13 +165,18 @@ export class SupabaseSaleRepository implements ISaleRepository {
   async getByDateRange(storeId: string, from: string, to: string): Promise<Sale[]> {
     const { fromUtc, toUtc } = colombiaDateRangeToUtc(from, to);
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('sales')
       .select('*, workers:workers!sales_worker_id_fkey(name)')
-      .eq('store_id', storeId)
       .gte('created_at', fromUtc)
       .lte('created_at', toUtc)
       .order('created_at', { ascending: false });
+
+    if (storeId && storeId !== 'consolidado') {
+      query = query.eq('store_id', storeId);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
 
     return this.hydrateSales(data as SaleRow[]);

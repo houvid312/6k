@@ -117,9 +117,20 @@ export class SupabaseWorkerRepository implements IWorkerRepository {
       .from('workers')
       .update(row)
       .eq('id', id)
-      .select()
+      .select('*, worker_store_assignments(store_id)')
       .single();
     if (error) throw error;
     return toEntity(data as WorkerRow);
+  }
+
+  async delete(id: string): Promise<void> {
+    await supabase.from('worker_store_assignments').delete().eq('worker_id', id);
+
+    const { error } = await supabase
+      .from('workers')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
   }
 }

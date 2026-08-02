@@ -15,13 +15,14 @@ export default function TabLayout() {
     switch (userRole) {
       case UserRole.GERENTE:
         return true;
+      case UserRole.RODY:
+        return ['inventario', 'dashboard'].includes(tabName);
       case UserRole.ADMIN_LOCAL:
         return ['ventas', 'inventario', 'cartera', 'rrhh', 'dashboard', 'contabilidad'].includes(tabName);
       case UserRole.PREPARADOR:
-      case UserRole.RODY:
-        return ['inventario'].includes(tabName);
-      case UserRole.VENDEDOR:
         return ['ventas', 'inventario'].includes(tabName);
+      case UserRole.VENDEDOR:
+        return ['ventas'].includes(tabName);
       default:
         return false;
     }
@@ -93,7 +94,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="rrhh"
         options={{
-          title: 'RRHH',
+          title: 'Talento Humano',
           headerShown: false,
           href: showTab('rrhh') ? '/(tabs)/rrhh' : null,
           tabBarIcon: ({ color, size }) => (

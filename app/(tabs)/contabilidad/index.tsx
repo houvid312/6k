@@ -941,16 +941,16 @@ export default function ContabilidadScreen() {
   );
 
   useEffect(() => {
-    if (appliedStoreId === 'consolidado') {
-      setActiveView('rentabilidad');
-    }
-  }, [appliedStoreId]);
-
-  useEffect(() => {
     if (selectedStoreId && selectedStoreId !== appliedStoreId) {
       setAppliedStoreId(selectedStoreId);
     }
   }, [selectedStoreId, appliedStoreId]);
+
+  useEffect(() => {
+    if (!isGerente && activeView === 'rentabilidad') {
+      setActiveView('general');
+    }
+  }, [activeView, isGerente]);
 
   const utilidad = ingresos - egresos;
   const flujoConInventario = utilidad + inventoryAssetValue;
@@ -1728,16 +1728,7 @@ export default function ContabilidadScreen() {
         >
           Cierres
         </Button>
-        <Button
-          mode="outlined"
-          compact
-          icon="cart"
-          style={{ marginRight: 8, height: 32 }}
-          labelStyle={{ fontSize: 12, marginVertical: 4 }}
-          onPress={() => router.push('/(tabs)/inventario/compras')}
-        >
-          Compras
-        </Button>
+
         <Button
           mode="outlined"
           compact
@@ -1829,26 +1820,26 @@ export default function ContabilidadScreen() {
         </Card>
       ) : (
         <>
-          {appliedStoreId !== 'consolidado' && (
-            <View style={styles.viewTabs}>
-              <Chip
-                selected={activeView === 'general'}
-                onPress={() => setActiveView('general')}
-                mode={activeView === 'general' ? 'flat' : 'outlined'}
-                icon="cash-register"
-                style={activeView === 'general' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
-              >
-                Caja General (Safe/Bank)
-              </Chip>
-              <Chip
-                selected={activeView === 'diaria'}
-                onPress={() => setActiveView('diaria')}
-                mode={activeView === 'diaria' ? 'flat' : 'outlined'}
-                icon="cash"
-                style={activeView === 'diaria' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
-              >
-                Caja Diaria (Ventas)
-              </Chip>
+          <View style={styles.viewTabs}>
+            <Chip
+              selected={activeView === 'general'}
+              onPress={() => setActiveView('general')}
+              mode={activeView === 'general' ? 'flat' : 'outlined'}
+              icon="cash-register"
+              style={activeView === 'general' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
+            >
+              Caja General (Safe/Bank)
+            </Chip>
+            <Chip
+              selected={activeView === 'diaria'}
+              onPress={() => setActiveView('diaria')}
+              mode={activeView === 'diaria' ? 'flat' : 'outlined'}
+              icon="cash"
+              style={activeView === 'diaria' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
+            >
+              Caja Diaria (Ventas)
+            </Chip>
+            {isGerente && (
               <Chip
                 selected={activeView === 'rentabilidad'}
                 onPress={() => setActiveView('rentabilidad')}
@@ -1858,8 +1849,8 @@ export default function ContabilidadScreen() {
               >
                 Rentabilidad (P&L)
               </Chip>
-            </View>
-          )}
+            )}
+          </View>
 
           {activeView === 'general' ? (
             <>

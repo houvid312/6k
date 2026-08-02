@@ -1,3 +1,5 @@
+import { PaymentMethod } from '../enums';
+
 export interface PayrollEntry {
   id: string;
   periodId?: string;
@@ -15,4 +17,6 @@ export interface PayrollEntry {
   deductions: number;
   netPay: number;
   notes?: string;
+  paymentMethod?: PaymentMethod;
+  debtPaymentMethod?: PaymentMethod;
 }

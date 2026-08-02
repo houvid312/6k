@@ -1,412 +1,445 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { Card, Text, Chip, Divider, SegmentedButtons, useTheme } from 'react-native-paper';
+import { View, StyleSheet, ScrollView } from 'react-native';
+import { Card, Text, Chip, Divider, TextInput, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { KpiCard } from '../../../src/components/common/KpiCard';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
-import { SalesChart } from '../../../src/components/dashboard/SalesChart';
-import { PortionBreakdown } from '../../../src/components/dashboard/PortionBreakdown';
-import { FoodCostGauge } from '../../../src/components/dashboard/FoodCostGauge';
+import { FlavorDistributionChart, FlavorSegment } from '../../../src/components/dashboard/FlavorDistributionChart';
+import { ProductionCenterDashboard } from '../../../src/components/dashboard/ProductionCenterDashboard';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { formatCOP } from '../../../src/utils/currency';
-import { toISODate, formatDate } from '../../../src/utils/dates';
-import type { ProductMargin } from '../../../src/services/DashboardService';
+import { formatDate, todayColombia } from '../../../src/utils/dates';
 
-const PRODUCT_COLORS = ['#D32F2F', '#FFC107', '#388E3C', '#1976D2', '#7B1FA2', '#F57C00', '#00897B'];
-const DAY_NAMES = ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado'];
+interface MonthRow {
+  monthName: string;
+  monthIndex: number;
+  daysOperated: number;
+  totalUnits: number;
+  dailyAvgUnits: number;
+  totalPesos: number;
+  dailyAvgPesos: number;
+}
+
+const MONTH_NAMES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+];
+
+const FLAVOR_COLORS: Record<string, string> = {
+  'HAWAIANA': '#1E88E5',
+  'JAMON TOCI': '#E53935',
+  'POLLO CHAMPI': '#FFB300',
+  'NAPOLITANA': '#43A047',
+  'JAMON': '#FB8C00',
+  'PEPERONI': '#8E24AA',
+  'MEXICANA': '#00ACC1',
+  'MAICITOS': '#E64A19',
+  'MARGARITA': '#FDD835',
+};
+
+const DEFAULT_COLORS = ['#3949AB', '#D81B60', '#00897B', '#7CB342', '#F4511E', '#5E35B1', '#039BE5'];
 
 export default function DashboardScreen() {
   const theme = useTheme();
-  const { dashboardService, saleService, expenseRepo } = useDI();
-  const { selectedStoreId } = useAppStore();
+  const { saleRepo, productRepo } = useDI();
+  const { selectedStoreId, stores } = useAppStore();
   const { products: cachedProducts } = useMasterDataStore();
 
-  // D1: Period filter
-  type DashPeriod = 'today' | '7d' | '30d';
-  const [dashPeriod, setDashPeriod] = useState<DashPeriod>('7d');
+  const selectedStore = stores.find((s) => s.id === selectedStoreId);
+  const isProductionCenter = selectedStore?.isProductionCenter ?? false;
+
+  const todayStr = todayColombia();
+  const LAUNCH_DATE = '2026-08-01'; // Default launch date for 6K Pizza app
+
+  type FilterPreset = 'launch' | 'month' | 'year' | 'custom';
+  const [filterPreset, setFilterPreset] = useState<FilterPreset>('launch');
+  const [startDateStr, setStartDateStr] = useState<string>(LAUNCH_DATE);
+  const [endDateStr, setEndDateStr] = useState<string>(todayStr);
 
   const [loading, setLoading] = useState(true);
-  const [totalSales, setTotalSales] = useState(0);
-  const [totalPortions, setTotalPortions] = useState(0);
-  const [averageTicket, setAverageTicket] = useState(0);
-  const [foodCost, setFoodCost] = useState(0);
-  const [topProducts, setTopProducts] = useState<{ label: string; value: number }[]>([]);
-  const [salesTrend, setSalesTrend] = useState<{ label: string; value: number }[]>([]);
-  const [portionSegments, setPortionSegments] = useState<{ label: string; value: number; color: string }[]>([]);
+  const [totalDays, setTotalDays] = useState(0);
 
-  // Feature 14: Demand by day of week
-  const [demandByDay, setDemandByDay] = useState<{ label: string; value: number }[]>([]);
-  const [busiestDay, setBusiestDay] = useState('');
+  // Store Totals
+  const [grandTotalUnits, setGrandTotalUnits] = useState(0);
+  const [grandDailyAvgUnits, setGrandDailyAvgUnits] = useState(0);
+  const [grandTotalPesos, setGrandTotalPesos] = useState(0);
+  const [grandDailyAvgPesos, setGrandDailyAvgPesos] = useState(0);
 
-  // Feature 15: Product margins and break-even
-  const [productMargins, setProductMargins] = useState<ProductMargin[]>([]);
-  const [fixedCosts, setFixedCosts] = useState(0);
-  const [avgMarginPerPortion, setAvgMarginPerPortion] = useState(0);
-  const [avgPricePerPortion, setAvgPricePerPortion] = useState(0);
-  const [breakEvenPortions, setBreakEvenPortions] = useState(0);
-  const [breakEvenRevenue, setBreakEvenRevenue] = useState(0);
+  // Tables
+  const [flavorRows, setFlavorRows] = useState<FlavorSegment[]>([]);
+  const [monthRows, setMonthRows] = useState<MonthRow[]>([]);
 
-  const loadData = useCallback(async () => {
+  // Update dates based on filterPreset
+  const applyPreset = (preset: FilterPreset) => {
+    setFilterPreset(preset);
+    const now = new Date();
+    if (preset === 'launch') {
+      setStartDateStr(LAUNCH_DATE);
+      setEndDateStr(todayStr);
+    } else if (preset === 'month') {
+      const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      setStartDateStr(monthStart);
+      setEndDateStr(todayStr);
+    } else if (preset === 'year') {
+      setStartDateStr(`${now.getFullYear()}-01-01`);
+      setEndDateStr(todayStr);
+    }
+  };
+
+  const loadDashboardData = useCallback(async () => {
+    if (!selectedStoreId || isProductionCenter) {
+      setLoading(false);
+      return;
+    }
+
+    const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+    if (!DATE_REGEX.test(startDateStr) || !DATE_REGEX.test(endDateStr)) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      const now = new Date();
-      const endDate = toISODate(now);
-      const today = toISODate(now);
-      // D1: Period-based start date
-      const periodDays = dashPeriod === 'today' ? 0 : dashPeriod === '7d' ? 7 : 30;
-      const startDate = periodDays === 0 ? today : toISODate(new Date(now.getTime() - periodDays * 24 * 60 * 60 * 1000));
+      // Calculate exact operating days between startDateStr and endDateStr
+      const startObj = new Date(`${startDateStr}T00:00:00-05:00`);
+      const endObj = new Date(`${endDateStr}T23:59:59-05:00`);
+      if (isNaN(startObj.getTime()) || isNaN(endObj.getTime())) {
+        setLoading(false);
+        return;
+      }
+      const daysCount = Math.max(1, Math.ceil((endObj.getTime() - startObj.getTime()) / (1000 * 3600 * 24)));
+      setTotalDays(daysCount);
 
-      // Get daily summary for KPIs
-      const summary = await dashboardService.getDailySummary(selectedStoreId, today);
-      setTotalSales(summary.totalRevenue);
-      const salesCount = summary.totalSales;
-      setAverageTicket(salesCount > 0 ? Math.round(summary.totalRevenue / salesCount) : 0);
+      // Get all sales for store in date range
+      const [sales, dbProducts] = await Promise.all([
+        saleRepo.getByDateRange(selectedStoreId, startDateStr, endDateStr),
+        cachedProducts.length > 0 ? cachedProducts : productRepo.getAll(),
+      ]);
 
-      // Food cost
-      const fc = await dashboardService.getFoodCostPercentage(startDate, endDate, selectedStoreId);
-      setFoodCost(fc);
+      const productMap = new Map(dbProducts.map((p) => [p.id, p.name]));
 
-      // Top products
-      const productMap = new Map(cachedProducts.map((p) => [p.id, p.name]));
+      // 1. Calculate Flavor breakdown
+      const flavorMap = new Map<string, { units: number; pesos: number }>();
+      let totalUnitsSum = 0;
+      let totalPesosSum = 0;
 
-      const top = await dashboardService.getTopProducts(selectedStoreId, startDate, endDate, 5);
-      setTopProducts(
-        top.map((t) => ({
-          label: productMap.get(t.productId) ?? t.productId,
-          value: t.totalRevenue,
-        })),
-      );
+      for (const sale of sales) {
+        totalPesosSum += sale.totalAmount;
+        totalUnitsSum += sale.totalPortions;
 
-      // Portion breakdown from top products
-      setPortionSegments(
-        top.map((t, i) => ({
-          label: productMap.get(t.productId) ?? t.productId,
-          value: t.totalQuantity,
-          color: PRODUCT_COLORS[i % PRODUCT_COLORS.length],
-        })),
-      );
+        for (const item of sale.items) {
+          const rawName = productMap.get(item.productId) ?? item.productId;
+          const flavorKey = rawName.toUpperCase();
 
-      // Calculate total portions from all top products
-      const tp = top.reduce((sum, t) => sum + t.totalQuantity, 0);
-      setTotalPortions(tp);
-
-      // Sales trend
-      const trend = await dashboardService.getSalesTrend(selectedStoreId, startDate, endDate);
-      setSalesTrend(
-        trend.map((t) => ({
-          label: t.date.slice(5),
-          value: t.revenue,
-        })),
-      );
-
-      // Feature 14: Demand by day of week (last 30 days)
-      const thirtyDaysAgo = toISODate(new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000));
-      const sales30 = await saleService.getSalesByDateRange(selectedStoreId, thirtyDaysAgo, endDate);
-
-      const dayTotals: number[] = [0, 0, 0, 0, 0, 0, 0];
-      const dayCounts: number[] = [0, 0, 0, 0, 0, 0, 0];
-      const daysWithSales = new Set<string>();
-
-      for (const sale of sales30) {
-        const saleDate = new Date(sale.timestamp);
-        const dayIndex = saleDate.getDay();
-        const dateKey = sale.timestamp.substring(0, 10);
-
-        dayTotals[dayIndex] += sale.totalPortions;
-
-        if (!daysWithSales.has(`${dayIndex}-${dateKey}`)) {
-          daysWithSales.add(`${dayIndex}-${dateKey}`);
-          dayCounts[dayIndex] += 1;
+          const existing = flavorMap.get(flavorKey) ?? { units: 0, pesos: 0 };
+          existing.units += item.quantity || item.portions || 1;
+          existing.pesos += item.subtotal;
+          flavorMap.set(flavorKey, existing);
         }
       }
 
-      const dayData = DAY_NAMES.map((name, i) => ({
-        label: name,
-        value: dayCounts[i] > 0 ? Math.round(dayTotals[i] / dayCounts[i]) : 0,
+      setGrandTotalUnits(totalUnitsSum);
+      setGrandTotalPesos(totalPesosSum);
+
+      const dailyAvgU = daysCount > 0 ? totalUnitsSum / daysCount : 0;
+      const dailyAvgP = daysCount > 0 ? totalPesosSum / daysCount : 0;
+      setGrandDailyAvgUnits(Math.round(dailyAvgU * 10) / 10);
+      setGrandDailyAvgPesos(Math.round(dailyAvgP));
+
+      let colorIdx = 0;
+      const flavors: FlavorSegment[] = Array.from(flavorMap.entries())
+        .map(([name, data]) => {
+          const pct = totalUnitsSum > 0 ? Math.round((data.units / totalUnitsSum) * 1000) / 10 : 0;
+          const color = FLAVOR_COLORS[name] ?? DEFAULT_COLORS[colorIdx++ % DEFAULT_COLORS.length];
+          return {
+            flavorName: name,
+            totalUnits: data.units,
+            dailyAvgUnits: daysCount > 0 ? Math.round((data.units / daysCount) * 10) / 10 : 0,
+            percentage: pct,
+            color,
+          };
+        })
+        .sort((a, b) => b.totalUnits - a.totalUnits);
+
+      setFlavorRows(flavors);
+
+      // 2. Calculate Monthly breakdown (Enero to Diciembre)
+      const currentYear = new Date(startDateStr).getFullYear();
+      const monthBuckets = Array.from({ length: 12 }, (_, idx) => ({
+        monthName: MONTH_NAMES[idx],
+        monthIndex: idx,
+        daysOperated: 0,
+        totalUnits: 0,
+        dailyAvgUnits: 0,
+        totalPesos: 0,
+        dailyAvgPesos: 0,
       }));
-      setDemandByDay(dayData);
 
-      const maxDayValue = Math.max(...dayData.map((d) => d.value));
-      const busiest = dayData.find((d) => d.value === maxDayValue);
-      setBusiestDay(busiest?.label ?? '');
+      // Set days operated for each month in range
+      const now = new Date();
+      for (let m = 0; m < 12; m++) {
+        const daysInM = new Date(currentYear, m + 1, 0).getDate();
+        const currentM = now.getMonth();
+        if (m < currentM) {
+          monthBuckets[m].daysOperated = daysInM;
+        } else if (m === currentM) {
+          monthBuckets[m].daysOperated = Math.max(1, now.getDate());
+        } else {
+          monthBuckets[m].daysOperated = 0;
+        }
+      }
 
-      // Feature 15: Product margins
-      const margins = await dashboardService.getProductMargins(selectedStoreId, thirtyDaysAgo, endDate);
-      setProductMargins(margins);
+      for (const sale of sales) {
+        const sDate = new Date(sale.timestamp);
+        const mIdx = sDate.getMonth();
+        if (mIdx >= 0 && mIdx < 12) {
+          monthBuckets[mIdx].totalUnits += sale.totalPortions;
+          monthBuckets[mIdx].totalPesos += sale.totalAmount;
+        }
+      }
 
-      // Break-even: get fixed costs (Arriendo + Servicios) for the last 30 days
-      const expenses30 = await expenseRepo.getByDateRange(selectedStoreId, thirtyDaysAgo, endDate + 'T23:59:59');
-      const fixedCostCategories = ['Arriendo', 'Servicios', 'arriendo', 'servicios'];
-      const totalFixed = expenses30
-        .filter((e) => fixedCostCategories.includes(e.category))
-        .reduce((sum, e) => sum + e.amount, 0);
-      setFixedCosts(totalFixed);
+      for (const m of monthBuckets) {
+        if (m.daysOperated > 0) {
+          m.dailyAvgUnits = Math.round((m.totalUnits / m.daysOperated) * 10) / 10;
+          m.dailyAvgPesos = Math.round(m.totalPesos / m.daysOperated);
+        }
+      }
 
-      // Average margin and price per portion across all products
-      const totalMargin = margins.reduce((sum, m) => sum + m.margin, 0);
-      const totalPort = margins.reduce((sum, m) => sum + m.portionsSold, 0);
-      const totalRev = margins.reduce((sum, m) => sum + m.revenue, 0);
-
-      const avgMargin = totalPort > 0 ? totalMargin / totalPort : 0;
-      const avgPrice = totalPort > 0 ? totalRev / totalPort : 0;
-      setAvgMarginPerPortion(Math.round(avgMargin));
-      setAvgPricePerPortion(Math.round(avgPrice));
-
-      const bep = avgMargin > 0 ? Math.ceil(totalFixed / avgMargin) : 0;
-      setBreakEvenPortions(bep);
-      setBreakEvenRevenue(Math.round(bep * avgPrice));
-    } catch {
-      // keep defaults
+      setMonthRows(monthBuckets);
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
     } finally {
       setLoading(false);
     }
-  }, [selectedStoreId, dashboardService, cachedProducts, saleService, expenseRepo, dashPeriod]);
+  }, [cachedProducts, endDateStr, isProductionCenter, productRepo, saleRepo, selectedStoreId, startDateStr]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadDashboardData();
+  }, [loadDashboardData]);
 
   if (loading) {
-    return <LoadingIndicator message="Cargando dashboard..." />;
+    return <LoadingIndicator message="Cargando dashboard de analítica..." />;
   }
 
   return (
     <ScreenContainer>
+      {/* Header Controls */}
       <View style={styles.header}>
         <StoreSelector />
-        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-          {formatDate(new Date())}
-        </Text>
       </View>
 
-      {/* D1: Period filter */}
-      <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
-        {([
-          { value: 'today' as DashPeriod, label: 'Hoy' },
-          { value: '7d' as DashPeriod, label: '7 dias' },
-          { value: '30d' as DashPeriod, label: '30 dias' },
-        ]).map((opt) => (
-          <Chip
-            key={opt.value}
-            selected={dashPeriod === opt.value}
-            onPress={() => setDashPeriod(opt.value)}
-            mode="flat"
-            compact
-            style={{
-              backgroundColor: dashPeriod === opt.value ? theme.colors.primary : '#2A2A2A',
-            }}
-            textStyle={{
-              color: dashPeriod === opt.value ? '#FFFFFF' : '#999',
-              fontWeight: dashPeriod === opt.value ? '600' : '400',
-            }}
-            showSelectedOverlay={false}
-          >
-            {opt.label}
-          </Chip>
-        ))}
-      </View>
+      {/* Date Filter Preset Controls */}
+      <Card style={styles.filterCard} mode="outlined">
+        <Card.Content style={{ paddingVertical: 8 }}>
+          <View style={styles.presetContainer}>
+            <Chip
+              selected={filterPreset === 'launch'}
+              onPress={() => applyPreset('launch')}
+              mode="flat"
+              compact
+              style={[styles.filterChip, filterPreset === 'launch' && styles.activeFilterChip]}
+              textStyle={{ fontSize: 11, color: filterPreset === 'launch' ? '#FFF' : '#F5F0EB' }}
+            >
+              🚀 Inicio Op. ({LAUNCH_DATE})
+            </Chip>
+            <Chip
+              selected={filterPreset === 'month'}
+              onPress={() => applyPreset('month')}
+              mode="flat"
+              compact
+              style={[styles.filterChip, filterPreset === 'month' && styles.activeFilterChip]}
+              textStyle={{ fontSize: 11, color: filterPreset === 'month' ? '#FFF' : '#F5F0EB' }}
+            >
+              📅 Mes Actual
+            </Chip>
+            <Chip
+              selected={filterPreset === 'year'}
+              onPress={() => applyPreset('year')}
+              mode="flat"
+              compact
+              style={[styles.filterChip, filterPreset === 'year' && styles.activeFilterChip]}
+              textStyle={{ fontSize: 11, color: filterPreset === 'year' ? '#FFF' : '#F5F0EB' }}
+            >
+              📆 Año Completo
+            </Chip>
+            <Chip
+              selected={filterPreset === 'custom'}
+              onPress={() => setFilterPreset('custom')}
+              mode="flat"
+              compact
+              style={[styles.filterChip, filterPreset === 'custom' && styles.activeFilterChip]}
+              textStyle={{ fontSize: 11, color: filterPreset === 'custom' ? '#FFF' : '#F5F0EB' }}
+            >
+              ✏️ Rango Personalizado
+            </Chip>
+          </View>
 
-      {/* KPI Cards Row 1 */}
-      <View style={styles.kpiRow}>
-        <KpiCard
-          icon="cash"
-          label="Ventas Hoy"
-          value={formatCOP(totalSales)}
-          color="#388E3C"
-        />
-        <KpiCard
-          icon="pizza"
-          label="Porciones"
-          value={String(totalPortions)}
-          color="#F57C00"
-        />
-      </View>
-
-      {/* KPI Cards Row 2 */}
-      <View style={styles.kpiRow}>
-        <KpiCard
-          icon="receipt"
-          label="Ticket Promedio"
-          value={formatCOP(averageTicket)}
-          color="#1976D2"
-        />
-      </View>
-
-      {/* Food Cost Gauge */}
-      <Card style={styles.card} mode="elevated">
-        <Card.Content>
-          <FoodCostGauge percentage={foodCost} />
+          {/* Custom Date Inputs if custom is selected */}
+          {filterPreset === 'custom' && (
+            <View style={styles.customDateRow}>
+              <TextInput
+                label="Desde (AAAA-MM-DD)"
+                value={startDateStr}
+                onChangeText={setStartDateStr}
+                mode="outlined"
+                dense
+                style={styles.dateInput}
+              />
+              <TextInput
+                label="Hasta (AAAA-MM-DD)"
+                value={endDateStr}
+                onChangeText={setEndDateStr}
+                mode="outlined"
+                dense
+                style={styles.dateInput}
+              />
+            </View>
+          )}
         </Card.Content>
       </Card>
 
-      {/* Top Products */}
-      {topProducts.length > 0 && (
-        <Card style={styles.card} mode="elevated">
-          <Card.Content>
-            <SalesChart data={topProducts} title="Top Productos (Semana)" />
-          </Card.Content>
-        </Card>
-      )}
+      {/* STORE MODE (Local 1, Local 2, etc.) */}
+      {!isProductionCenter ? (
+        <ScrollView style={{ flex: 1 }}>
+          {/* 1. Summary KPI Cards Bar */}
+          <View style={styles.kpiRow}>
+            <KpiCard icon="calendar-range" label="Días Operados" value={`${totalDays} días`} color="#2196F3" />
+            <KpiCard icon="pizza" label="Ventas Totales" value={`${grandTotalUnits.toLocaleString()} uds`} color="#FF9800" />
+            <KpiCard icon="speedometer" label="Promedio Diario" value={`${grandDailyAvgUnits} / día`} color="#4CAF50" />
+          </View>
 
-      {/* Portion Breakdown */}
-      {portionSegments.length > 0 && (
-        <Card style={styles.card} mode="elevated">
-          <Card.Content>
-            <PortionBreakdown segments={portionSegments} title="Distribucion de Porciones" />
-          </Card.Content>
-        </Card>
-      )}
+          <View style={styles.kpiRow}>
+            <KpiCard icon="cash-multiple" label="Venta Total COP" value={formatCOP(grandTotalPesos)} color="#9C27B0" />
+            <KpiCard icon="chart-line" label="Promedio COP / Día" value={`${formatCOP(grandDailyAvgPesos)} / día`} color="#00BCD4" />
+          </View>
 
-      {/* Sales Trend */}
-      {salesTrend.length > 0 && (
-        <Card style={styles.card} mode="elevated">
-          <Card.Content>
-            <SalesChart data={salesTrend} title="Tendencia Diaria (Semana)" />
-          </Card.Content>
-        </Card>
-      )}
+          {/* 2. Tabla 1: Desglose por Sabores y Promedios Diarios (Google Sheets Imagen 1) */}
+          <Card style={styles.sectionCard} mode="elevated">
+            <Card.Content>
+              <Text variant="titleMedium" style={styles.cardTitle}>
+                PROMEDIO 6K {(selectedStore?.name ?? 'LOCAL').toUpperCase()} DESDE {formatDate(startDateStr)}
+              </Text>
+              <Text variant="bodySmall" style={styles.cardSubtitle}>
+                Ventas acumuladas y promedio diario calculados en {totalDays} días de operación
+              </Text>
 
-      {/* Feature 14: Demand by Day of Week */}
-      {demandByDay.length > 0 && (
-        <Card style={styles.card} mode="elevated">
-          <Card.Content>
-            <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 12 }}>
-              Demanda por Dia (Ultimos 30 dias)
-            </Text>
-            {demandByDay.map((item, index) => {
-              const maxVal = Math.max(...demandByDay.map((d) => d.value), 1);
-              const widthPercent = (item.value / maxVal) * 100;
-              const isBusiest = item.label === busiestDay;
-              return (
-                <View key={index} style={styles.barRow}>
-                  <Text
-                    variant="labelSmall"
-                    style={[
-                      styles.dayLabel,
-                      { color: isBusiest ? '#E63946' : theme.colors.onSurfaceVariant },
-                      isBusiest && { fontWeight: '700' },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {item.label}
-                  </Text>
-                  <View style={styles.barContainer}>
-                    <View
-                      style={[
-                        styles.bar,
-                        {
-                          width: `${widthPercent}%`,
-                          backgroundColor: isBusiest ? '#E63946' : theme.colors.primary,
-                        },
-                      ]}
-                    />
+              {/* Table Header */}
+              <View style={styles.tableHeader}>
+                <Text style={[styles.colHeader, { flex: 2.2 }]}>SABOR</Text>
+                <Text style={[styles.colHeader, { flex: 1.5, textAlign: 'right' }]}>UNIDADES</Text>
+                <Text style={[styles.colHeader, { flex: 1.5, textAlign: 'right' }]}>PROM. DÍA</Text>
+                <Text style={[styles.colHeader, { flex: 1.2, textAlign: 'right' }]}>% TOTAL</Text>
+              </View>
+
+              {/* Flavor Rows */}
+              {flavorRows.map((row) => (
+                <View key={row.flavorName} style={styles.tableRow}>
+                  <View style={{ flex: 2.2, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: row.color }} />
+                    <Text style={styles.flavorText}>{row.flavorName}</Text>
                   </View>
-                  <Text
-                    variant="labelSmall"
-                    style={[
-                      styles.barValue,
-                      { fontWeight: isBusiest ? '700' : '600' },
-                      isBusiest && { color: '#E63946' },
-                    ]}
-                  >
-                    {item.value}
+                  <Text style={[styles.cellText, { flex: 1.5, textAlign: 'right' }]}>{row.totalUnits.toLocaleString()}</Text>
+                  <Text style={[styles.cellText, { flex: 1.5, textAlign: 'right', fontWeight: 'bold', color: '#4CAF50' }]}>
+                    {row.dailyAvgUnits.toFixed(1)}
+                  </Text>
+                  <Text style={[styles.cellText, { flex: 1.2, textAlign: 'right', fontWeight: '600' }]}>{row.percentage}%</Text>
+                </View>
+              ))}
+
+              {/* Subtotal Row */}
+              <Divider style={styles.divider} />
+              <View style={styles.subtotalRow}>
+                <Text style={[styles.subtotalLabel, { flex: 2.2 }]}>SUBTOTAL UNIDADES</Text>
+                <Text style={[styles.subtotalValue, { flex: 1.5, textAlign: 'right' }]}>{grandTotalUnits.toLocaleString()}</Text>
+                <Text style={[styles.subtotalHighlight, { flex: 1.5, textAlign: 'right' }]}>{grandDailyAvgUnits.toFixed(1)}</Text>
+                <Text style={[styles.subtotalMeta, { flex: 1.2, textAlign: 'right' }]}>pizzas/día</Text>
+              </View>
+
+              <View style={styles.subtotalRow}>
+                <Text style={[styles.subtotalLabel, { flex: 2.2 }]}>SUBTOTAL PESOS</Text>
+                <Text style={[styles.subtotalValue, { flex: 2.2, textAlign: 'right' }]}>{formatCOP(grandTotalPesos)}</Text>
+                <Text style={[styles.subtotalHighlight, { flex: 2.0, textAlign: 'right' }]}>{formatCOP(grandDailyAvgPesos)}/día</Text>
+              </View>
+            </Card.Content>
+          </Card>
+
+          {/* 3. Tabla 2: Comportamiento Mensual (Google Sheets Imagen 2) */}
+          <Card style={styles.sectionCard} mode="elevated">
+            <Card.Content>
+              <Text variant="titleMedium" style={styles.cardTitle}>
+                HISTÓRICO Y COMPORTAMIENTO MENSUAL
+              </Text>
+              <Text variant="bodySmall" style={styles.cardSubtitle}>
+                Ventas totales y promedio diario mes a mes
+              </Text>
+
+              <View style={styles.tableHeader}>
+                <Text style={[styles.colHeader, { flex: 2 }]}>MES / PERIODO</Text>
+                <Text style={[styles.colHeader, { flex: 1.2, textAlign: 'right' }]}>DÍAS</Text>
+                <Text style={[styles.colHeader, { flex: 1.8, textAlign: 'right' }]}>VENTAS UDS</Text>
+                <Text style={[styles.colHeader, { flex: 1.8, textAlign: 'right' }]}>PROMEDIO DÍA</Text>
+                <Text style={[styles.colHeader, { flex: 2.2, textAlign: 'right' }]}>VENTAS COP</Text>
+              </View>
+
+              {/* General Row (YTD Totals) */}
+              <View style={[styles.tableRow, styles.generalRow]}>
+                <Text style={[styles.generalText, { flex: 2 }]}>General (Acumulado)</Text>
+                <Text style={[styles.generalText, { flex: 1.2, textAlign: 'right' }]}>{totalDays}</Text>
+                <Text style={[styles.generalText, { flex: 1.8, textAlign: 'right' }]}>{grandTotalUnits.toLocaleString()}</Text>
+                <Text style={[styles.generalHighlight, { flex: 1.8, textAlign: 'right' }]}>{grandDailyAvgUnits.toFixed(1)}</Text>
+                <Text style={[styles.generalText, { flex: 2.2, textAlign: 'right' }]}>{formatCOP(grandTotalPesos)}</Text>
+              </View>
+
+              {/* Month Rows */}
+              {monthRows.map((m) => (
+                <View key={m.monthName} style={[styles.tableRow, m.daysOperated === 0 && { opacity: 0.35 }]}>
+                  <Text style={[styles.cellText, { flex: 2, fontWeight: '500' }]}>{m.monthName}</Text>
+                  <Text style={[styles.cellText, { flex: 1.2, textAlign: 'right' }]}>{m.daysOperated || '-'}</Text>
+                  <Text style={[styles.cellText, { flex: 1.8, textAlign: 'right' }]}>
+                    {m.daysOperated > 0 ? m.totalUnits.toLocaleString() : '-'}
+                  </Text>
+                  <Text style={[styles.cellText, { flex: 1.8, textAlign: 'right', fontWeight: 'bold', color: '#4CAF50' }]}>
+                    {m.daysOperated > 0 ? m.dailyAvgUnits.toFixed(1) : '-'}
+                  </Text>
+                  <Text style={[styles.cellText, { flex: 2.2, textAlign: 'right' }]}>
+                    {m.daysOperated > 0 ? formatCOP(m.totalPesos) : '-'}
                   </Text>
                 </View>
-              );
-            })}
-          </Card.Content>
-        </Card>
-      )}
+              ))}
+            </Card.Content>
+          </Card>
 
-      {/* Feature 15: Product Margins */}
-      {productMargins.length > 0 && (
-        <Card style={styles.card} mode="elevated">
-          <Card.Content>
-            <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 12 }}>
-              Margenes por Producto
-            </Text>
-            {/* Header row */}
-            <View style={styles.marginHeader}>
-              <Text variant="labelSmall" style={[styles.marginColName, { color: theme.colors.onSurfaceVariant }]}>
-                Producto
+          {/* 4. Gráfico 3: Distribución de Sabores (%) (Google Sheets Imagen 3) */}
+          <Card style={styles.sectionCard} mode="elevated">
+            <Card.Content>
+              <Text variant="titleMedium" style={styles.cardTitle}>
+                DISTRIBUCIÓN DE SABORES DESDE {formatDate(startDateStr)}
               </Text>
-              <Text variant="labelSmall" style={[styles.marginColNum, { color: theme.colors.onSurfaceVariant }]}>
-                Ingreso
+              <Text variant="bodySmall" style={styles.cardSubtitle}>
+                Participación porcentual sobre el volumen total de ventas
               </Text>
-              <Text variant="labelSmall" style={[styles.marginColNum, { color: theme.colors.onSurfaceVariant }]}>
-                Costo
-              </Text>
-              <Text variant="labelSmall" style={[styles.marginColNum, { color: theme.colors.onSurfaceVariant }]}>
-                Margen
-              </Text>
-              <Text variant="labelSmall" style={[styles.marginColPct, { color: theme.colors.onSurfaceVariant }]}>
-                %
-              </Text>
-            </View>
-            <Divider style={{ marginBottom: 6 }} />
-            {productMargins.map((pm) => {
-              const marginColor = pm.marginPercent > 40 ? '#388E3C' : pm.marginPercent >= 20 ? '#F57C00' : '#D32F2F';
-              return (
-                <View key={pm.productId} style={styles.marginRow}>
-                  <Text variant="labelSmall" style={styles.marginColName} numberOfLines={1}>
-                    {pm.productName}
-                  </Text>
-                  <Text variant="labelSmall" style={styles.marginColNum}>
-                    {formatCOP(pm.revenue)}
-                  </Text>
-                  <Text variant="labelSmall" style={styles.marginColNum}>
-                    {formatCOP(pm.ingredientCost)}
-                  </Text>
-                  <Text variant="labelSmall" style={[styles.marginColNum, { color: marginColor, fontWeight: '600' }]}>
-                    {formatCOP(pm.margin)}
-                  </Text>
-                  <Text variant="labelSmall" style={[styles.marginColPct, { color: marginColor, fontWeight: '700' }]}>
-                    {pm.marginPercent}%
-                  </Text>
-                </View>
-              );
-            })}
-          </Card.Content>
-        </Card>
-      )}
 
-      {/* Feature 15: Break-Even Point */}
-      {fixedCosts > 0 && avgMarginPerPortion > 0 && (
-        <Card style={styles.card} mode="elevated">
-          <Card.Content>
-            <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 12 }}>
-              Punto de Equilibrio
-            </Text>
-            <View style={styles.breakEvenRow}>
-              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                Costos fijos mensuales (Arriendo + Servicios):
-              </Text>
-              <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
-                {formatCOP(fixedCosts)}
-              </Text>
-            </View>
-            <View style={styles.breakEvenRow}>
-              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                Margen promedio por porcion:
-              </Text>
-              <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
-                {formatCOP(avgMarginPerPortion)}
-              </Text>
-            </View>
-            <Divider style={{ marginVertical: 10 }} />
-            <View style={[styles.breakEvenHighlight, { backgroundColor: '#E6394610' }]}>
-              <Text variant="bodyMedium" style={{ fontWeight: '700', color: '#E63946', textAlign: 'center' }}>
-                Necesitas vender {breakEvenPortions} porciones ({formatCOP(breakEvenRevenue)}) para cubrir costos fijos
-              </Text>
-            </View>
-          </Card.Content>
-        </Card>
-      )}
+              <FlavorDistributionChart segments={flavorRows} />
+            </Card.Content>
+          </Card>
 
-      <View style={{ height: 80 }} />
+          <View style={{ height: 80 }} />
+        </ScrollView>
+      ) : (
+        /* PRODUCTION CENTER MODE */
+        <ScrollView style={{ flex: 1 }}>
+          <ProductionCenterDashboard
+            storeId={selectedStoreId}
+            startDate={startDateStr}
+            endDate={endDateStr}
+            totalDays={totalDays}
+          />
+          <View style={{ height: 80 }} />
+        </ScrollView>
+      )}
     </ScreenContainer>
   );
 }
@@ -416,77 +449,123 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 8,
+  },
+  filterCard: {
+    backgroundColor: '#1E1E1E',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    marginBottom: 10,
+  },
+  presetContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  filterChip: {
+    backgroundColor: '#2A2A2A',
+  },
+  activeFilterChip: {
+    backgroundColor: '#E63946',
+  },
+  customDateRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  dateInput: {
+    flex: 1,
+    height: 40,
+    fontSize: 12,
   },
   kpiRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 12,
+    gap: 8,
+    marginBottom: 10,
   },
-  card: {
+  sectionCard: {
+    backgroundColor: '#1E1E1E',
     borderRadius: 12,
     marginBottom: 12,
   },
-  // Feature 14: Demand by day
-  barRow: {
+  cardTitle: {
+    fontWeight: 'bold',
+    color: '#F5F0EB',
+    marginBottom: 2,
+  },
+  cardSubtitle: {
+    color: 'rgba(245, 240, 235, 0.6)',
+    marginBottom: 12,
+  },
+  tableHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  dayLabel: {
-    width: 80,
-    marginRight: 8,
-  },
-  barContainer: {
-    flex: 1,
-    height: 20,
-    backgroundColor: '#F0F0F0',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  bar: {
-    height: 20,
-    borderRadius: 4,
-  },
-  barValue: {
-    width: 40,
-    textAlign: 'right',
-    marginLeft: 8,
-  },
-  // Feature 15: Margins table
-  marginHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  marginRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 5,
-  },
-  marginColName: {
-    flex: 2,
-    marginRight: 4,
-  },
-  marginColNum: {
-    flex: 1.5,
-    textAlign: 'right',
-    marginRight: 4,
+  colHeader: {
     fontSize: 11,
+    fontWeight: 'bold',
+    color: 'rgba(245, 240, 235, 0.7)',
   },
-  marginColPct: {
-    width: 40,
-    textAlign: 'right',
-  },
-  // Feature 15: Break-even
-  breakEvenRow: {
+  tableRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
   },
-  breakEvenHighlight: {
-    padding: 12,
-    borderRadius: 8,
+  generalRow: {
+    backgroundColor: 'rgba(230, 57, 70, 0.12)',
+    paddingHorizontal: 6,
+    borderRadius: 6,
+    marginVertical: 4,
+  },
+  generalText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#F5F0EB',
+  },
+  generalHighlight: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#E63946',
+  },
+  flavorText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#F5F0EB',
+  },
+  cellText: {
+    fontSize: 12,
+    color: '#F5F0EB',
+  },
+  divider: {
+    marginVertical: 8,
+    backgroundColor: '#E63946',
+    height: 2,
+  },
+  subtotalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  subtotalLabel: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#F5F0EB',
+  },
+  subtotalValue: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#F5F0EB',
+  },
+  subtotalHighlight: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#E63946',
+  },
+  subtotalMeta: {
+    fontSize: 11,
+    color: 'rgba(245, 240, 235, 0.6)',
   },
 });

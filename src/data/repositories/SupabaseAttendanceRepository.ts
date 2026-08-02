@@ -141,4 +141,9 @@ export class SupabaseAttendanceRepository implements IAttendanceRepository {
     if (error) throw error;
     return toEntity(data as AttendanceRow);
   }
+
+  async delete(id: string): Promise<void> {
+    const { error } = await supabase.from('attendance').delete().eq('id', id);
+    if (error) throw error;
+  }
 }

@@ -72,6 +72,7 @@ export default function InventarioLayout() {
         }}
       />
       <Stack.Screen name="ajustes" options={{ title: 'Ajustes e Inicialización' }} />
+      <Stack.Screen name="sedes" options={{ title: 'Gestión de Sedes' }} />
       <Stack.Screen name="productos" options={{ title: 'Catálogo de Productos' }} />
     </Stack>
   );

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
+import { router } from 'expo-router';
 import { Card, Text, TextInput, Button, Divider, IconButton, Snackbar, Portal, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
@@ -10,7 +11,7 @@ import { useAppStore } from '../../../src/stores/useAppStore';
 import { useSnackbar } from '../../../src/hooks';
 import { Product } from '../../../src/domain/entities/Product';
 import { Recipe } from '../../../src/domain/entities/Recipe';
-import { InventoryLevel } from '../../../src/domain/enums';
+import { InventoryLevel, UserRole } from '../../../src/domain/enums';
 
 interface EditableIngredient {
   supplyId: string;
@@ -27,7 +28,8 @@ export default function RecetasScreen() {
   const theme = useTheme();
   const { recipeRepo, inventoryService } = useDI();
   const { products: cachedProducts, supplies, refreshMasterData } = useMasterDataStore();
-  const { selectedStoreId } = useAppStore();
+  const { selectedStoreId, userRole } = useAppStore();
+  const isCanEditRecipe = userRole === UserRole.GERENTE || userRole === UserRole.RODY;
 
   const [loading, setLoading] = useState(true);
   const [cards, setCards] = useState<RecipeCardState[]>([]);
@@ -38,8 +40,12 @@ export default function RecetasScreen() {
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   useEffect(() => {
+    if (!isCanEditRecipe) {
+      router.replace('/(tabs)/inventario');
+      return;
+    }
     refreshMasterData();
-  }, [refreshMasterData]);
+  }, [isCanEditRecipe, refreshMasterData]);
 
   // Cargar insumos disponibles en nivel STORE para el picker
   useEffect(() => {
@@ -169,12 +175,14 @@ export default function RecetasScreen() {
               {card.ingredients.length} insumos por porción
             </Text>
           </View>
-          <IconButton
-            icon="pencil"
-            size={20}
-            iconColor="#D4A843"
-            onPress={() => startEditing(card)}
-          />
+          {isCanEditRecipe && (
+            <IconButton
+              icon="pencil"
+              size={20}
+              iconColor="#D4A843"
+              onPress={() => startEditing(card)}
+            />
+          )}
         </View>
 
         <Divider style={{ backgroundColor: '#333', marginVertical: 8 }} />

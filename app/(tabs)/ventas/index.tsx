@@ -2075,7 +2075,13 @@ export default function VentasScreen() {
               <View style={{ marginBottom: 12 }}>
                 <SearchableSelect
                   options={workers
-                    .filter((w) => w.isActive)
+                    .filter((w) => {
+                      if (!w.isActive) return false;
+                      if ([UserRole.GERENTE, UserRole.RODY].includes(userRole)) return true;
+                      if (!w.storeIds || w.storeIds.length === 0) return true;
+                      const userStoreIds = useAppStore.getState().storeIds;
+                      return w.storeIds.some((id) => id === selectedStoreId || userStoreIds.includes(id));
+                    })
                     .map((w) => ({ value: w.id, label: w.name, subtitle: w.role }))}
                   selectedValue={salidaWorkerId}
                   placeholder="Seleccionar Trabajador"

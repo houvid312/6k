@@ -9,24 +9,35 @@ import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
+import { UserRole } from '../../../src/domain/enums';
 import { SupplyRequirement } from '../../../src/services/DemandEstimationService';
 import { nowColombia } from '../../../src/utils/dates';
 import { formatCOP } from '../../../src/utils/currency';
 
 const DAY_OPTIONS = [
-  { value: '1', label: 'Lun' },
-  { value: '2', label: 'Mar' },
-  { value: '3', label: 'Mie' },
-  { value: '4', label: 'Jue' },
-  { value: '5', label: 'Vie' },
-  { value: '6', label: 'Sab' },
-  { value: '0', label: 'Dom' },
+  { value: 1, label: 'Lun' },
+  { value: 2, label: 'Mar' },
+  { value: 3, label: 'Mie' },
+  { value: 4, label: 'Jue' },
+  { value: 5, label: 'Vie' },
+  { value: 6, label: 'Sab' },
+  { value: 0, label: 'Dom' },
 ];
 
-function getTomorrowDay(): string {
+const DAY_FULL_NAMES: Record<number, string> = {
+  1: 'Lunes',
+  2: 'Martes',
+  3: 'Miércoles',
+  4: 'Jueves',
+  5: 'Viernes',
+  6: 'Sábado',
+  0: 'Domingo',
+};
+
+function getTomorrowDayNum(): number {
   const tomorrow = nowColombia();
   tomorrow.setDate(tomorrow.getDate() + 1);
-  return String(tomorrow.getDay());
+  return tomorrow.getDay();
 }
 
 function parseBagCount(value?: string): number {
@@ -37,11 +48,11 @@ function parseBagCount(value?: string): number {
 export default function SugerenciaEnvioScreen() {
   const theme = useTheme();
   const { demandEstimationService, transferService } = useDI();
-  const { selectedStoreId, stores } = useAppStore();
+  const { selectedStoreId, stores, userRole } = useAppStore();
   const { supplies, refreshMasterData } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
-  const [selectedDay, setSelectedDay] = useState<string>(getTomorrowDay());
+  const [selectedDays, setSelectedDays] = useState<number[]>([getTomorrowDayNum()]);
   const [requirements, setRequirements] = useState<SupplyRequirement[]>([]);
   const [editableBags, setEditableBags] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -49,8 +60,12 @@ export default function SugerenciaEnvioScreen() {
   const [calculated, setCalculated] = useState(false);
 
   React.useEffect(() => {
+    if (userRole === UserRole.RODY) {
+      router.replace('/(tabs)/inventario/traslados');
+      return;
+    }
     refreshMasterData();
-  }, [refreshMasterData]);
+  }, [userRole, refreshMasterData]);
 
   const supplyMap = new Map(supplies.map((s) => [s.id, s]));
 
@@ -62,9 +77,39 @@ export default function SugerenciaEnvioScreen() {
     return sum + bags * unitPrice;
   }, 0);
 
+  const toggleDay = (dayVal: number) => {
+    if (selectedDays.includes(dayVal)) {
+      if (selectedDays.length > 1) {
+        setSelectedDays(selectedDays.filter((d) => d !== dayVal));
+      }
+    } else {
+      setSelectedDays([...selectedDays, dayVal]);
+    }
+  };
+
+  const applyPreset = (preset: '1' | '2' | 'weekend') => {
+    const tom = getTomorrowDayNum();
+    if (preset === '1') {
+      setSelectedDays([tom]);
+    } else if (preset === '2') {
+      setSelectedDays([tom, (tom + 1) % 7]);
+    } else if (preset === 'weekend') {
+      setSelectedDays([5, 6, 0]); // Vie, Sáb, Dom
+    }
+  };
+
+  const coverageText = selectedDays
+    .map((d) => DAY_FULL_NAMES[d])
+    .join(', ');
+
   const handleCalculate = useCallback(async () => {
     if (!selectedStoreId) {
       showError('Selecciona un local');
+      return;
+    }
+
+    if (selectedDays.length === 0) {
+      showError('Selecciona al menos un día');
       return;
     }
 
@@ -72,7 +117,7 @@ export default function SugerenciaEnvioScreen() {
     try {
       const result = await demandEstimationService.generateSuggestedTransfer(
         selectedStoreId,
-        Number(selectedDay),
+        selectedDays,
       );
       setRequirements(result);
       const bags: Record<string, string> = {};
@@ -89,7 +134,7 @@ export default function SugerenciaEnvioScreen() {
     } finally {
       setLoading(false);
     }
-  }, [selectedStoreId, selectedDay, demandEstimationService, showSuccess, showError]);
+  }, [selectedStoreId, selectedDays, demandEstimationService, showSuccess, showError]);
 
   const handleCreateTransfer = useCallback(async () => {
     if (!selectedStoreId) {
@@ -133,37 +178,62 @@ export default function SugerenciaEnvioScreen() {
         Sugerencia de Envio
       </Text>
       <Text variant="bodySmall" style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]}>
-        Calculo automatico basado en demanda estimada e inventario actual
+        Calculo automatico acumulado para 1, 2 o mas dias de operacion.
       </Text>
 
       <StoreSelector />
 
       <Text variant="bodyMedium" style={{ fontWeight: '600', marginTop: 16, marginBottom: 8, color: theme.colors.onBackground }}>
-        Dia de la semana:
+        Periodo de Cobertura Deseado:
       </Text>
+
+      {/* Access Presets */}
+      <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
+        <Chip compact onPress={() => applyPreset('1')} style={{ backgroundColor: '#252525' }} textStyle={{ color: '#FFF', fontSize: 11 }}>
+          ⚡ 1 Día (Mañana)
+        </Chip>
+        <Chip compact onPress={() => applyPreset('2')} style={{ backgroundColor: '#252525' }} textStyle={{ color: '#FFF', fontSize: 11 }}>
+          📅 2 Días
+        </Chip>
+        <Chip compact onPress={() => applyPreset('weekend')} style={{ backgroundColor: '#252525' }} textStyle={{ color: '#FFF', fontSize: 11 }}>
+          🍕 3 Días (Fin de Semana)
+        </Chip>
+      </View>
+
+      {/* Multi-Day Selection Chips */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dayScroll}>
         <View style={styles.dayRow}>
-          {DAY_OPTIONS.map((day) => (
-            <Chip
-              key={day.value}
-              selected={selectedDay === day.value}
-              onPress={() => setSelectedDay(day.value)}
-              mode="flat"
-              style={[
-                styles.dayChip,
-                selectedDay === day.value && { backgroundColor: '#E63946' },
-              ]}
-              textStyle={{
-                color: selectedDay === day.value ? '#FFFFFF' : '#F5F0EB',
-                fontWeight: selectedDay === day.value ? '700' : '400',
-              }}
-              showSelectedOverlay={false}
-            >
-              {day.label}
-            </Chip>
-          ))}
+          {DAY_OPTIONS.map((day) => {
+            const isSelected = selectedDays.includes(day.value);
+            return (
+              <Chip
+                key={day.value}
+                selected={isSelected}
+                onPress={() => toggleDay(day.value)}
+                mode="flat"
+                style={[
+                  styles.dayChip,
+                  isSelected && { backgroundColor: '#E63946' },
+                ]}
+                textStyle={{
+                  color: isSelected ? '#FFFFFF' : '#F5F0EB',
+                  fontWeight: isSelected ? '700' : '400',
+                }}
+                showSelectedOverlay={false}
+              >
+                {day.label}
+              </Chip>
+            );
+          })}
         </View>
       </ScrollView>
+
+      <View style={{ backgroundColor: '#1E1E1E', padding: 8, borderRadius: 8, marginTop: 8, marginBottom: 12 }}>
+        <Text style={{ fontSize: 11, color: '#FFC107' }}>
+          📌 Cobertura seleccionada ({selectedDays.length} {selectedDays.length === 1 ? 'día' : 'días'}):{' '}
+          <Text style={{ fontWeight: '700', color: '#FFF' }}>{coverageText}</Text>
+        </Text>
+      </View>
 
       <Button
         mode="contained"
@@ -174,7 +244,7 @@ export default function SugerenciaEnvioScreen() {
         style={styles.calcBtn}
         buttonColor="#E63946"
       >
-        Calcular Sugerencia
+        Calcular Sugerencia ({selectedDays.length} {selectedDays.length === 1 ? 'Día' : 'Días'})
       </Button>
 
       {calculated && requirements.length === 0 ? (

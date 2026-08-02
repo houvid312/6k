@@ -146,27 +146,40 @@ export class PayrollService {
       if (paidPeriod) return paidPeriod;
     }
 
-    const closedPeriod = report.periodId
-      ? await this.saveReport(report, 'CERRADA')
-      : await this.saveReport(report, 'CERRADA');
+    const closedPeriod = await this.saveReport(report, 'CERRADA');
     const entries = await this.payrollRepo.getEntries(closedPeriod.id);
     const paymentDate = todayColombia();
 
-    const expense = await this.expenseRepo.create({
-      storeId: report.storeId,
-      date: paymentDate,
-      category: 'Nomina',
-      description: `Nomina ${report.periodStart} a ${report.periodEnd}`,
-      amount: closedPeriod.totalGross,
-      paymentMethod: PaymentMethod.EFECTIVO,
-      isFixed: true,
-    });
-
     for (const entry of entries) {
-      await this.applyDebtDeduction(entry, closedPeriod, paymentDate);
+      const workerPayMethod = entry.paymentMethod ?? PaymentMethod.EFECTIVO;
+      const debtPayMethod = entry.debtPaymentMethod ?? workerPayMethod;
+
+      if (entry.grossPay > 0) {
+        await this.expenseRepo.create({
+          storeId: report.storeId,
+          date: paymentDate,
+          category: 'Nomina',
+          description: `Nomina ${report.periodStart} a ${report.periodEnd}`,
+          amount: entry.grossPay,
+          paymentMethod: workerPayMethod,
+          isFixed: true,
+        });
+      }
+
+      if (entry.debtDeduction > 0) {
+        await this.applyDebtDeduction(entry, closedPeriod, paymentDate, debtPayMethod);
+      }
     }
 
-    return this.payrollRepo.markPaid(closedPeriod.id, expense.id);
+    return this.payrollRepo.markPaid(closedPeriod.id);
+  }
+
+  async deletePeriod(periodId: string): Promise<void> {
+    await this.payrollRepo.deletePeriod(periodId);
+  }
+
+  async getPeriodsByStore(storeId: string): Promise<PayrollPeriod[]> {
+    return this.payrollRepo.getPeriodsByStore(storeId);
   }
 
   private async buildReportFromPeriod(period: PayrollPeriod): Promise<PayrollReport> {
@@ -198,6 +211,7 @@ export class PayrollService {
     entry: PayrollEntry,
     period: PayrollPeriod,
     paymentDate: string,
+    paymentMethod: PaymentMethod = PaymentMethod.EFECTIVO,
   ): Promise<void> {
     let remaining = entry.debtDeduction;
     if (remaining <= 0) return;
@@ -219,7 +233,8 @@ export class PayrollService {
         amount,
         date: paymentDate,
         source: 'PAYROLL',
-        notes: `Descuento de nomina ${period.startDate} a ${period.endDate}`,
+        notes: `Descuento de nomina (${credit.concept})`,
+        paymentMethod,
       });
       remaining -= amount;
     }
