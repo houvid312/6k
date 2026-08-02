@@ -40,9 +40,10 @@ import {
 } from '../../../src/domain/enums';
 import { supabase } from '../../../src/lib/supabase';
 import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
+import { CalendarPickerModal } from '../../../src/components/common/CalendarPickerModal';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { formatCOP } from '../../../src/utils/currency';
-import { colombiaDateRangeToUtc, formatDate, todayColombia } from '../../../src/utils/dates';
+import { colombiaDateRangeToUtc, formatDate, todayColombia, toISODate } from '../../../src/utils/dates';
 
 export default function VentasScreen() {
   const theme = useTheme();
@@ -53,6 +54,8 @@ export default function VentasScreen() {
     cart,
     cartPackagingSupplyId,
     pendingSales,
+    salesDate,
+    setSalesDate,
     addToCart,
     removeFromCart,
     updateQuantity,
@@ -68,20 +71,22 @@ export default function VentasScreen() {
   // V5: Calculadora de cambio
   const [amountReceived, setAmountReceived] = useState(0);
 
-  // V1: Check if cash opening exists for today (re-check on focus return)
+  const isGerente = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
+  const [calendarVisible, setCalendarVisible] = useState(false);
+
+  // V1: Check if cash opening exists for selected salesDate (re-check on focus return)
   const [needsOpening, setNeedsOpening] = useState(false);
   useEffect(() => {
     if (!selectedStoreId) return;
     (async () => {
       try {
-        const today = todayColombia();
-        const hasOpening = await cashClosingService.hasOpeningForToday(selectedStoreId, today);
+        const hasOpening = await cashClosingService.hasOpeningForToday(selectedStoreId, salesDate);
         setNeedsOpening(!hasOpening);
       } catch {
         setNeedsOpening(false);
       }
     })();
-  }, [selectedStoreId, cashClosingService, pathname]);
+  }, [selectedStoreId, salesDate, cashClosingService, pathname]);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
@@ -925,6 +930,9 @@ export default function VentasScreen() {
         .map((c) => `${c.productName}: ${c.customerNote.trim()}`)
         .join(' | ');
       const customerNoteForSubmit = customerNotes || previousSale?.customerNote || undefined;
+      const customTimestamp = salesDate !== todayColombia()
+        ? `${salesDate}T${new Date().toTimeString().slice(0, 8)}-05:00`
+        : undefined;
 
       const sale = previousSale
         ? await saleService.updateSale(
@@ -943,6 +951,7 @@ export default function VentasScreen() {
             debtorType || undefined,
             debtorWorkerId || undefined,
             debtorCustomerId || undefined,
+            customTimestamp,
           )
         : await saleService.createSale(
             selectedStoreId,
@@ -959,6 +968,7 @@ export default function VentasScreen() {
             debtorType || undefined,
             debtorWorkerId || undefined,
             debtorCustomerId || undefined,
+            customTimestamp,
           );
 
       const totalPortions = submittedCart.reduce((sum, i) => sum + i.portions, 0);
@@ -1101,10 +1111,35 @@ export default function VentasScreen() {
       <View style={{ paddingHorizontal: 12, paddingTop: 12, backgroundColor: theme.colors.background }}>
         <View style={styles.headerRow}>
           <StoreSelector excludeProductionCenter />
-          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-            {formatDate(new Date())}
-          </Text>
+          {isGerente ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Chip
+                compact
+                icon="calendar-edit"
+                onPress={() => setCalendarVisible(true)}
+                style={{ backgroundColor: salesDate !== todayColombia() ? '#D32F2F' : '#2A2A2A' }}
+                textStyle={{ color: '#FFF', fontSize: 11, fontWeight: '700' }}
+              >
+                {salesDate === todayColombia() ? '⚡ Hoy' : `🗓️ ${formatDate(salesDate)}`}
+              </Chip>
+            </View>
+          ) : (
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+              {formatDate(new Date())}
+            </Text>
+          )}
         </View>
+
+        {isGerente && salesDate !== todayColombia() && (
+          <View style={{ backgroundColor: '#B71C1C', padding: 6, paddingHorizontal: 10, borderRadius: 8, marginTop: 4, marginBottom: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ color: '#FFF', fontSize: 11, fontWeight: '700', flex: 1 }}>
+              ⚠️ MODO RETROACTIVO: Registrando ventas para {formatDate(salesDate)} ({salesDate})
+            </Text>
+            <Button compact mode="text" labelStyle={{ color: '#FFF', fontSize: 10, fontWeight: '700' }} onPress={() => setSalesDate(todayColombia())}>
+              Volver a Hoy
+            </Button>
+          </View>
+        )}
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4, flexGrow: 0 }}>
           <View style={styles.navRow}>
@@ -1145,9 +1180,9 @@ export default function VentasScreen() {
               mode="outlined"
               icon="cash-lock"
               compact
-              onPress={() => router.push('/(tabs)/ventas/cierre-caja')}
+              onPress={() => router.push(`/(tabs)/ventas/cierre-caja?date=${salesDate}` as any)}
             >
-              Cierre
+              Cierre ({salesDate === todayColombia() ? 'Hoy' : salesDate})
             </Button>
             <Button
               mode="outlined"
@@ -1181,10 +1216,10 @@ export default function VentasScreen() {
             <Card.Content style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <View style={{ flex: 1 }}>
                 <Text variant="titleSmall" style={{ fontWeight: '700', color: '#F57C00' }}>
-                  Caja sin abrir
+                  Caja sin abrir ({salesDate === todayColombia() ? 'Hoy' : formatDate(salesDate)})
                 </Text>
                 <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  Registra la base de efectivo del turno
+                  Registra la base de efectivo del turno para la fecha {salesDate}
                 </Text>
               </View>
               <Button
@@ -1193,7 +1228,7 @@ export default function VentasScreen() {
                 buttonColor="#F57C00"
                 textColor="#FFFFFF"
                 icon="cash-register"
-                onPress={() => router.push('/(tabs)/ventas/apertura-caja')}
+                onPress={() => router.push(`/(tabs)/ventas/apertura-caja?date=${salesDate}` as any)}
               >
                 Abrir Caja
               </Button>
@@ -2201,6 +2236,16 @@ export default function VentasScreen() {
           </View>
         </Modal>
       </Portal>
+
+      <CalendarPickerModal
+        visible={calendarVisible}
+        onDismiss={() => setCalendarVisible(false)}
+        onSelect={(date: string) => {
+          setSalesDate(date);
+          setCalendarVisible(false);
+        }}
+        selectedDate={salesDate}
+      />
 
       {/* Feedback toast — top of screen */}
       {snackbar.visible && (

@@ -1,14 +1,14 @@
 import React, { useState, useCallback } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { Text, Button, Card, useTheme, Snackbar } from 'react-native-paper';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { DenominationCounter } from '../../../src/components/ventas/DenominationCounter';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { DenominationCount } from '../../../src/domain/entities';
-import { todayColombia } from '../../../src/utils/dates';
+import { todayColombia, formatDate } from '../../../src/utils/dates';
 import { formatCOP } from '../../../src/utils/currency';
 
 const EMPTY_DENOMINATIONS: DenominationCount = {
@@ -23,6 +23,8 @@ const EMPTY_DENOMINATIONS: DenominationCount = {
 
 export default function AperturaCajaScreen() {
   const theme = useTheme();
+  const params = useLocalSearchParams<{ date?: string }>();
+  const activeDate = params.date || todayColombia();
   const { cashClosingService } = useDI();
   const { selectedStoreId, userId } = useAppStore();
 
@@ -44,21 +46,20 @@ export default function AperturaCajaScreen() {
     if (!selectedStoreId) return;
     setSubmitting(true);
     try {
-      const today = todayColombia();
-      await cashClosingService.createOpening(selectedStoreId, today, denominations, userId || undefined);
-      setSnackbar({ visible: true, success: true, message: `Caja abierta con base de ${formatCOP(total)}` });
+      await cashClosingService.createOpening(selectedStoreId, activeDate, denominations, userId || undefined);
+      setSnackbar({ visible: true, success: true, message: `Caja abierta (${formatDate(activeDate)}) con base de ${formatCOP(total)}` });
       setTimeout(() => {
         router.replace('/(tabs)/ventas');
       }, 1000);
     } catch (error: any) {
       const msg = error?.message?.includes('duplicate')
-        ? 'Ya existe una apertura para hoy en este local'
+        ? `Ya existe una apertura para la fecha ${activeDate} en este local`
         : 'Error al registrar la apertura';
       setSnackbar({ visible: true, success: false, message: msg });
     } finally {
       setSubmitting(false);
     }
-  }, [selectedStoreId, denominations, total, userId, cashClosingService]);
+  }, [selectedStoreId, activeDate, denominations, total, userId, cashClosingService]);
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]} contentContainerStyle={styles.content}>

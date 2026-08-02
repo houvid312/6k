@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, Card, Button, Chip, Divider, IconButton, Portal, Snackbar, useTheme } from 'react-native-paper';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
@@ -23,6 +23,8 @@ const STATUS_CONFIG: Record<ClosingStatus, { label: string; color: string; icon:
 
 export default function CierreCajaScreen() {
   const theme = useTheme();
+  const params = useLocalSearchParams<{ date?: string }>();
+  const activeDate = params.date || todayColombia();
   const { cashClosingService, expenseRepo } = useDI();
   const { selectedStoreId, userRole } = useAppStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
@@ -46,7 +48,6 @@ export default function CierreCajaScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [existingClosing, setExistingClosing] = useState<CashClosing | null>(null);
 
-  const today = todayColombia();
   const actualTotal = getTotal();
   const discrepancy = actualTotal - cashBase - (expectedTotal - totalCredit - expenses);
   const isAdmin = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
@@ -57,15 +58,15 @@ export default function CierreCajaScreen() {
     setCurrentStore(selectedStoreId);
     (async () => {
       try {
-        const summary = await cashClosingService.getDailyExpected(selectedStoreId, today);
-        const existing = await cashClosingService.getClosingByDate(selectedStoreId, today);
+        const summary = await cashClosingService.getDailyExpected(selectedStoreId, activeDate);
+        const existing = await cashClosingService.getClosingByDate(selectedStoreId, activeDate);
         setExistingClosing(existing);
         setTotalCredit(summary.totalCreditAmount ?? 0);
 
-        // Auto-load expenses from today (Compra Turno, etc.)
+        // Auto-load expenses from activeDate (Compra Turno, etc.)
         let totalExpenses = 0;
         try {
-          const dbExpenses = await expenseRepo.getByDateRange(selectedStoreId, today, today + 'T23:59:59');
+          const dbExpenses = await expenseRepo.getByDateRange(selectedStoreId, activeDate, activeDate + 'T23:59:59');
           setDayExpenses(dbExpenses);
           const cashExpenses = dbExpenses.filter(e => e.paymentMethod === PaymentMethod.EFECTIVO);
           totalExpenses = cashExpenses.reduce((sum, e) => sum + e.amount, 0);
@@ -73,7 +74,7 @@ export default function CierreCajaScreen() {
 
         // Auto-load opening base
         try {
-          const opening = await cashClosingService.getOpeningByDate(selectedStoreId, today);
+          const opening = await cashClosingService.getOpeningByDate(selectedStoreId, activeDate);
           if (opening) setCashBase(opening.total);
         } catch { /* ignore */ }
 
@@ -96,7 +97,7 @@ export default function CierreCajaScreen() {
         setTotalCredit(0);
       }
     })();
-  }, [selectedStoreId, today, cashClosingService, expenseRepo, setBankTotal, setCashBase, setDenomination, setExpenses, setCurrentStore]);
+  }, [selectedStoreId, activeDate, cashClosingService, expenseRepo, setBankTotal, setCashBase, setDenomination, setExpenses, setCurrentStore]);
 
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
@@ -106,31 +107,31 @@ export default function CierreCajaScreen() {
         const updated = await cashClosingService.updateClosing(
           existingClosing.id,
           selectedStoreId,
-          today,
+          activeDate,
           denominations,
           bankTotal,
           expenses,
         );
         setExistingClosing(updated);
-        showSuccess(`Borrador actualizado. Discrepancia: ${formatCOP(updated.discrepancy)}`);
+        showSuccess(`Borrador actualizado (${formatDate(activeDate)}). Discrepancia: ${formatCOP(updated.discrepancy)}`);
       } else {
         // Create new closing
         const closing = await cashClosingService.createClosing(
           selectedStoreId,
-          today,
+          activeDate,
           denominations,
           bankTotal,
           expenses,
         );
         setExistingClosing(closing);
-        showSuccess(`Cierre creado como borrador. Discrepancia: ${formatCOP(closing.discrepancy)}`);
+        showSuccess(`Cierre creado (${formatDate(activeDate)}) como borrador. Discrepancia: ${formatCOP(closing.discrepancy)}`);
       }
     } catch (err) {
       showError(err instanceof Error ? err.message : 'No se pudo registrar el cierre');
     } finally {
       setSubmitting(false);
     }
-  }, [selectedStoreId, today, denominations, bankTotal, expenses, cashClosingService, existingClosing, isEditable, discrepancy, showSuccess, showError]);
+  }, [selectedStoreId, activeDate, denominations, bankTotal, expenses, cashClosingService, existingClosing, isEditable, discrepancy, showSuccess, showError]);
 
   const handleConfirm = useCallback(async () => {
     if (!existingClosing) return;

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { Sale } from '../domain/entities';
+import { todayColombia } from '../utils/dates';
 
 export interface CartItemAddition {
   additionCatalogId: string;
@@ -32,6 +33,7 @@ export interface CartItem {
 }
 
 interface SaleState {
+  salesDate: string;
   cart: CartItem[];
   cartPackagingSupplyId: string | undefined;
   sales: Sale[];
@@ -40,6 +42,7 @@ interface SaleState {
   submitting: boolean;
   lastSaleResult: { success: boolean; message: string } | null;
 
+  setSalesDate: (date: string) => void;
   addToCart: (item: Omit<CartItem, 'cartItemId' | 'portions' | 'subtotal' | 'customerNote' | 'additions' | 'additionsTotal' | 'packagingUnitPrice' | 'packagingQuantity' | 'packagingTotal'> & {
     customerNote?: string;
     additions?: CartItemAddition[];
@@ -64,6 +67,7 @@ interface SaleState {
 let nextCartItemId = 1;
 
 export const useSaleStore = create<SaleState>((set) => ({
+  salesDate: todayColombia(),
   cart: [],
   cartPackagingSupplyId: undefined,
   sales: [],
@@ -71,6 +75,8 @@ export const useSaleStore = create<SaleState>((set) => ({
   loading: false,
   submitting: false,
   lastSaleResult: null,
+
+  setSalesDate: (date: string) => set({ salesDate: date }),
 
   addToCart: (item) =>
     set((state) => {

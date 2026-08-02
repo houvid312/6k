@@ -157,12 +157,13 @@ export class SaleService {
     debtorType?: string,
     debtorWorkerId?: string,
     debtorCustomerId?: string,
+    customTimestamp?: string,
   ): Promise<Sale> {
     const { saleItems, totalPortions, totalAmount, totalCostCop, grossMarginCop } = await this.buildSaleItems(items);
 
     const sale = await this.saleRepo.create({
       storeId,
-      timestamp: new Date().toISOString(),
+      timestamp: customTimestamp ?? new Date().toISOString(),
       items: saleItems,
       totalPortions,
       totalAmount,
@@ -206,13 +207,14 @@ export class SaleService {
     debtorType?: string,
     debtorWorkerId?: string,
     debtorCustomerId?: string,
+    customTimestamp?: string,
   ): Promise<Sale> {
     const { saleItems, totalPortions, totalAmount, totalCostCop, grossMarginCop } = await this.buildSaleItems(items);
 
     return this.saleRepo.update({
       id: saleId,
       storeId,
-      timestamp: new Date().toISOString(),
+      timestamp: customTimestamp ?? new Date().toISOString(),
       items: saleItems,
       totalPortions,
       totalAmount,
