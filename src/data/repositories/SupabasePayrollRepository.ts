@@ -202,4 +202,20 @@ export class SupabasePayrollRepository implements IPayrollRepository {
     if (error) throw error;
     return periodToEntity(data as PayrollPeriodRow);
   }
+
+  async deletePeriod(periodId: string): Promise<void> {
+    await supabase.from('payroll_entries').delete().eq('period_id', periodId);
+    const { error } = await supabase.from('payroll_periods').delete().eq('id', periodId);
+    if (error) throw error;
+  }
+
+  async getPeriodsByStore(storeId: string): Promise<PayrollPeriod[]> {
+    const { data, error } = await supabase
+      .from('payroll_periods')
+      .select('*')
+      .eq('store_id', storeId)
+      .order('start_date', { ascending: false });
+    if (error) throw error;
+    return (data as PayrollPeriodRow[]).map(periodToEntity);
+  }
 }

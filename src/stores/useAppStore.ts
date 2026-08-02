@@ -15,7 +15,7 @@ interface AppState {
   setSelectedStore: (storeId: string) => void;
   login: (userId: string, name: string, role: UserRole, storeIds?: string[]) => void;
   logout: () => void;
-  loadStores: () => Promise<void>;
+  loadStores: (force?: boolean) => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -32,8 +32,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ userId, userName: name, userRole: role, storeIds: storeIds ?? [], isAuthenticated: true }),
   logout: () =>
     set({ userId: '', userName: '', userRole: UserRole.VENDEDOR, storeIds: [], isAuthenticated: false, selectedStoreId: '' }),
-  loadStores: async () => {
-    if (get().storesLoaded && get().selectedStoreId) return;
+  loadStores: async (force?: boolean) => {
+    if (!force && get().storesLoaded && get().selectedStoreId && get().stores.length > 0) return;
     const { data, error } = await supabase
       .from('stores')
       .select('*')

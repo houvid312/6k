@@ -18,14 +18,13 @@ export default function RRHHLayout() {
       <Stack.Screen
         name="index"
         options={{
-          title: 'Recursos Humanos',
+          title: 'Talento Humano',
           headerBackVisible: false,
         }}
       />
       <Stack.Screen name="horarios" options={{ title: 'Horarios' }} />
       <Stack.Screen name="asistencia" options={{ title: 'Asistencia' }} />
       <Stack.Screen name="nomina" options={{ title: 'Nomina' }} />
-      <Stack.Screen name="reporte" options={{ title: 'Reporte Diario' }} />
     </Stack>
   );
 }

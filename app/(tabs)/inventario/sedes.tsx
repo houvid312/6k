@@ -134,7 +134,7 @@ export default function SedesScreen() {
 
       setDialogVisible(false);
       await loadAllStores();
-      await loadStores(); // Refresh global app store
+      await loadStores(true); // Refresh global app store
     } catch (err: any) {
       console.error('Error saving store:', err);
       showError('Error al guardar la sede');
@@ -149,7 +149,7 @@ export default function SedesScreen() {
       await storeRepo.setActive(store.id, newStatus);
       showSuccess(`Sede "${store.name}" ${newStatus ? 'activada' : 'desactivada'}`);
       await loadAllStores();
-      await loadStores();
+      await loadStores(true);
     } catch (err) {
       console.error('Error toggling store status:', err);
       showError('Error al cambiar el estado de la sede');

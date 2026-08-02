@@ -129,7 +129,12 @@ ALTER TYPE "public"."transfer_status" OWNER TO "postgres";
 
 CREATE TYPE "public"."user_role" AS ENUM (
     'ADMIN',
-    'COLABORADOR'
+    'COLABORADOR',
+    'GERENTE',
+    'ADMIN_LOCAL',
+    'PREPARADOR',
+    'RODY',
+    'VENDEDOR'
 );
 
 
@@ -225,6 +230,68 @@ CREATE OR REPLACE FUNCTION "public"."authenticate_worker"("worker_name" "text", 
 
 
 ALTER FUNCTION "public"."authenticate_worker"("worker_name" "text", "worker_pin" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."can_access_transfer"("from_store" "uuid", "to_store" "uuid") RETURNS boolean
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    AS $$
+DECLARE
+  current_role user_role;
+  current_worker_id UUID;
+BEGIN
+  SELECT w.user_role, w.id INTO current_role, current_worker_id
+  FROM workers w
+  WHERE w.auth_user_id = auth.uid()
+  LIMIT 1;
+  IF current_role IN ('GERENTE', 'PREPARADOR', 'RODY') THEN
+    RETURN TRUE;
+  END IF;
+  IF current_role IN ('ADMIN_LOCAL', 'VENDEDOR') THEN
+    RETURN EXISTS (
+      SELECT 1 FROM worker_store_assignments
+      WHERE worker_id = current_worker_id
+        AND store_id IN (from_store, to_store)
+    );
+  END IF;
+  RETURN FALSE;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."can_access_transfer"("from_store" "uuid", "to_store" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."debug_rls_check"("target_store_id" "uuid") RETURNS "text"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  current_role text;
+  current_worker_id UUID;
+  uid_val UUID;
+  row_count integer;
+BEGIN
+  -- Obtener el UID de la sesión actual
+  uid_val := auth.uid();
+  
+  -- Contar si hay registros visibles en workers con ese UID
+  SELECT COUNT(*) INTO row_count FROM public.workers WHERE auth_user_id = uid_val;
+  
+  -- Buscar el rol y ID
+  SELECT w.user_role::text, w.id INTO current_role, current_worker_id
+  FROM public.workers w
+  WHERE w.auth_user_id = uid_val
+  LIMIT 1;
+  
+  RETURN 'Sesion UID: ' || COALESCE(uid_val::text, 'NULL') || 
+         ' | Filas en workers: ' || COALESCE(row_count::text, '0') || 
+         ' | Rol detectado: ' || COALESCE(current_role, 'NULL') || 
+         ' | Worker ID: ' || COALESCE(current_worker_id::text, 'NULL');
+END;
+$$;
+
+
+ALTER FUNCTION "public"."debug_rls_check"("target_store_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."deduct_inventory_for_sale"("p_sale_id" "uuid") RETURNS "void"
@@ -368,6 +435,18 @@ $$;
 ALTER FUNCTION "public"."deduct_store_inventory"("p_store_id" "uuid", "p_supply_id" "uuid", "p_grams" numeric) OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."get_auth_worker_id"() RETURNS "uuid"
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    AS $$
+  SELECT id FROM workers
+  WHERE auth_user_id = auth.uid()
+  LIMIT 1;
+$$;
+
+
+ALTER FUNCTION "public"."get_auth_worker_id"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."get_user_role"() RETURNS "public"."user_role"
     LANGUAGE "sql" STABLE SECURITY DEFINER
     AS $$
@@ -409,12 +488,45 @@ $$;
 ALTER FUNCTION "public"."is_accounting_period_locked"("p_store_id" "uuid", "p_date" "date") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."is_admin_or_assigned_local"("target_store_id" "uuid") RETURNS boolean
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_user_role user_role;
+  v_worker_id UUID;
+BEGIN
+  -- 1. Obtener rol y id del trabajador autenticado (usando variables no reservadas)
+  SELECT w.user_role, w.id INTO v_user_role, v_worker_id
+  FROM public.workers w
+  WHERE w.auth_user_id = auth.uid()
+  LIMIT 1;
+  -- 2. Si es Gerente (CEO), tiene acceso completo
+  IF v_user_role = 'GERENTE' THEN
+    RETURN TRUE;
+  END IF;
+  -- 3. Si es Admin Local o Vendedor, verificar asignación
+  IF v_user_role IN ('ADMIN_LOCAL', 'VENDEDOR') THEN
+    RETURN EXISTS (
+      SELECT 1 FROM public.worker_store_assignments
+      WHERE worker_id = v_worker_id
+        AND store_id = target_store_id
+    );
+  END IF;
+  RETURN FALSE;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."is_admin_or_assigned_local"("target_store_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."is_inventory_operator"() RETURNS boolean
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
   SELECT COALESCE(
-    get_user_role() = 'ADMIN'
+    get_user_role() IN ('GERENTE', 'ADMIN_LOCAL')
     OR get_worker_role() IN ('PREPARADOR', 'ADMINISTRADOR', 'CAJERO', 'COORDINADOR'),
     false
   );
@@ -429,7 +541,7 @@ CREATE OR REPLACE FUNCTION "public"."is_transfer_operator"() RETURNS boolean
     SET "search_path" TO 'public'
     AS $$
   SELECT COALESCE(
-    get_user_role() = 'ADMIN'
+    get_user_role() IN ('GERENTE', 'ADMIN_LOCAL')
     OR get_worker_role() IN ('ADMINISTRADOR', 'CAJERO', 'COORDINADOR'),
     false
   );
@@ -474,12 +586,16 @@ CREATE OR REPLACE FUNCTION "public"."prevent_locked_expenses_write"() RETURNS "t
     SET "search_path" TO 'public'
     AS $$
 BEGIN
-  IF TG_OP IN ('INSERT', 'UPDATE') AND is_accounting_period_locked(NEW.store_id, NEW.date) THEN
-    PERFORM raise_locked_period_error();
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN
+    IF NEW.category IN ('Compra Turno', 'Adelanto') AND is_accounting_period_locked(NEW.store_id, NEW.date) THEN
+      PERFORM raise_locked_period_error();
+    END IF;
   END IF;
 
-  IF TG_OP IN ('UPDATE', 'DELETE') AND is_accounting_period_locked(OLD.store_id, OLD.date) THEN
-    PERFORM raise_locked_period_error();
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN
+    IF OLD.category IN ('Compra Turno', 'Adelanto') AND is_accounting_period_locked(OLD.store_id, OLD.date) THEN
+      PERFORM raise_locked_period_error();
+    END IF;
   END IF;
 
   RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
@@ -494,24 +610,8 @@ CREATE OR REPLACE FUNCTION "public"."prevent_locked_purchases_write"() RETURNS "
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-DECLARE
-  v_new_date DATE;
-  v_old_date DATE;
 BEGIN
-  IF TG_OP IN ('INSERT', 'UPDATE') THEN
-    v_new_date := (NEW.created_at AT TIME ZONE 'America/Bogota')::DATE;
-    IF is_accounting_period_locked(NEW.store_id, v_new_date) THEN
-      PERFORM raise_locked_period_error();
-    END IF;
-  END IF;
-
-  IF TG_OP IN ('UPDATE', 'DELETE') THEN
-    v_old_date := (OLD.created_at AT TIME ZONE 'America/Bogota')::DATE;
-    IF is_accounting_period_locked(OLD.store_id, v_old_date) THEN
-      PERFORM raise_locked_period_error();
-    END IF;
-  END IF;
-
+  -- Permite compras en cualquier momento, ya que son de nivel administrador
   RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END;
 $$;
@@ -627,7 +727,9 @@ BEGIN
 
   IF TG_OP IN ('UPDATE', 'DELETE') THEN
     v_old_date := (COALESCE(OLD.reviewed_at, OLD.created_at) AT TIME ZONE 'America/Bogota')::DATE;
-    IF is_accounting_period_locked(OLD.store_id, v_old_date) THEN
+    -- Si el estado anterior era PENDING, no bloqueamos la actualización (aprobación/rechazo)
+    -- ya que el efecto contable y de inventario se registra con la fecha de revisión (hoy)
+    IF OLD.status <> 'PENDING' AND is_accounting_period_locked(OLD.store_id, v_old_date) THEN
       PERFORM raise_locked_period_error();
     END IF;
   END IF;
@@ -648,27 +750,25 @@ BEGIN
   IF auth.uid() IS NULL THEN
     RETURN NEW;
   END IF;
-
-  IF COALESCE(get_user_role() = 'ADMIN', false) THEN
+  -- Solo GERENTE puede modificar costos de produccion y precios comerciales franquiciados
+  IF COALESCE(get_user_role() = 'GERENTE', false) THEN
     RETURN NEW;
   END IF;
-
   IF TG_OP = 'INSERT' THEN
     IF COALESCE(NEW.production_cost_cop, 0) <> 0
        OR COALESCE(NEW.commercial_price_cop, 0) <> 0
        OR COALESCE(NEW.sale_price_cop, 0) <> 0
        OR COALESCE(NEW.is_billable_to_store, true) IS DISTINCT FROM true THEN
-      RAISE EXCEPTION 'Only admins can set supply commercial billing fields';
+      RAISE EXCEPTION 'Only GERENTE can set supply commercial billing fields';
     END IF;
   ELSIF TG_OP = 'UPDATE' THEN
     IF NEW.production_cost_cop IS DISTINCT FROM OLD.production_cost_cop
        OR NEW.commercial_price_cop IS DISTINCT FROM OLD.commercial_price_cop
        OR NEW.sale_price_cop IS DISTINCT FROM OLD.sale_price_cop
        OR NEW.is_billable_to_store IS DISTINCT FROM OLD.is_billable_to_store THEN
-      RAISE EXCEPTION 'Only admins can update supply commercial billing fields';
+      RAISE EXCEPTION 'Only GERENTE can update supply commercial billing fields';
     END IF;
   END IF;
-
   RETURN NEW;
 END;
 $$;
@@ -1405,6 +1505,394 @@ $$;
 ALTER FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean DEFAULT false) RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_sale sales%ROWTYPE;
+  v_item RECORD;
+  v_addition RECORD;
+  v_recipe_id UUID;
+  v_ingredient RECORD;
+  v_sale_item_id UUID;
+  v_additions JSONB;
+  v_had_item_packaging BOOLEAN;
+BEGIN
+  IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array' OR jsonb_array_length(p_items) = 0 THEN
+    RAISE EXCEPTION 'Sale % must have at least one item', p_sale_id;
+  END IF;
+  SELECT *
+  INTO v_sale
+  FROM sales
+  WHERE id = p_sale_id
+  FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Sale % not found', p_sale_id;
+  END IF;
+  IF is_accounting_period_locked(v_sale.store_id, (v_sale.created_at AT TIME ZONE 'America/Bogota')::DATE) THEN
+    PERFORM raise_locked_period_error();
+  END IF;
+  IF COALESCE(v_sale.is_dispatched, false) THEN
+    RAISE EXCEPTION 'Sale % cannot be edited after dispatch', p_sale_id;
+  END IF;
+  SELECT EXISTS (
+    SELECT 1
+    FROM sale_items
+    WHERE sale_id = p_sale_id
+      AND packaging_supply_id IS NOT NULL
+      AND COALESCE(packaging_quantity, 0) > 0
+  )
+  INTO v_had_item_packaging;
+  FOR v_item IN
+    SELECT *
+    FROM sale_items
+    WHERE sale_id = p_sale_id
+  LOOP
+    SELECT r.id
+    INTO v_recipe_id
+    FROM recipes r
+    WHERE r.product_id = v_item.product_id;
+    IF v_recipe_id IS NOT NULL THEN
+      FOR v_ingredient IN
+        SELECT ri.supply_id, ri.grams_per_portion
+        FROM recipe_ingredients ri
+        WHERE ri.recipe_id = v_recipe_id
+      LOOP
+        PERFORM deduct_store_inventory(
+          v_sale.store_id,
+          v_ingredient.supply_id,
+          -(v_ingredient.grams_per_portion * v_item.portions)
+        );
+      END LOOP;
+    END IF;
+    FOR v_addition IN
+      SELECT sia.supply_id, sia.grams, sia.quantity
+      FROM sale_item_additions sia
+      WHERE sia.sale_item_id = v_item.id
+    LOOP
+      PERFORM deduct_store_inventory(
+        v_sale.store_id,
+        v_addition.supply_id,
+        -(v_addition.grams * v_addition.quantity)
+      );
+    END LOOP;
+    IF v_item.packaging_supply_id IS NOT NULL AND COALESCE(v_item.packaging_quantity, 0) > 0 THEN
+      PERFORM deduct_store_inventory(
+        v_sale.store_id,
+        v_item.packaging_supply_id,
+        -v_item.packaging_quantity
+      );
+    END IF;
+  END LOOP;
+  IF v_sale.packaging_supply_id IS NOT NULL AND NOT COALESCE(v_had_item_packaging, false) THEN
+    PERFORM deduct_store_inventory(v_sale.store_id, v_sale.packaging_supply_id, -1);
+  END IF;
+  DELETE FROM sale_item_additions
+  WHERE sale_item_id IN (
+    SELECT id FROM sale_items WHERE sale_id = p_sale_id
+  );
+  DELETE FROM sale_items
+  WHERE sale_id = p_sale_id;
+  UPDATE sales
+  SET
+    payment_method = p_payment_method,
+    total_portions = p_total_portions,
+    total_amount = p_total_amount,
+    packaging_total = COALESCE(p_packaging_total, 0),
+    total_cost_cop = COALESCE(p_total_cost_cop, 0),
+    gross_margin_cop = COALESCE(p_gross_margin_cop, p_total_amount - COALESCE(p_total_cost_cop, 0)),
+    cash_amount = p_cash_amount,
+    bank_amount = p_bank_amount,
+    observations = COALESCE(p_observations, ''),
+    is_paid = COALESCE(p_is_paid, false),
+    is_credit = COALESCE(p_is_credit, false),
+    customer_note = NULLIF(COALESCE(p_customer_note, ''), ''),
+    packaging_supply_id = p_packaging_supply_id
+  WHERE id = p_sale_id;
+  FOR v_item IN
+    SELECT value
+    FROM jsonb_array_elements(p_items)
+  LOOP
+    INSERT INTO sale_items (
+      sale_id,
+      product_id,
+      size,
+      format_id,
+      format_name,
+      quantity,
+      portions,
+      unit_price,
+      subtotal,
+      additions_total,
+      packaging_supply_id,
+      packaging_label,
+      packaging_unit_price,
+      packaging_quantity,
+      packaging_total,
+      recipe_cost_cop,
+      additions_cost_cop,
+      packaging_cost_cop,
+      total_cost_cop
+    )
+    VALUES (
+      p_sale_id,
+      (v_item.value->>'product_id')::UUID,
+      CASE
+        WHEN NULLIF(v_item.value->>'size', '') IS NULL THEN NULL
+        ELSE (v_item.value->>'size')::pizza_size
+      END,
+      NULLIF(v_item.value->>'format_id', '')::UUID,
+      NULLIF(COALESCE(v_item.value->>'format_name', ''), ''),
+      COALESCE(NULLIF(v_item.value->>'quantity', '')::INTEGER, 1),
+      COALESCE(NULLIF(v_item.value->>'portions', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'unit_price', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'subtotal', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'additions_total', '')::INTEGER, 0),
+      NULLIF(v_item.value->>'packaging_supply_id', '')::UUID,
+      NULLIF(COALESCE(v_item.value->>'packaging_label', ''), ''),
+      COALESCE(NULLIF(v_item.value->>'packaging_unit_price', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'packaging_quantity', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'packaging_total', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'recipe_cost_cop', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'additions_cost_cop', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'packaging_cost_cop', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'total_cost_cop', '')::INTEGER, 0)
+    )
+    RETURNING id INTO v_sale_item_id;
+    v_additions := CASE
+      WHEN jsonb_typeof(v_item.value->'additions') = 'array' THEN v_item.value->'additions'
+      ELSE '[]'::jsonb
+    END;
+    FOR v_addition IN
+      SELECT value
+      FROM jsonb_array_elements(v_additions)
+    LOOP
+      INSERT INTO sale_item_additions (
+        sale_item_id,
+        addition_catalog_id,
+        supply_id,
+        name,
+        price,
+        grams,
+        quantity
+      )
+      VALUES (
+        v_sale_item_id,
+        (v_addition.value->>'addition_catalog_id')::UUID,
+        (v_addition.value->>'supply_id')::UUID,
+        v_addition.value->>'name',
+        COALESCE(NULLIF(v_addition.value->>'price', '')::INTEGER, 0),
+        COALESCE(NULLIF(v_addition.value->>'grams', '')::NUMERIC, 0),
+        COALESCE(NULLIF(v_addition.value->>'quantity', '')::INTEGER, 1)
+      );
+    END LOOP;
+  END LOOP;
+  -- Descontar inventario ahora que los sale_items y adiciones ya existen
+  PERFORM deduct_inventory_for_sale(p_sale_id);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean) OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean DEFAULT false, "p_debtor_name" "text" DEFAULT NULL::"text", "p_debtor_type" "public"."debtor_type" DEFAULT NULL::"public"."debtor_type", "p_debtor_worker_id" "uuid" DEFAULT NULL::"uuid", "p_debtor_customer_id" "uuid" DEFAULT NULL::"uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_sale sales%ROWTYPE;
+  v_item RECORD;
+  v_addition RECORD;
+  v_recipe_id UUID;
+  v_ingredient RECORD;
+  v_sale_item_id UUID;
+  v_additions JSONB;
+  v_had_item_packaging BOOLEAN;
+BEGIN
+  IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array' OR jsonb_array_length(p_items) = 0 THEN
+    RAISE EXCEPTION 'Sale % must have at least one item', p_sale_id;
+  END IF;
+  SELECT *
+  INTO v_sale
+  FROM sales
+  WHERE id = p_sale_id
+  FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Sale % not found', p_sale_id;
+  END IF;
+  IF is_accounting_period_locked(v_sale.store_id, (v_sale.created_at AT TIME ZONE 'America/Bogota')::DATE) THEN
+    PERFORM raise_locked_period_error();
+  END IF;
+  IF COALESCE(v_sale.is_dispatched, false) THEN
+    RAISE EXCEPTION 'Sale % cannot be edited after dispatch', p_sale_id;
+  END IF;
+  SELECT EXISTS (
+    SELECT 1
+    FROM sale_items
+    WHERE sale_id = p_sale_id
+      AND packaging_supply_id IS NOT NULL
+      AND COALESCE(packaging_quantity, 0) > 0
+  )
+  INTO v_had_item_packaging;
+  FOR v_item IN
+    SELECT *
+    FROM sale_items
+    WHERE sale_id = p_sale_id
+  LOOP
+    SELECT r.id
+    INTO v_recipe_id
+    FROM recipes r
+    WHERE r.product_id = v_item.product_id;
+    IF v_recipe_id IS NOT NULL THEN
+      FOR v_ingredient IN
+        SELECT ri.supply_id, ri.grams_per_portion
+        FROM recipe_ingredients ri
+        WHERE ri.recipe_id = v_recipe_id
+      LOOP
+        PERFORM deduct_store_inventory(
+          v_sale.store_id,
+          v_ingredient.supply_id,
+          -(v_ingredient.grams_per_portion * v_item.portions)
+        );
+      END LOOP;
+    END IF;
+    FOR v_addition IN
+      SELECT sia.supply_id, sia.grams, sia.quantity
+      FROM sale_item_additions sia
+      WHERE sia.sale_item_id = v_item.id
+    LOOP
+      PERFORM deduct_store_inventory(
+        v_sale.store_id,
+        v_addition.supply_id,
+        -(v_addition.grams * v_addition.quantity)
+      );
+    END LOOP;
+    IF v_item.packaging_supply_id IS NOT NULL AND COALESCE(v_item.packaging_quantity, 0) > 0 THEN
+      PERFORM deduct_store_inventory(
+        v_sale.store_id,
+        v_item.packaging_supply_id,
+        -v_item.packaging_quantity
+      );
+    END IF;
+  END LOOP;
+  IF v_sale.packaging_supply_id IS NOT NULL AND NOT COALESCE(v_had_item_packaging, false) THEN
+    PERFORM deduct_store_inventory(v_sale.store_id, v_sale.packaging_supply_id, -1);
+  END IF;
+  DELETE FROM sale_item_additions
+  WHERE sale_item_id IN (
+    SELECT id FROM sale_items WHERE sale_id = p_sale_id
+  );
+  DELETE FROM sale_items
+  WHERE sale_id = p_sale_id;
+  UPDATE sales
+  SET
+    payment_method = p_payment_method,
+    total_portions = p_total_portions,
+    total_amount = p_total_amount,
+    packaging_total = COALESCE(p_packaging_total, 0),
+    total_cost_cop = COALESCE(p_total_cost_cop, 0),
+    gross_margin_cop = COALESCE(p_gross_margin_cop, p_total_amount - COALESCE(p_total_cost_cop, 0)),
+    cash_amount = p_cash_amount,
+    bank_amount = p_bank_amount,
+    observations = COALESCE(p_observations, ''),
+    is_paid = COALESCE(p_is_paid, false),
+    is_credit = COALESCE(p_is_credit, false),
+    debtor_name = p_debtor_name,
+    debtor_type = p_debtor_type,
+    debtor_worker_id = p_debtor_worker_id,
+    debtor_customer_id = p_debtor_customer_id,
+    customer_note = NULLIF(COALESCE(p_customer_note, ''), ''),
+    packaging_supply_id = p_packaging_supply_id
+  WHERE id = p_sale_id;
+  FOR v_item IN
+    SELECT value
+    FROM jsonb_array_elements(p_items)
+  LOOP
+    INSERT INTO sale_items (
+      sale_id,
+      product_id,
+      size,
+      format_id,
+      format_name,
+      quantity,
+      portions,
+      unit_price,
+      subtotal,
+      additions_total,
+      packaging_supply_id,
+      packaging_label,
+      packaging_unit_price,
+      packaging_quantity,
+      packaging_total,
+      recipe_cost_cop,
+      additions_cost_cop,
+      packaging_cost_cop,
+      total_cost_cop
+    )
+    VALUES (
+      p_sale_id,
+      (v_item.value->>'product_id')::UUID,
+      CASE
+        WHEN NULLIF(v_item.value->>'size', '') IS NULL THEN NULL
+        ELSE (v_item.value->>'size')::pizza_size
+      END,
+      NULLIF(v_item.value->>'format_id', '')::UUID,
+      NULLIF(COALESCE(v_item.value->>'format_name', ''), ''),
+      COALESCE(NULLIF(v_item.value->>'quantity', '')::INTEGER, 1),
+      COALESCE(NULLIF(v_item.value->>'portions', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'unit_price', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'subtotal', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'additions_total', '')::INTEGER, 0),
+      NULLIF(v_item.value->>'packaging_supply_id', '')::UUID,
+      NULLIF(COALESCE(v_item.value->>'packaging_label', ''), ''),
+      COALESCE(NULLIF(v_item.value->>'packaging_unit_price', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'packaging_quantity', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'packaging_total', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'recipe_cost_cop', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'additions_cost_cop', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'packaging_cost_cop', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'total_cost_cop', '')::INTEGER, 0)
+    )
+    RETURNING id INTO v_sale_item_id;
+    v_additions := CASE
+      WHEN jsonb_typeof(v_item.value->'additions') = 'array' THEN v_item.value->'additions'
+      ELSE '[]'::jsonb
+    END;
+    FOR v_addition IN
+      SELECT value
+      FROM jsonb_array_elements(v_additions)
+    LOOP
+      INSERT INTO sale_item_additions (
+        sale_item_id,
+        addition_catalog_id,
+        supply_id,
+        name,
+        price,
+        grams,
+        quantity
+      )
+      VALUES (
+        v_sale_item_id,
+        (v_addition.value->>'addition_catalog_id')::UUID,
+        (v_addition.value->>'supply_id')::UUID,
+        v_addition.value->>'name',
+        COALESCE(NULLIF(v_addition.value->>'price', '')::INTEGER, 0),
+        COALESCE(NULLIF(v_addition.value->>'grams', '')::NUMERIC, 0),
+        COALESCE(NULLIF(v_addition.value->>'quantity', '')::INTEGER, 1)
+      );
+    END LOOP;
+  END LOOP;
+  -- Descontar inventario ahora que los sale_items y adiciones ya existen
+  PERFORM deduct_inventory_for_sale(p_sale_id);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."rls_auto_enable"() RETURNS "event_trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'pg_catalog'
@@ -1508,6 +1996,293 @@ $$;
 
 
 ALTER FUNCTION "public"."sync_cash_closing_accounting_lock"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."sync_expense_advance_to_credit"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  -- Al registrar un egreso de categoría 'Adelanto' con un trabajador asignado, crear el crédito
+  IF NEW.category = 'Adelanto' AND NEW.worker_id IS NOT NULL THEN
+    INSERT INTO credit_entries (
+      debtor_name,
+      debtor_type,
+      worker_id,
+      customer_id,
+      concept,
+      amount,
+      balance,
+      is_paid,
+      date,
+      store_id,
+      expense_id
+    )
+    SELECT
+      w.name,
+      'TRABAJADOR'::debtor_type,
+      NEW.worker_id,
+      NULL,
+      'Adelanto de caja: ' || NEW.description,
+      NEW.amount,
+      NEW.amount,
+      false,
+      NEW.date,
+      NEW.store_id,
+      NEW.id
+    FROM workers w
+    WHERE w.id = NEW.worker_id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."sync_expense_advance_to_credit"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."sync_expense_delete_to_credit"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  -- Si se elimina el egreso de adelanto, eliminar el registro de cartera
+  DELETE FROM credit_entries WHERE expense_id = OLD.id;
+  RETURN OLD;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."sync_expense_delete_to_credit"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."sync_expense_update_to_credit"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  -- Si se actualiza el adelanto, actualizar el crédito correspondiente en cartera
+  IF NEW.category = 'Adelanto' AND NEW.worker_id IS NOT NULL THEN
+    UPDATE credit_entries
+    SET amount = NEW.amount,
+        balance = NEW.amount - (amount - balance), -- Preservar abonos parciales si existen
+        concept = 'Adelanto de caja: ' || NEW.description,
+        date = NEW.date,
+        worker_id = NEW.worker_id
+    WHERE expense_id = NEW.id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."sync_expense_update_to_credit"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."sync_sale_credit_to_portfolio"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.is_credit = true THEN
+      INSERT INTO credit_entries (
+        debtor_name, debtor_type, worker_id, customer_id, concept, amount, balance, is_paid, date, store_id, sale_id
+      )
+      VALUES (
+        NEW.debtor_name, NEW.debtor_type, NEW.debtor_worker_id, NEW.debtor_customer_id,
+        'Fiado de venta: ' || COALESCE(NEW.observations, ''),
+        NEW.total_amount, NEW.total_amount, false,
+        (NEW.created_at AT TIME ZONE 'America/Bogota')::DATE,
+        NEW.store_id, NEW.id
+      );
+    END IF;
+  ELSIF TG_OP = 'UPDATE' THEN
+    -- 1. Si antes no era crédito y ahora sí
+    IF (OLD.is_credit = false OR OLD.is_credit IS NULL) AND NEW.is_credit = true THEN
+      INSERT INTO credit_entries (
+        debtor_name, debtor_type, worker_id, customer_id, concept, amount, balance, is_paid, date, store_id, sale_id
+      )
+      VALUES (
+        NEW.debtor_name, NEW.debtor_type, NEW.debtor_worker_id, NEW.debtor_customer_id,
+        'Fiado de venta: ' || COALESCE(NEW.observations, ''),
+        NEW.total_amount, NEW.total_amount, false,
+        (NEW.created_at AT TIME ZONE 'America/Bogota')::DATE,
+        NEW.store_id, NEW.id
+      );
+    -- 2. Si antes era crédito y ahora no
+    ELSIF OLD.is_credit = true AND NEW.is_credit = false THEN
+      DELETE FROM credit_entries WHERE sale_id = NEW.id;
+    -- 3. Si cambió el monto, concepto o deudores
+    ELSIF NEW.is_credit = true THEN
+      UPDATE credit_entries
+      SET debtor_name = NEW.debtor_name,
+          debtor_type = NEW.debtor_type,
+          worker_id = NEW.debtor_worker_id,
+          customer_id = NEW.debtor_customer_id,
+          amount = NEW.total_amount,
+          balance = CASE WHEN is_paid = false THEN NEW.total_amount ELSE balance END,
+          concept = 'Fiado de venta: ' || COALESCE(NEW.observations, '')
+      WHERE sale_id = NEW.id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."sync_sale_credit_to_portfolio"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."sync_sale_delete_to_credit"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  -- Si se elimina una venta a crédito no pagada, eliminar el registro de cartera
+  DELETE FROM credit_entries WHERE sale_id = OLD.id AND is_paid = false;
+  RETURN OLD;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."sync_sale_delete_to_credit"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."sync_sale_payment_to_credit"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  -- Si la venta pasa de no pagada a pagada, marcar el crédito en cartera como pagado
+  IF OLD.is_paid = false AND NEW.is_paid = true THEN
+    UPDATE credit_entries
+    SET is_paid = true,
+        paid_date = CURRENT_DATE,
+        balance = 0
+    WHERE sale_id = NEW.id AND is_paid = false;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."sync_sale_payment_to_credit"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."sync_worker_credentials_to_auth"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    AS $$
+DECLARE
+  new_auth_id UUID;
+  user_email TEXT;
+BEGIN
+  -- Si no tiene auth_user_id pero sí tiene username y pin, crear o enlazar el usuario de Auth
+  IF (NEW.auth_user_id IS NULL) AND (NEW.username IS NOT NULL) THEN
+    user_email := LOWER(NEW.username) || '@6kpizza.app';
+    
+    -- Verificar si ya existe en auth.users para re-enlazar (en minúsculas)
+    SELECT id INTO new_auth_id FROM auth.users WHERE LOWER(email) = LOWER(user_email) LIMIT 1;
+    
+    IF new_auth_id IS NULL THEN
+      new_auth_id := gen_random_uuid();
+      
+      -- Insertar en auth.users (inicializando columnas opcionales a '' para evitar errores de scan en GoTrue,
+      -- pero dejando 'phone' en NULL para respetar su restricción de unicidad users_phone_key)
+      INSERT INTO auth.users (
+        instance_id,
+        id,
+        aud,
+        role,
+        email,
+        encrypted_password,
+        email_confirmed_at,
+        created_at,
+        updated_at,
+        raw_app_meta_data,
+        raw_user_meta_data,
+        is_super_admin,
+        confirmation_token,
+        recovery_token,
+        email_change_token_new,
+        email_change_token_current,
+        phone,
+        phone_change,
+        phone_change_token,
+        email_change,
+        reauthentication_token
+      ) VALUES (
+        '00000000-0000-0000-0000-000000000000',
+        new_auth_id,
+        'authenticated',
+        'authenticated',
+        user_email,
+        crypt(COALESCE(NEW.pin, '123456'), gen_salt('bf')),
+        now(),
+        now(),
+        now(),
+        '{"provider":"email","providers":["email"]}',
+        jsonb_build_object('username', NEW.username),
+        false,
+        '',
+        '',
+        '',
+        '',
+        NULL, -- El teléfono DEBE ser NULL en lugar de '' para evitar violaciones de la restricción users_phone_key
+        '',
+        '',
+        '',
+        ''
+      );
+      -- Insertar en auth.identities
+      INSERT INTO auth.identities (
+        id,
+        user_id,
+        provider_id,
+        identity_data,
+        provider,
+        last_sign_in_at,
+        created_at,
+        updated_at
+      ) VALUES (
+        new_auth_id,
+        new_auth_id,
+        user_email,
+        jsonb_build_object('sub', new_auth_id::text, 'email', user_email),
+        'email',
+        now(),
+        now(),
+        now()
+      );
+    END IF;
+    
+    NEW.auth_user_id := new_auth_id;
+  END IF;
+  -- Si ya tiene auth_user_id, sincronizar cambios en pin o username
+  IF NEW.auth_user_id IS NOT NULL THEN
+    -- Si el pin cambió, actualizar contraseña en auth.users
+    IF (TG_OP = 'UPDATE') AND (OLD.pin IS DISTINCT FROM NEW.pin) THEN
+      UPDATE auth.users
+      SET encrypted_password = crypt(NEW.pin, gen_salt('bf')),
+          updated_at = now()
+      WHERE id = NEW.auth_user_id;
+    END IF;
+    -- Si el username cambió, actualizar email y metadatos en auth.users
+    IF (TG_OP = 'UPDATE') AND (OLD.username IS DISTINCT FROM NEW.username) THEN
+      user_email := LOWER(NEW.username) || '@6kpizza.app';
+      UPDATE auth.users
+      SET email = user_email,
+          raw_user_meta_data = jsonb_build_object('username', NEW.username),
+          updated_at = now()
+      WHERE id = NEW.auth_user_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."sync_worker_credentials_to_auth"() OWNER TO "postgres";
 
 SET default_tablespace = '';
 
@@ -1620,7 +2395,16 @@ CREATE TABLE IF NOT EXISTS "public"."cash_audit_entries" (
     "discrepancy" integer DEFAULT 0 NOT NULL,
     "notes" "text" DEFAULT ''::"text" NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "bills_100k" integer DEFAULT 0 NOT NULL,
+    "bills_50k" integer DEFAULT 0 NOT NULL,
+    "bills_20k" integer DEFAULT 0 NOT NULL,
+    "bills_10k" integer DEFAULT 0 NOT NULL,
+    "bills_5k" integer DEFAULT 0 NOT NULL,
+    "bills_2k" integer DEFAULT 0 NOT NULL,
+    "coins" integer DEFAULT 0 NOT NULL,
+    "bank_total" integer DEFAULT 0 NOT NULL,
+    "cartera" integer DEFAULT 0 NOT NULL
 );
 
 
@@ -1703,7 +2487,10 @@ CREATE TABLE IF NOT EXISTS "public"."credit_entries" (
     "date" "date" DEFAULT CURRENT_DATE NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "store_id" "uuid",
-    "transfer_id" "uuid"
+    "transfer_id" "uuid",
+    "sale_id" "uuid",
+    "expense_id" "uuid",
+    "customer_id" "uuid"
 );
 
 
@@ -1727,6 +2514,19 @@ CREATE TABLE IF NOT EXISTS "public"."credit_payments" (
 
 
 ALTER TABLE "public"."credit_payments" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."customers" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "name" "text" NOT NULL,
+    "phone" "text",
+    "email" "text",
+    "is_active" boolean DEFAULT true NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."customers" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."daily_alerts" (
@@ -1770,11 +2570,28 @@ CREATE TABLE IF NOT EXISTS "public"."expenses" (
     "description" "text" DEFAULT ''::"text" NOT NULL,
     "amount" integer DEFAULT 0 NOT NULL,
     "payment_method" "public"."payment_method" DEFAULT 'EFECTIVO'::"public"."payment_method" NOT NULL,
-    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "worker_id" "uuid",
+    "is_fixed" boolean DEFAULT true NOT NULL
 );
 
 
 ALTER TABLE "public"."expenses" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."incomes" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "store_id" "uuid" NOT NULL,
+    "date" "date" DEFAULT CURRENT_DATE NOT NULL,
+    "category" "text" DEFAULT 'Otro'::"text" NOT NULL,
+    "description" "text" DEFAULT ''::"text" NOT NULL,
+    "amount" integer DEFAULT 0 NOT NULL,
+    "payment_method" "public"."payment_method" DEFAULT 'EFECTIVO'::"public"."payment_method" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."incomes" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."inventory" (
@@ -2081,7 +2898,12 @@ CREATE TABLE IF NOT EXISTS "public"."sales" (
     "packaging_supply_id" "uuid",
     "packaging_total" integer DEFAULT 0 NOT NULL,
     "total_cost_cop" integer DEFAULT 0 NOT NULL,
-    "gross_margin_cop" integer DEFAULT 0 NOT NULL
+    "gross_margin_cop" integer DEFAULT 0 NOT NULL,
+    "is_credit" boolean DEFAULT false NOT NULL,
+    "debtor_name" "text",
+    "debtor_type" "public"."debtor_type",
+    "debtor_worker_id" "uuid",
+    "debtor_customer_id" "uuid"
 );
 
 
@@ -2301,6 +3123,11 @@ ALTER TABLE ONLY "public"."credit_payments"
 
 
 
+ALTER TABLE ONLY "public"."customers"
+    ADD CONSTRAINT "customers_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."daily_alerts"
     ADD CONSTRAINT "daily_alerts_pkey" PRIMARY KEY ("id");
 
@@ -2318,6 +3145,11 @@ ALTER TABLE ONLY "public"."demand_estimates"
 
 ALTER TABLE ONLY "public"."expenses"
     ADD CONSTRAINT "expenses_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."incomes"
+    ADD CONSTRAINT "incomes_pkey" PRIMARY KEY ("id");
 
 
 
@@ -2553,7 +3385,19 @@ CREATE INDEX "idx_cash_closings_store_date" ON "public"."cash_closings" USING "b
 
 
 
+CREATE INDEX "idx_credit_entries_customer" ON "public"."credit_entries" USING "btree" ("customer_id") WHERE ("customer_id" IS NOT NULL);
+
+
+
 CREATE INDEX "idx_credit_entries_debtor" ON "public"."credit_entries" USING "btree" ("debtor_name", "is_paid");
+
+
+
+CREATE INDEX "idx_credit_entries_expense" ON "public"."credit_entries" USING "btree" ("expense_id") WHERE ("expense_id" IS NOT NULL);
+
+
+
+CREATE INDEX "idx_credit_entries_sale" ON "public"."credit_entries" USING "btree" ("sale_id") WHERE ("sale_id" IS NOT NULL);
 
 
 
@@ -2586,6 +3430,14 @@ CREATE INDEX "idx_demand_estimates_store_day" ON "public"."demand_estimates" USI
 
 
 CREATE INDEX "idx_expenses_store_date" ON "public"."expenses" USING "btree" ("store_id", "date");
+
+
+
+CREATE INDEX "idx_expenses_worker" ON "public"."expenses" USING "btree" ("worker_id") WHERE ("worker_id" IS NOT NULL);
+
+
+
+CREATE INDEX "idx_incomes_store_date" ON "public"."incomes" USING "btree" ("store_id", "date");
 
 
 
@@ -2634,6 +3486,14 @@ CREATE INDEX "idx_sale_item_additions_item" ON "public"."sale_item_additions" US
 
 
 CREATE INDEX "idx_sale_items_sale" ON "public"."sale_items" USING "btree" ("sale_id");
+
+
+
+CREATE INDEX "idx_sales_debtor_customer" ON "public"."sales" USING "btree" ("debtor_customer_id") WHERE ("debtor_customer_id" IS NOT NULL);
+
+
+
+CREATE INDEX "idx_sales_debtor_worker" ON "public"."sales" USING "btree" ("debtor_worker_id") WHERE ("debtor_worker_id" IS NOT NULL);
 
 
 
@@ -2733,6 +3593,34 @@ CREATE OR REPLACE TRIGGER "trg_sync_cash_closing_accounting_lock" AFTER INSERT O
 
 
 
+CREATE OR REPLACE TRIGGER "trg_sync_expense_advance_to_credit" AFTER INSERT ON "public"."expenses" FOR EACH ROW EXECUTE FUNCTION "public"."sync_expense_advance_to_credit"();
+
+
+
+CREATE OR REPLACE TRIGGER "trg_sync_expense_delete_to_credit" AFTER DELETE ON "public"."expenses" FOR EACH ROW EXECUTE FUNCTION "public"."sync_expense_delete_to_credit"();
+
+
+
+CREATE OR REPLACE TRIGGER "trg_sync_expense_update_to_credit" AFTER UPDATE ON "public"."expenses" FOR EACH ROW EXECUTE FUNCTION "public"."sync_expense_update_to_credit"();
+
+
+
+CREATE OR REPLACE TRIGGER "trg_sync_sale_credit_to_portfolio" AFTER INSERT OR UPDATE ON "public"."sales" FOR EACH ROW EXECUTE FUNCTION "public"."sync_sale_credit_to_portfolio"();
+
+
+
+CREATE OR REPLACE TRIGGER "trg_sync_sale_delete_to_credit" AFTER DELETE ON "public"."sales" FOR EACH ROW EXECUTE FUNCTION "public"."sync_sale_delete_to_credit"();
+
+
+
+CREATE OR REPLACE TRIGGER "trg_sync_sale_payment_to_credit" AFTER UPDATE ON "public"."sales" FOR EACH ROW EXECUTE FUNCTION "public"."sync_sale_payment_to_credit"();
+
+
+
+CREATE OR REPLACE TRIGGER "trg_sync_worker_credentials_to_auth" BEFORE INSERT OR UPDATE ON "public"."workers" FOR EACH ROW EXECUTE FUNCTION "public"."sync_worker_credentials_to_auth"();
+
+
+
 CREATE OR REPLACE TRIGGER "trigger_add_purchase_to_inventory" AFTER INSERT ON "public"."purchases" FOR EACH ROW EXECUTE FUNCTION "public"."add_purchase_to_raw_inventory"();
 
 
@@ -2823,6 +3711,21 @@ ALTER TABLE ONLY "public"."closing_checklist_entries"
 
 
 ALTER TABLE ONLY "public"."credit_entries"
+    ADD CONSTRAINT "credit_entries_customer_id_fkey" FOREIGN KEY ("customer_id") REFERENCES "public"."customers"("id") ON DELETE SET NULL;
+
+
+
+ALTER TABLE ONLY "public"."credit_entries"
+    ADD CONSTRAINT "credit_entries_expense_id_fkey" FOREIGN KEY ("expense_id") REFERENCES "public"."expenses"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."credit_entries"
+    ADD CONSTRAINT "credit_entries_sale_id_fkey" FOREIGN KEY ("sale_id") REFERENCES "public"."sales"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."credit_entries"
     ADD CONSTRAINT "credit_entries_store_id_fkey" FOREIGN KEY ("store_id") REFERENCES "public"."stores"("id");
 
 
@@ -2899,6 +3802,16 @@ ALTER TABLE ONLY "public"."demand_estimates"
 
 ALTER TABLE ONLY "public"."expenses"
     ADD CONSTRAINT "expenses_store_id_fkey" FOREIGN KEY ("store_id") REFERENCES "public"."stores"("id");
+
+
+
+ALTER TABLE ONLY "public"."expenses"
+    ADD CONSTRAINT "expenses_worker_id_fkey" FOREIGN KEY ("worker_id") REFERENCES "public"."workers"("id") ON DELETE SET NULL;
+
+
+
+ALTER TABLE ONLY "public"."incomes"
+    ADD CONSTRAINT "incomes_store_id_fkey" FOREIGN KEY ("store_id") REFERENCES "public"."stores"("id");
 
 
 
@@ -3103,6 +4016,16 @@ ALTER TABLE ONLY "public"."sale_items"
 
 
 ALTER TABLE ONLY "public"."sales"
+    ADD CONSTRAINT "sales_debtor_customer_id_fkey" FOREIGN KEY ("debtor_customer_id") REFERENCES "public"."customers"("id") ON DELETE SET NULL;
+
+
+
+ALTER TABLE ONLY "public"."sales"
+    ADD CONSTRAINT "sales_debtor_worker_id_fkey" FOREIGN KEY ("debtor_worker_id") REFERENCES "public"."workers"("id") ON DELETE SET NULL;
+
+
+
+ALTER TABLE ONLY "public"."sales"
     ADD CONSTRAINT "sales_packaging_supply_id_fkey" FOREIGN KEY ("packaging_supply_id") REFERENCES "public"."supplies"("id");
 
 
@@ -3207,75 +4130,11 @@ ALTER TABLE ONLY "public"."workers"
 
 
 
-CREATE POLICY "Admin delete physical_count_items" ON "public"."physical_count_items" FOR DELETE TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin delete physical_counts" ON "public"."physical_counts" FOR DELETE TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
 CREATE POLICY "Admin manage accounting_period_locks" ON "public"."accounting_period_locks" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
 
 
 
-CREATE POLICY "Admin manage attendance" ON "public"."attendance" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage credit_entries" ON "public"."credit_entries" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage credit_payments" ON "public"."credit_payments" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage daily_alerts" ON "public"."daily_alerts" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage demand_estimates" ON "public"."demand_estimates" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage expenses" ON "public"."expenses" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage payroll_entries" ON "public"."payroll_entries" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage physical_count_items" ON "public"."physical_count_items" FOR UPDATE TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage physical_counts" ON "public"."physical_counts" FOR UPDATE TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage product_formats" ON "public"."product_formats" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage product_prices" ON "public"."product_prices" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
 CREATE POLICY "Admin manage product_store_assignments" ON "public"."product_store_assignments" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage production_recipe_inputs" ON "public"."production_recipe_inputs" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage production_recipes" ON "public"."production_recipes" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage products" ON "public"."products" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
 
 
 
@@ -3287,27 +4146,7 @@ CREATE POLICY "Admin manage recipe_ingredients" ON "public"."recipe_ingredients"
 
 
 
-CREATE POLICY "Admin manage schedules" ON "public"."schedules" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage stock_minimums" ON "public"."stock_minimums" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage stores" ON "public"."stores" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
 CREATE POLICY "Admin manage validations" ON "public"."validations" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage worker_store_assignments" ON "public"."worker_store_assignments" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
-
-
-
-CREATE POLICY "Admin manage workers" ON "public"."workers" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
 
 
 
@@ -3324,10 +4163,6 @@ CREATE POLICY "Allow all for authenticated" ON "public"."closing_checklist_entri
 
 
 CREATE POLICY "Allow all for authenticated" ON "public"."closing_checklist_items" USING (true) WITH CHECK (true);
-
-
-
-CREATE POLICY "Allow all for authenticated" ON "public"."payroll_periods" USING (true) WITH CHECK (true);
 
 
 
@@ -3348,19 +4183,7 @@ CREATE POLICY "Authenticated insert addition_catalog" ON "public"."addition_cata
 
 
 
-CREATE POLICY "Authenticated insert cash_closings" ON "public"."cash_closings" FOR INSERT TO "authenticated" WITH CHECK (true);
-
-
-
 CREATE POLICY "Authenticated insert sale_item_additions" ON "public"."sale_item_additions" FOR INSERT TO "authenticated" WITH CHECK (true);
-
-
-
-CREATE POLICY "Authenticated insert sale_items" ON "public"."sale_items" FOR INSERT TO "authenticated" WITH CHECK (true);
-
-
-
-CREATE POLICY "Authenticated insert sales" ON "public"."sales" FOR INSERT TO "authenticated" WITH CHECK (true);
 
 
 
@@ -3384,19 +4207,7 @@ CREATE POLICY "Authenticated read addition_catalog" ON "public"."addition_catalo
 
 
 
-CREATE POLICY "Authenticated read attendance" ON "public"."attendance" FOR SELECT TO "authenticated" USING (true);
-
-
-
 CREATE POLICY "Authenticated read cash_audit_entries" ON "public"."cash_audit_entries" FOR SELECT TO "authenticated" USING (true);
-
-
-
-CREATE POLICY "Authenticated read cash_closings" ON "public"."cash_closings" FOR SELECT TO "authenticated" USING (true);
-
-
-
-CREATE POLICY "Authenticated read credit_entries" ON "public"."credit_entries" FOR SELECT TO "authenticated" USING (true);
 
 
 
@@ -3409,18 +4220,6 @@ CREATE POLICY "Authenticated read daily_alerts" ON "public"."daily_alerts" FOR S
 
 
 CREATE POLICY "Authenticated read demand_estimates" ON "public"."demand_estimates" FOR SELECT TO "authenticated" USING (true);
-
-
-
-CREATE POLICY "Authenticated read expenses" ON "public"."expenses" FOR SELECT TO "authenticated" USING (true);
-
-
-
-CREATE POLICY "Authenticated read inventory" ON "public"."inventory" FOR SELECT TO "authenticated" USING (true);
-
-
-
-CREATE POLICY "Authenticated read payroll_entries" ON "public"."payroll_entries" FOR SELECT TO "authenticated" USING (true);
 
 
 
@@ -3480,18 +4279,6 @@ CREATE POLICY "Authenticated read sale_item_additions" ON "public"."sale_item_ad
 
 
 
-CREATE POLICY "Authenticated read sale_items" ON "public"."sale_items" FOR SELECT TO "authenticated" USING (true);
-
-
-
-CREATE POLICY "Authenticated read sales" ON "public"."sales" FOR SELECT TO "authenticated" USING (true);
-
-
-
-CREATE POLICY "Authenticated read schedules" ON "public"."schedules" FOR SELECT TO "authenticated" USING (true);
-
-
-
 CREATE POLICY "Authenticated read shift_portions" ON "public"."shift_portions" FOR SELECT USING (("auth"."role"() = 'authenticated'::"text"));
 
 
@@ -3505,14 +4292,6 @@ CREATE POLICY "Authenticated read stores" ON "public"."stores" FOR SELECT TO "au
 
 
 CREATE POLICY "Authenticated read supplies" ON "public"."supplies" FOR SELECT TO "authenticated" USING (true);
-
-
-
-CREATE POLICY "Authenticated read transfer_items" ON "public"."transfer_items" FOR SELECT TO "authenticated" USING (true);
-
-
-
-CREATE POLICY "Authenticated read transfers" ON "public"."transfers" FOR SELECT TO "authenticated" USING (true);
 
 
 
@@ -3549,6 +4328,18 @@ CREATE POLICY "Authenticated update sales" ON "public"."sales" FOR UPDATE TO "au
 
 
 
+CREATE POLICY "Authenticated users insert customers" ON "public"."customers" FOR INSERT TO "authenticated" WITH CHECK (true);
+
+
+
+CREATE POLICY "Authenticated users select customers" ON "public"."customers" FOR SELECT TO "authenticated" USING (true);
+
+
+
+CREATE POLICY "Authenticated users update customers" ON "public"."customers" FOR UPDATE TO "authenticated" USING (true);
+
+
+
 CREATE POLICY "Colaborador delete expenses" ON "public"."expenses" FOR DELETE TO "authenticated" USING (("public"."get_user_role"() = 'COLABORADOR'::"public"."user_role"));
 
 
@@ -3558,14 +4349,6 @@ CREATE POLICY "Colaborador insert expenses" ON "public"."expenses" FOR INSERT TO
 
 
 CREATE POLICY "Colaborador update expenses" ON "public"."expenses" FOR UPDATE TO "authenticated" USING (("public"."get_user_role"() = 'COLABORADOR'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'COLABORADOR'::"public"."user_role"));
-
-
-
-CREATE POLICY "Count operators insert physical_count_items" ON "public"."physical_count_items" FOR INSERT TO "authenticated" WITH CHECK ((("public"."get_user_role"() = 'ADMIN'::"public"."user_role") OR ("public"."get_worker_role"() = ANY (ARRAY['CAJERO'::"public"."worker_role", 'ADMINISTRADOR'::"public"."worker_role", 'COORDINADOR'::"public"."worker_role"]))));
-
-
-
-CREATE POLICY "Count operators insert physical_counts" ON "public"."physical_counts" FOR INSERT TO "authenticated" WITH CHECK ((("public"."get_user_role"() = 'ADMIN'::"public"."user_role") OR ("public"."get_worker_role"() = ANY (ARRAY['CAJERO'::"public"."worker_role", 'ADMINISTRADOR'::"public"."worker_role", 'COORDINADOR'::"public"."worker_role"]))));
 
 
 
@@ -3581,19 +4364,15 @@ CREATE POLICY "Inventory operators manage inventory" ON "public"."inventory" TO 
 
 
 
-CREATE POLICY "Production operators insert production_record_items" ON "public"."production_record_items" FOR INSERT TO "authenticated" WITH CHECK ((("public"."get_user_role"() = 'ADMIN'::"public"."user_role") OR ("public"."get_worker_role"() = ANY (ARRAY['PREPARADOR'::"public"."worker_role", 'ADMINISTRADOR'::"public"."worker_role", 'COORDINADOR'::"public"."worker_role"]))));
-
-
-
-CREATE POLICY "Production operators insert production_records" ON "public"."production_records" FOR INSERT TO "authenticated" WITH CHECK ((("public"."get_user_role"() = 'ADMIN'::"public"."user_role") OR ("public"."get_worker_role"() = ANY (ARRAY['PREPARADOR'::"public"."worker_role", 'ADMINISTRADOR'::"public"."worker_role", 'COORDINADOR'::"public"."worker_role"]))));
-
-
-
 CREATE POLICY "Transfer operators manage transfer_items" ON "public"."transfer_items" TO "authenticated" USING ("public"."is_transfer_operator"()) WITH CHECK ("public"."is_transfer_operator"());
 
 
 
 CREATE POLICY "Transfer operators manage transfers" ON "public"."transfers" TO "authenticated" USING ("public"."is_transfer_operator"()) WITH CHECK ("public"."is_transfer_operator"());
+
+
+
+CREATE POLICY "accounting_locks_policy" ON "public"."accounting_period_locks" TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
 
 
 
@@ -3606,10 +4385,18 @@ ALTER TABLE "public"."addition_catalog" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."attendance" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "attendance_policy" ON "public"."attendance" TO "authenticated" USING ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND "public"."is_admin_or_assigned_local"("store_id")))) WITH CHECK ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND "public"."is_admin_or_assigned_local"("store_id"))));
+
+
+
 ALTER TABLE "public"."cash_audit_entries" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."cash_closings" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "cash_closings_policy" ON "public"."cash_closings" TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
+
 
 
 ALTER TABLE "public"."cash_openings" ENABLE ROW LEVEL SECURITY;
@@ -3624,19 +4411,61 @@ ALTER TABLE "public"."closing_checklist_items" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."credit_entries" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "credit_entries_policy" ON "public"."credit_entries" TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
+
+
+
 ALTER TABLE "public"."credit_payments" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "credit_payments_policy" ON "public"."credit_payments" TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."credit_entries" "ce"
+  WHERE (("ce"."id" = "credit_payments"."credit_entry_id") AND "public"."is_admin_or_assigned_local"("ce"."store_id"))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."credit_entries" "ce"
+  WHERE (("ce"."id" = "credit_payments"."credit_entry_id") AND "public"."is_admin_or_assigned_local"("ce"."store_id")))));
+
+
+
+ALTER TABLE "public"."customers" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."daily_alerts" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "daily_alerts_policy" ON "public"."daily_alerts" TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+
+
+
 ALTER TABLE "public"."demand_estimates" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "demand_estimates_policy" ON "public"."demand_estimates" TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+
 
 
 ALTER TABLE "public"."expenses" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "expenses_policy" ON "public"."expenses" TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
+
+
+
+ALTER TABLE "public"."incomes" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "incomes_policy" ON "public"."incomes" TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
+
+
+
 ALTER TABLE "public"."inventory" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "inventory_select_policy" ON "public"."inventory" FOR SELECT TO "authenticated" USING ((("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'PREPARADOR'::"public"."user_role"])) OR "public"."is_admin_or_assigned_local"("store_id")));
+
+
+
+CREATE POLICY "inventory_write_policy" ON "public"."inventory" TO "authenticated" USING ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND "public"."is_admin_or_assigned_local"("store_id")))) WITH CHECK ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND "public"."is_admin_or_assigned_local"("store_id"))));
+
 
 
 ALTER TABLE "public"."inventory_writeoffs" ENABLE ROW LEVEL SECURITY;
@@ -3645,19 +4474,59 @@ ALTER TABLE "public"."inventory_writeoffs" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."payroll_entries" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "payroll_entries_policy" ON "public"."payroll_entries" TO "authenticated" USING ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND "public"."is_admin_or_assigned_local"("store_id")))) WITH CHECK ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND "public"."is_admin_or_assigned_local"("store_id"))));
+
+
+
 ALTER TABLE "public"."payroll_periods" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "payroll_periods_policy" ON "public"."payroll_periods" TO "authenticated" USING ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND "public"."is_admin_or_assigned_local"("store_id")))) WITH CHECK ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND "public"."is_admin_or_assigned_local"("store_id"))));
+
 
 
 ALTER TABLE "public"."physical_count_items" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "physical_count_items_delete_policy" ON "public"."physical_count_items" FOR DELETE TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+
+
+
+CREATE POLICY "physical_count_items_insert_policy" ON "public"."physical_count_items" FOR INSERT TO "authenticated" WITH CHECK ((("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'ADMIN_LOCAL'::"public"."user_role"])) OR ("public"."get_worker_role"() = ANY (ARRAY['CAJERO'::"public"."worker_role", 'ADMINISTRADOR'::"public"."worker_role", 'COORDINADOR'::"public"."worker_role"]))));
+
+
+
+CREATE POLICY "physical_count_items_update_policy" ON "public"."physical_count_items" FOR UPDATE TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+
+
+
 ALTER TABLE "public"."physical_counts" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "physical_counts_delete_policy" ON "public"."physical_counts" FOR DELETE TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+
+
+
+CREATE POLICY "physical_counts_insert_policy" ON "public"."physical_counts" FOR INSERT TO "authenticated" WITH CHECK ((("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'ADMIN_LOCAL'::"public"."user_role"])) OR ("public"."get_worker_role"() = ANY (ARRAY['CAJERO'::"public"."worker_role", 'ADMINISTRADOR'::"public"."worker_role", 'COORDINADOR'::"public"."worker_role"]))));
+
+
+
+CREATE POLICY "physical_counts_update_policy" ON "public"."physical_counts" FOR UPDATE TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+
 
 
 ALTER TABLE "public"."product_formats" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "product_formats_policy" ON "public"."product_formats" TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+
+
+
 ALTER TABLE "public"."product_prices" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "product_prices_policy" ON "public"."product_prices" TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+
 
 
 ALTER TABLE "public"."product_store_assignments" ENABLE ROW LEVEL SECURITY;
@@ -3666,16 +4535,36 @@ ALTER TABLE "public"."product_store_assignments" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."production_recipe_inputs" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "production_recipe_inputs_policy" ON "public"."production_recipe_inputs" TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+
+
+
 ALTER TABLE "public"."production_recipes" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "production_recipes_policy" ON "public"."production_recipes" TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+
 
 
 ALTER TABLE "public"."production_record_items" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "production_record_items_insert_policy" ON "public"."production_record_items" FOR INSERT TO "authenticated" WITH CHECK ((("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'ADMIN_LOCAL'::"public"."user_role"])) OR ("public"."get_worker_role"() = ANY (ARRAY['PREPARADOR'::"public"."worker_role", 'ADMINISTRADOR'::"public"."worker_role", 'COORDINADOR'::"public"."worker_role"]))));
+
+
+
 ALTER TABLE "public"."production_records" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "production_records_insert_policy" ON "public"."production_records" FOR INSERT TO "authenticated" WITH CHECK ((("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'ADMIN_LOCAL'::"public"."user_role"])) OR ("public"."get_worker_role"() = ANY (ARRAY['PREPARADOR'::"public"."worker_role", 'ADMINISTRADOR'::"public"."worker_role", 'COORDINADOR'::"public"."worker_role"]))));
+
+
+
 ALTER TABLE "public"."products" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "products_policy" ON "public"."products" TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+
 
 
 ALTER TABLE "public"."purchases" ENABLE ROW LEVEL SECURITY;
@@ -3693,10 +4582,56 @@ ALTER TABLE "public"."sale_item_additions" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."sale_items" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "sale_items_delete_policy" ON "public"."sale_items" FOR DELETE TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."sales" "s"
+  WHERE (("s"."id" = "sale_items"."sale_id") AND "public"."is_admin_or_assigned_local"("s"."store_id")))));
+
+
+
+CREATE POLICY "sale_items_insert_policy" ON "public"."sale_items" FOR INSERT TO "authenticated" WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."sales" "s"
+  WHERE (("s"."id" = "sale_items"."sale_id") AND "public"."is_admin_or_assigned_local"("s"."store_id")))));
+
+
+
+CREATE POLICY "sale_items_select_policy" ON "public"."sale_items" FOR SELECT TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."sales" "s"
+  WHERE (("s"."id" = "sale_items"."sale_id") AND "public"."is_admin_or_assigned_local"("s"."store_id")))));
+
+
+
+CREATE POLICY "sale_items_update_policy" ON "public"."sale_items" FOR UPDATE TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."sales" "s"
+  WHERE (("s"."id" = "sale_items"."sale_id") AND "public"."is_admin_or_assigned_local"("s"."store_id"))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."sales" "s"
+  WHERE (("s"."id" = "sale_items"."sale_id") AND "public"."is_admin_or_assigned_local"("s"."store_id")))));
+
+
+
 ALTER TABLE "public"."sales" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "sales_delete_policy" ON "public"."sales" FOR DELETE TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id"));
+
+
+
+CREATE POLICY "sales_insert_policy" ON "public"."sales" FOR INSERT TO "authenticated" WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
+
+
+
+CREATE POLICY "sales_select_policy" ON "public"."sales" FOR SELECT TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id"));
+
+
+
+CREATE POLICY "sales_update_policy" ON "public"."sales" FOR UPDATE TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
+
+
+
 ALTER TABLE "public"."schedules" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "schedules_policy" ON "public"."schedules" TO "authenticated" USING ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND "public"."is_admin_or_assigned_local"("store_id")))) WITH CHECK ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND "public"."is_admin_or_assigned_local"("store_id"))));
+
 
 
 ALTER TABLE "public"."shift_portions" ENABLE ROW LEVEL SECURITY;
@@ -3705,16 +4640,40 @@ ALTER TABLE "public"."shift_portions" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."stock_minimums" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "stock_minimums_policy" ON "public"."stock_minimums" TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+
+
+
 ALTER TABLE "public"."stores" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "stores_policy" ON "public"."stores" TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+
 
 
 ALTER TABLE "public"."supplies" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "supplies_policy" ON "public"."supplies" TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+
+
+
 ALTER TABLE "public"."transfer_items" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "transfer_items_policy" ON "public"."transfer_items" TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."transfers" "t"
+  WHERE (("t"."id" = "transfer_items"."transfer_id") AND "public"."can_access_transfer"("t"."from_store_id", "t"."to_store_id"))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."transfers" "t"
+  WHERE (("t"."id" = "transfer_items"."transfer_id") AND "public"."can_access_transfer"("t"."from_store_id", "t"."to_store_id")))));
+
+
+
 ALTER TABLE "public"."transfers" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "transfers_policy" ON "public"."transfers" TO "authenticated" USING ("public"."can_access_transfer"("from_store_id", "to_store_id")) WITH CHECK ("public"."can_access_transfer"("from_store_id", "to_store_id"));
+
 
 
 ALTER TABLE "public"."validations" ENABLE ROW LEVEL SECURITY;
@@ -3723,7 +4682,25 @@ ALTER TABLE "public"."validations" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."worker_store_assignments" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "worker_store_assignments_write_policy" ON "public"."worker_store_assignments" TO "authenticated" USING ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND "public"."is_admin_or_assigned_local"("store_id")))) WITH CHECK ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND "public"."is_admin_or_assigned_local"("store_id"))));
+
+
+
 ALTER TABLE "public"."workers" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "workers_write_policy" ON "public"."workers" TO "authenticated" USING ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND (EXISTS ( SELECT 1
+   FROM ("public"."worker_store_assignments" "wsa_caller"
+     JOIN "public"."worker_store_assignments" "wsa_target" ON (("wsa_caller"."store_id" = "wsa_target"."store_id")))
+  WHERE (("wsa_caller"."worker_id" = "public"."get_auth_worker_id"()) AND ("wsa_target"."worker_id" = "workers"."id"))))))) WITH CHECK ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND (EXISTS ( SELECT 1
+   FROM ("public"."worker_store_assignments" "wsa_caller"
+     JOIN "public"."worker_store_assignments" "wsa_target" ON (("wsa_caller"."store_id" = "wsa_target"."store_id")))
+  WHERE (("wsa_caller"."worker_id" = "public"."get_auth_worker_id"()) AND ("wsa_target"."worker_id" = "workers"."id")))))));
+
+
+
+CREATE POLICY "writeoffs_policy" ON "public"."inventory_writeoffs" TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
+
 
 
 
@@ -3897,6 +4874,18 @@ GRANT ALL ON FUNCTION "public"."authenticate_worker"("worker_name" "text", "work
 
 
 
+GRANT ALL ON FUNCTION "public"."can_access_transfer"("from_store" "uuid", "to_store" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."can_access_transfer"("from_store" "uuid", "to_store" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."can_access_transfer"("from_store" "uuid", "to_store" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."debug_rls_check"("target_store_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."debug_rls_check"("target_store_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."debug_rls_check"("target_store_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."deduct_inventory_for_sale"("p_sale_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."deduct_inventory_for_sale"("p_sale_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."deduct_inventory_for_sale"("p_sale_id" "uuid") TO "service_role";
@@ -3915,6 +4904,12 @@ GRANT ALL ON FUNCTION "public"."deduct_store_inventory"("p_store_id" "uuid", "p_
 
 
 
+GRANT ALL ON FUNCTION "public"."get_auth_worker_id"() TO "anon";
+GRANT ALL ON FUNCTION "public"."get_auth_worker_id"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_auth_worker_id"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."get_user_role"() TO "anon";
 GRANT ALL ON FUNCTION "public"."get_user_role"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_user_role"() TO "service_role";
@@ -3930,6 +4925,12 @@ GRANT ALL ON FUNCTION "public"."get_worker_role"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."is_accounting_period_locked"("p_store_id" "uuid", "p_date" "date") TO "anon";
 GRANT ALL ON FUNCTION "public"."is_accounting_period_locked"("p_store_id" "uuid", "p_date" "date") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."is_accounting_period_locked"("p_store_id" "uuid", "p_date" "date") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."is_admin_or_assigned_local"("target_store_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."is_admin_or_assigned_local"("target_store_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."is_admin_or_assigned_local"("target_store_id" "uuid") TO "service_role";
 
 
 
@@ -4023,6 +5024,18 @@ GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", 
 
 
 
+GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean) TO "anon";
+GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."rls_auto_enable"() TO "anon";
 GRANT ALL ON FUNCTION "public"."rls_auto_enable"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."rls_auto_enable"() TO "service_role";
@@ -4038,6 +5051,48 @@ GRANT ALL ON FUNCTION "public"."set_cash_audit_updated_at"() TO "service_role";
 GRANT ALL ON FUNCTION "public"."sync_cash_closing_accounting_lock"() TO "anon";
 GRANT ALL ON FUNCTION "public"."sync_cash_closing_accounting_lock"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."sync_cash_closing_accounting_lock"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."sync_expense_advance_to_credit"() TO "anon";
+GRANT ALL ON FUNCTION "public"."sync_expense_advance_to_credit"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."sync_expense_advance_to_credit"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."sync_expense_delete_to_credit"() TO "anon";
+GRANT ALL ON FUNCTION "public"."sync_expense_delete_to_credit"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."sync_expense_delete_to_credit"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."sync_expense_update_to_credit"() TO "anon";
+GRANT ALL ON FUNCTION "public"."sync_expense_update_to_credit"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."sync_expense_update_to_credit"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."sync_sale_credit_to_portfolio"() TO "anon";
+GRANT ALL ON FUNCTION "public"."sync_sale_credit_to_portfolio"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."sync_sale_credit_to_portfolio"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."sync_sale_delete_to_credit"() TO "anon";
+GRANT ALL ON FUNCTION "public"."sync_sale_delete_to_credit"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."sync_sale_delete_to_credit"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."sync_sale_payment_to_credit"() TO "anon";
+GRANT ALL ON FUNCTION "public"."sync_sale_payment_to_credit"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."sync_sale_payment_to_credit"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."sync_worker_credentials_to_auth"() TO "anon";
+GRANT ALL ON FUNCTION "public"."sync_worker_credentials_to_auth"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."sync_worker_credentials_to_auth"() TO "service_role";
 
 
 
@@ -4128,6 +5183,12 @@ GRANT ALL ON TABLE "public"."credit_payments" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."customers" TO "anon";
+GRANT ALL ON TABLE "public"."customers" TO "authenticated";
+GRANT ALL ON TABLE "public"."customers" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."daily_alerts" TO "anon";
 GRANT ALL ON TABLE "public"."daily_alerts" TO "authenticated";
 GRANT ALL ON TABLE "public"."daily_alerts" TO "service_role";
@@ -4143,6 +5204,12 @@ GRANT ALL ON TABLE "public"."demand_estimates" TO "service_role";
 GRANT ALL ON TABLE "public"."expenses" TO "anon";
 GRANT ALL ON TABLE "public"."expenses" TO "authenticated";
 GRANT ALL ON TABLE "public"."expenses" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."incomes" TO "anon";
+GRANT ALL ON TABLE "public"."incomes" TO "authenticated";
+GRANT ALL ON TABLE "public"."incomes" TO "service_role";
 
 
 

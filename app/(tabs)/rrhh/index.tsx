@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { FlatList, View, StyleSheet, ScrollView, Alert } from 'react-native';
+import { FlatList, View, StyleSheet, ScrollView, Alert, Platform } from 'react-native';
 import { Card, Text, Chip, Button, FAB, IconButton, useTheme, Modal, Portal, TextInput, RadioButton, Switch } from 'react-native-paper';
 import { router } from 'expo-router';
 import { EmptyState } from '../../../src/components/common/EmptyState';
@@ -56,6 +56,7 @@ export default function RRHHScreen() {
   const [userRole, setUserRole] = useState<UserRole>(UserRole.VENDEDOR);
   const [isActive, setIsActive] = useState(true);
   const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ACTIVE');
 
   useEffect(() => {
     loadWorkers();
@@ -63,9 +64,19 @@ export default function RRHHScreen() {
   }, [loadStores, loadWorkers]);
 
   const filteredWorkers = useMemo(() => {
-    if (!selectedStoreId) return workers;
-    return workers.filter((w) => w.storeIds?.includes(selectedStoreId));
-  }, [workers, selectedStoreId]);
+    return workers.filter((w) => {
+      if (selectedStoreId && !w.storeIds?.includes(selectedStoreId)) {
+        return false;
+      }
+      if (statusFilter === 'ACTIVE' && !w.isActive) {
+        return false;
+      }
+      if (statusFilter === 'INACTIVE' && w.isActive) {
+        return false;
+      }
+      return true;
+    });
+  }, [workers, selectedStoreId, statusFilter]);
 
   const resetForm = useCallback((worker?: Worker) => {
     setEditingWorker(worker ?? null);
@@ -148,27 +159,96 @@ export default function RRHHScreen() {
     ));
   }, []);
 
-  // H1: Deactivate worker
-  const handleDeactivate = useCallback((worker: Worker) => {
-    Alert.alert(
-      'Desactivar Empleado',
-      `¿Seguro que deseas desactivar a ${worker.name}?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Desactivar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await container.workerRepo.update(worker.id, { isActive: false });
-              await loadWorkers();
-            } catch {
-              Alert.alert('Error', 'No se pudo desactivar el empleado');
-            }
+  // Toggle worker active/inactive status
+  const handleToggleStatus = useCallback((worker: Worker) => {
+    const newStatus = !worker.isActive;
+    const actionText = newStatus ? 'activar' : 'desactivar';
+    const titleText = newStatus ? 'Activar Empleado' : 'Desactivar Empleado';
+    const confirmMessage = `¿Seguro que deseas ${actionText} a ${worker.name}?`;
+
+    const executeToggle = async () => {
+      try {
+        await container.workerRepo.update(worker.id, { isActive: newStatus });
+        await loadWorkers();
+      } catch (error) {
+        console.error(`Error ${actionText} worker:`, error);
+        if (Platform.OS === 'web') {
+          window.alert(`Error: No se pudo ${actionText} el empleado`);
+        } else {
+          Alert.alert('Error', `No se pudo ${actionText} el empleado`);
+        }
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(confirmMessage)) {
+        executeToggle();
+      }
+    } else {
+      Alert.alert(
+        titleText,
+        confirmMessage,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: newStatus ? 'Activar' : 'Desactivar',
+            style: newStatus ? 'default' : 'destructive',
+            onPress: executeToggle,
           },
-        },
-      ],
-    );
+        ],
+      );
+    }
+  }, [loadWorkers]);
+
+  // Delete worker with fallback to deactivation on foreign key constraint
+  const handleDeleteWorker = useCallback((worker: Worker) => {
+    const confirmMessage = `¿Seguro que deseas eliminar a ${worker.name}?\n\nNota: Si el empleado tiene transacciones o historial asociado en la base de datos, será desactivado en su lugar para mantener la integridad de los datos.`;
+
+    const executeDelete = async () => {
+      try {
+        await container.workerRepo.delete(worker.id);
+        await loadWorkers();
+        if (Platform.OS === 'web') {
+          window.alert(`El empleado "${worker.name}" fue eliminado exitosamente.`);
+        } else {
+          Alert.alert('Éxito', `El empleado "${worker.name}" fue eliminado exitosamente.`);
+        }
+      } catch (error: any) {
+        console.warn('No se pudo eliminar el empleado, desactivando en su lugar:', error);
+        try {
+          await container.workerRepo.update(worker.id, { isActive: false });
+          await loadWorkers();
+          const infoMsg = `No es posible eliminar a "${worker.name}" porque cuenta con registros o transacciones asociadas en el sistema.\n\nEn su lugar, el empleado ha sido DESACTIVADO para proteger la integridad de la información.`;
+          if (Platform.OS === 'web') {
+            window.alert(infoMsg);
+          } else {
+            Alert.alert('Empleado Desactivado', infoMsg);
+          }
+        } catch (deactivateError) {
+          console.error('Error al desactivar empleado tras fallo en borrado:', deactivateError);
+          if (Platform.OS === 'web') {
+            window.alert('Error al intentar desactivar el empleado.');
+          } else {
+            Alert.alert('Error', 'No se pudo procesar la solicitud.');
+          }
+        }
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(confirmMessage)) {
+        executeDelete();
+      }
+    } else {
+      Alert.alert(
+        'Eliminar Empleado',
+        confirmMessage,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Eliminar', style: 'destructive', onPress: executeDelete },
+        ],
+      );
+    }
   }, [loadWorkers]);
 
   const renderWorker = ({ item }: { item: Worker }) => (
@@ -225,14 +305,18 @@ export default function RRHHScreen() {
               size={18}
               onPress={() => openModal(item)}
             />
-            {item.isActive && (
-              <IconButton
-                icon="account-off"
-                size={18}
-                iconColor={theme.colors.error}
-                onPress={() => handleDeactivate(item)}
-              />
-            )}
+            <IconButton
+              icon={item.isActive ? 'account-off' : 'account-check'}
+              size={18}
+              iconColor={item.isActive ? theme.colors.error : '#4CAF50'}
+              onPress={() => handleToggleStatus(item)}
+            />
+            <IconButton
+              icon="delete"
+              size={18}
+              iconColor="#D32F2F"
+              onPress={() => handleDeleteWorker(item)}
+            />
           </View>
         </View>
       </Card.Content>
@@ -255,9 +339,34 @@ export default function RRHHScreen() {
         <Button mode="outlined" compact icon="currency-usd" onPress={() => router.push('/(tabs)/rrhh/nomina')}>
           Nomina
         </Button>
-        <Button mode="outlined" compact icon="file-document" onPress={() => router.push('/(tabs)/rrhh/reporte')}>
-          Reporte
-        </Button>
+      </View>
+
+      {/* Filter chips bar */}
+      <View style={styles.filterRow}>
+        <Chip
+          selected={statusFilter === 'ALL'}
+          onPress={() => setStatusFilter('ALL')}
+          style={[styles.filterChip, statusFilter === 'ALL' && styles.activeFilterChip]}
+          textStyle={{ fontSize: 12, color: statusFilter === 'ALL' ? '#FFFFFF' : '#F5F0EB' }}
+        >
+          Todos ({workers.filter((w) => !selectedStoreId || w.storeIds?.includes(selectedStoreId)).length})
+        </Chip>
+        <Chip
+          selected={statusFilter === 'ACTIVE'}
+          onPress={() => setStatusFilter('ACTIVE')}
+          style={[styles.filterChip, statusFilter === 'ACTIVE' && styles.activeFilterChip]}
+          textStyle={{ fontSize: 12, color: statusFilter === 'ACTIVE' ? '#FFFFFF' : '#F5F0EB' }}
+        >
+          Activos ({workers.filter((w) => (!selectedStoreId || w.storeIds?.includes(selectedStoreId)) && w.isActive).length})
+        </Chip>
+        <Chip
+          selected={statusFilter === 'INACTIVE'}
+          onPress={() => setStatusFilter('INACTIVE')}
+          style={[styles.filterChip, statusFilter === 'INACTIVE' && styles.activeFilterChip]}
+          textStyle={{ fontSize: 12, color: statusFilter === 'INACTIVE' ? '#FFFFFF' : '#F5F0EB' }}
+        >
+          Inactivos ({workers.filter((w) => (!selectedStoreId || w.storeIds?.includes(selectedStoreId)) && !w.isActive).length})
+        </Chip>
       </View>
 
       {loading ? (
@@ -459,6 +568,21 @@ const styles = StyleSheet.create({
     gap: 8,
     padding: 16,
     paddingBottom: 8,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  filterChip: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: 'rgba(245, 240, 235, 0.15)',
+    borderWidth: 1,
+  },
+  activeFilterChip: {
+    backgroundColor: '#E63946',
+    borderColor: '#E63946',
   },
   list: {
     padding: 16,

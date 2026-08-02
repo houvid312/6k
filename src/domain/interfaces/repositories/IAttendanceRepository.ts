@@ -6,4 +6,5 @@ export interface IAttendanceRepository {
   create(attendance: Omit<Attendance, 'id'>): Promise<Attendance>;
   getByWorkerDateRange(workerId: string, from: string, to: string): Promise<Attendance[]>;
   update(id: string, attendance: Partial<Omit<Attendance, 'id'>>): Promise<Attendance>;
+  delete(id: string): Promise<void>;
 }

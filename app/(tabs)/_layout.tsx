@@ -93,7 +93,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="rrhh"
         options={{
-          title: 'RRHH',
+          title: 'Talento Humano',
           headerShown: false,
           href: showTab('rrhh') ? '/(tabs)/rrhh' : null,
           tabBarIcon: ({ color, size }) => (

@@ -18,4 +18,6 @@ export interface IPayrollRepository {
   getEntries(periodId: string): Promise<PayrollEntry[]>;
   savePeriod(input: SavePayrollPeriodInput, entries: Omit<PayrollEntry, 'id'>[]): Promise<PayrollPeriod>;
   markPaid(periodId: string, expenseId?: string): Promise<PayrollPeriod>;
+  deletePeriod(periodId: string): Promise<void>;
+  getPeriodsByStore(storeId: string): Promise<PayrollPeriod[]>;
 }

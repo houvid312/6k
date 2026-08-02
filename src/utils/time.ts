@@ -1,5 +1,5 @@
 export function parseTimeToMinutes(time: string): number | null {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+  const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(time.trim());
   if (!match) return null;
   const hours = Number(match[1]);
   const minutes = Number(match[2]);

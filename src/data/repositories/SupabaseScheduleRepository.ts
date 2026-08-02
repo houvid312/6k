@@ -15,7 +15,14 @@ interface ScheduleRow {
   notes: string | null;
 }
 
-// --- Mappers ---
+function formatHHMM(time: string): string {
+  if (!time) return '00:00';
+  const parts = time.split(':');
+  if (parts.length >= 2) {
+    return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
+  }
+  return time;
+}
 
 function toEntity(row: ScheduleRow): Schedule {
   return {
@@ -23,8 +30,8 @@ function toEntity(row: ScheduleRow): Schedule {
     workerId: row.worker_id,
     storeId: row.store_id,
     dayOfWeek: row.day_of_week,
-    startTime: row.start_time,
-    endTime: row.end_time,
+    startTime: formatHHMM(row.start_time),
+    endTime: formatHHMM(row.end_time),
     hours: row.hours,
     notes: row.notes ?? undefined,
   };
