@@ -13,8 +13,15 @@ import { Sale, Expense, Purchase, Transfer, CashClosing, CashAuditEntry, Denomin
 import { DenominationCounter } from '../../../src/components/ventas/DenominationCounter';
 import { InventoryLevel, PaymentMethod, ClosingStatus } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
-import { formatDate, formatDateTime, toISODate, todayColombia } from '../../../src/utils/dates';
+import { formatDate, formatDateTime, toISODate, toISODateTZ, todayColombia } from '../../../src/utils/dates';
 import { supabase } from '../../../src/lib/supabase';
+
+function getColombiaDateKey(dateStr: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr.includes('T') ? dateStr : `${dateStr}T12:00:00-05:00`);
+  if (isNaN(d.getTime())) return dateStr.split('T')[0];
+  return toISODateTZ(d);
+}
 
 interface InventoryValuationRow {
   supplyName: string;
@@ -620,7 +627,7 @@ export default function ContabilidadScreen() {
         const cashAdvancesByDate = new Map<string, number>();
         const bankAdvancesByDate = new Map<string, number>();
         for (const exp of ledgerExpenses) {
-          const expDate = exp.date.split('T')[0];
+          const expDate = getColombiaDateKey(exp.date);
           if (exp.category === 'Adelanto') {
             if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
               cashAdvancesByDate.set(expDate, (cashAdvancesByDate.get(expDate) ?? 0) + exp.amount);
@@ -641,7 +648,7 @@ export default function ContabilidadScreen() {
         const cashPurchasesByDate = new Map<string, number>();
         const bankPurchasesByDate = new Map<string, number>();
         for (const pur of ledgerPurchases) {
-          const purDate = pur.timestamp.split('T')[0];
+          const purDate = getColombiaDateKey(pur.timestamp);
           if (pur.paymentMethod === PaymentMethod.EFECTIVO) {
             cashPurchasesByDate.set(purDate, (cashPurchasesByDate.get(purDate) ?? 0) + pur.priceCOP);
           } else {
@@ -653,7 +660,7 @@ export default function ContabilidadScreen() {
         const cashIncomesByDate = new Map<string, number>();
         const bankIncomesByDate = new Map<string, number>();
         for (const inc of ledgerIncomes) {
-          const incDate = inc.date.split('T')[0];
+          const incDate = getColombiaDateKey(inc.date);
           if (inc.paymentMethod === PaymentMethod.EFECTIVO) {
             cashIncomesByDate.set(incDate, (cashIncomesByDate.get(incDate) ?? 0) + inc.amount);
           } else {
@@ -676,7 +683,7 @@ export default function ContabilidadScreen() {
           const isConfirmed = p.status === 'CONFIRMED';
           if (!isConfirmed) continue;
 
-          const pDate = p.date;
+          const pDate = getColombiaDateKey(p.date);
           const isCpCredit = entry.debtor_type === 'LOCAL';
 
           if (isProd) {
@@ -718,7 +725,7 @@ export default function ContabilidadScreen() {
         const creditsByDate = new Map<string, number>();
         const creditSalesByDate = new Map<string, number>();
         for (const c of credits) {
-          const cDate = c.date.split('T')[0];
+          const cDate = getColombiaDateKey(c.date);
           const isCpCredit = c.debtorType === 'LOCAL';
 
           if (isProd) {
@@ -803,14 +810,14 @@ export default function ContabilidadScreen() {
                 theoreticalTotal: theoreticalToday,
                 actualTotal: audit.actualTotal,
                 discrepancy: audit.actualTotal - theoreticalToday,
-                notes: audit.notes,
-                bills100k: audit.bills100k,
-                bills50k: audit.bills50k,
-                bills20k: audit.bills20k,
-                bills10k: audit.bills10k,
-                bills5k: audit.bills5k,
-                bills2k: audit.bills2k,
-                coins: audit.coins,
+                notes: audit.notes ?? '',
+                bills100k: audit.bills100k ?? 0,
+                bills50k: audit.bills50k ?? 0,
+                bills20k: audit.bills20k ?? 0,
+                bills10k: audit.bills10k ?? 0,
+                bills5k: audit.bills5k ?? 0,
+                bills2k: audit.bills2k ?? 0,
+                coins: audit.coins ?? 0,
                 bankTotal: audit.bankTotal,
                 cartera: audit.cartera,
               });
@@ -823,8 +830,8 @@ export default function ContabilidadScreen() {
             if (date >= startDate) {
               calculatedAudits.push({
                 date,
-                status: 'DRAFT',
-                source: 'MANUAL',
+                status: closing ? closing.status : 'DRAFT',
+                source: 'CLOSING',
                 openingBase: theoreticalBaseToday,
                 expectedTotal: grossInflowToday,
                 expenses: grossOutflowToday,
@@ -855,6 +862,9 @@ export default function ContabilidadScreen() {
           setLatestTheoreticalBase(initialBaseLocal);
         }
         auditRows = calculatedAudits;
+      } else {
+        setGeneralIngresos(periodIncome);
+        setGeneralEgresos(periodExpenses);
       }
 
       const fixed = allExpenses.filter(e => e.isFixed).reduce((sum, e) => sum + e.amount, 0);
