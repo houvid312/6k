@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Text, Button, Card, Divider, Portal, Snackbar, SegmentedButtons, TextInput, useTheme, Searchbar } from 'react-native-paper';
+import { Text, Button, Divider, Portal, Snackbar, useTheme, Searchbar } from 'react-native-paper';
 import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
@@ -12,7 +12,7 @@ import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
-import { PhysicalCountItem, ChecklistItem } from '../../../src/domain/entities';
+import { PhysicalCountItem } from '../../../src/domain/entities';
 import { InventoryLevel } from '../../../src/domain/enums';
 
 interface CountEntry {
@@ -26,7 +26,7 @@ interface CountEntry {
 
 export default function CierreFisicoScreen() {
   const theme = useTheme();
-  const { physicalCountService, recipeRepo, checklistRepo, stockMinimumRepo } = useDI();
+  const { physicalCountService, recipeRepo, stockMinimumRepo } = useDI();
   const { selectedStoreId, stores } = useAppStore();
   const { supplies: cachedSupplies, workers: cachedWorkers } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
@@ -40,10 +40,8 @@ export default function CierreFisicoScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [confirmVisible, setConfirmVisible] = useState(false);
 
-  // Checklist de implementos de aseo
-  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
-  const [checklistStatuses, setChecklistStatuses] = useState<Record<string, 'OK' | 'BAJO' | 'AGOTADO'>>({});
-  const [checklistNotes, setChecklistNotes] = useState<Record<string, string>>({});
+  const selectedStore = stores.find((s) => s.id === selectedStoreId);
+  const isProductionCenter = selectedStore?.isProductionCenter ?? false;
 
   const filteredCounts = useMemo(() => {
     if (!searchQuery.trim()) return counts;
@@ -51,16 +49,12 @@ export default function CierreFisicoScreen() {
     return counts.filter((c) => c.supplyName.toLowerCase().includes(query));
   }, [counts, searchQuery]);
 
-  const selectedStore = stores.find((s) => s.id === selectedStoreId);
-  const isProductionCenter = selectedStore?.isProductionCenter ?? false;
-
   const activeSupplies = useMemo(() => cachedSupplies.filter((s) => s.isActive !== false), [cachedSupplies]);
 
   useEffect(() => {
     if (activeSupplies.length === 0 || !selectedStoreId) return;
 
     if (isProductionCenter) {
-      // Centro de producción: mostrar todos los insumos activos
       setCounts(
         activeSupplies.map((s) => ({
           supplyId: s.id,
@@ -73,7 +67,6 @@ export default function CierreFisicoScreen() {
       );
       setLoading(false);
     } else {
-      // Local: insumos activos (excluyendo 'RAW') que estén en recetas, sean 'OPERATIVE' o tengan Stock Mínimo > 0
       setLoading(true);
       Promise.all([
         recipeRepo.getAll(),
@@ -109,21 +102,6 @@ export default function CierreFisicoScreen() {
     }
   }, [activeSupplies, selectedStoreId, isProductionCenter, recipeRepo, stockMinimumRepo]);
 
-  // Load checklist items
-  useEffect(() => {
-    checklistRepo.getActiveItems().then((items) => {
-      setChecklistItems(items);
-      const statuses: Record<string, 'OK' | 'BAJO' | 'AGOTADO'> = {};
-      const notes: Record<string, string> = {};
-      for (const item of items) {
-        statuses[item.id] = 'OK';
-        notes[item.id] = '';
-      }
-      setChecklistStatuses(statuses);
-      setChecklistNotes(notes);
-    }).catch(() => {});
-  }, [checklistRepo]);
-
   const updateBags = useCallback((supplyId: string, bags: number) => {
     setCounts((prev) => prev.map((c) => (c.supplyId === supplyId ? { ...c, bags } : c)));
   }, []);
@@ -158,7 +136,7 @@ export default function CierreFisicoScreen() {
       setSubmitting(false);
       setConfirmVisible(false);
     }
-  }, [counts, selectedStoreId, physicalCountService, showSuccess, showError, resetForm]);
+  }, [counts, selectedStoreId, isProductionCenter, physicalCountService, selectedWorkerId, showSuccess, resetForm, showError]);
 
   if (loading) {
     return <LoadingIndicator message="Cargando insumos..." />;
@@ -223,45 +201,6 @@ export default function CierreFisicoScreen() {
           {index < filteredCounts.length - 1 && <Divider />}
         </View>
       ))}
-
-      {/* Checklist de implementos de aseo */}
-      {checklistItems.length > 0 && (
-        <Card style={{ borderRadius: 12, marginTop: 16 }} mode="elevated">
-          <Card.Content>
-            <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 12 }}>
-              Implementos de Aseo
-            </Text>
-            {checklistItems.map((item) => (
-              <View key={item.id} style={{ marginBottom: 12 }}>
-                <Text variant="bodyMedium" style={{ marginBottom: 4, fontWeight: '500' }}>
-                  {item.name}
-                </Text>
-                <SegmentedButtons
-                  value={checklistStatuses[item.id] ?? 'OK'}
-                  onValueChange={(v) => setChecklistStatuses((prev) => ({ ...prev, [item.id]: v as 'OK' | 'BAJO' | 'AGOTADO' }))}
-                  buttons={[
-                    { value: 'OK', label: 'OK' },
-                    { value: 'BAJO', label: 'Bajo' },
-                    { value: 'AGOTADO', label: 'Agotado' },
-                  ]}
-                  density="small"
-                  style={{ marginBottom: 4 }}
-                />
-                {checklistStatuses[item.id] !== 'OK' && (
-                  <TextInput
-                    label="Nota"
-                    value={checklistNotes[item.id] ?? ''}
-                    onChangeText={(v) => setChecklistNotes((prev) => ({ ...prev, [item.id]: v }))}
-                    mode="outlined"
-                    dense
-                    style={{ marginTop: 4 }}
-                  />
-                )}
-              </View>
-            ))}
-          </Card.Content>
-        </Card>
-      )}
 
       <Button
         mode="contained"
