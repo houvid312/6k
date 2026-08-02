@@ -14,14 +14,14 @@ export default function TabLayout() {
   const showTab = (tabName: string) => {
     switch (userRole) {
       case UserRole.GERENTE:
+      case UserRole.RODY:
         return true;
       case UserRole.ADMIN_LOCAL:
         return ['ventas', 'inventario', 'cartera', 'rrhh', 'dashboard', 'contabilidad'].includes(tabName);
       case UserRole.PREPARADOR:
-      case UserRole.RODY:
-        return ['inventario'].includes(tabName);
-      case UserRole.VENDEDOR:
         return ['ventas', 'inventario'].includes(tabName);
+      case UserRole.VENDEDOR:
+        return ['ventas'].includes(tabName);
       default:
         return false;
     }

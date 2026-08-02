@@ -12,6 +12,7 @@ import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
 import { Product, ProductCategory, ProductFormat, Recipe } from '../../../src/domain/entities';
+import { UserRole } from '../../../src/domain/enums';
 
 interface EditableIngredient {
   supplyId: string;
@@ -29,7 +30,8 @@ const CATEGORY_LABELS: Record<ProductCategory, string> = {
 export default function ProductosScreen() {
   const theme = useTheme();
   const { productRepo, productFormatRepo, productStoreAssignmentRepo, recipeRepo } = useDI();
-  const { stores } = useAppStore();
+  const { stores, userRole } = useAppStore();
+  const isGlobalRole = userRole === UserRole.GERENTE || userRole === UserRole.RODY;
   const { refreshMasterData, supplies } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
@@ -371,15 +373,17 @@ export default function ProductosScreen() {
         <Text variant="titleMedium" style={{ color: theme.colors.onBackground, fontWeight: '600' }}>
           Catálogo de Productos
         </Text>
-        <Button
-          mode="contained"
-          icon="plus"
-          onPress={() => setNewProductVisible(true)}
-          buttonColor="#E63946"
-          compact
-        >
-          Nuevo
-        </Button>
+        {isGlobalRole && (
+          <Button
+            mode="contained"
+            icon="plus"
+            onPress={() => setNewProductVisible(true)}
+            buttonColor="#E63946"
+            compact
+          >
+            Nuevo
+          </Button>
+        )}
       </View>
 
       <SegmentedButtons
@@ -606,8 +610,8 @@ export default function ProductosScreen() {
                     </View>
                   ))}
 
-                  {/* Receta (solo si hasRecipe) */}
-                  {product.hasRecipe && (() => {
+                  {/* Receta (solo si hasRecipe y rol global) */}
+                  {isGlobalRole && product.hasRecipe && (() => {
                     const recipe = recipesByProduct[product.id];
                     const isEditingRecipe = editingRecipeProductId === product.id;
 

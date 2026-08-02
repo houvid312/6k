@@ -97,10 +97,14 @@ export default function InsumosScreen() {
     setLoading(false);
   }, [cachedSupplies]);
 
+  const isGlobalRole = userRole === UserRole.GERENTE || userRole === UserRole.RODY;
+
   const filteredSupplies = useMemo(() => {
     return supplies.filter((s) => {
+      const cat = s.category || 'PROCESSED';
+      if (!isGlobalRole && cat === 'RAW') return false;
       const matchesQuery = !searchQuery.trim() || s.name.toLowerCase().includes(searchQuery.toLowerCase().trim());
-      const matchesCategory = categoryFilter === 'ALL' || (s.category || 'PROCESSED') === categoryFilter;
+      const matchesCategory = categoryFilter === 'ALL' || cat === categoryFilter;
       const isActive = s.isActive ?? true;
       const matchesStatus =
         statusFilter === 'ALL' ||
@@ -108,7 +112,7 @@ export default function InsumosScreen() {
         (statusFilter === 'ARCHIVED' && !isActive);
       return matchesQuery && matchesCategory && matchesStatus;
     });
-  }, [supplies, searchQuery, categoryFilter, statusFilter]);
+  }, [supplies, searchQuery, categoryFilter, statusFilter, isGlobalRole]);
 
   const handleNew = () => {
     setEditingId(null);
@@ -346,7 +350,7 @@ export default function InsumosScreen() {
         <View style={{ flexDirection: 'row', gap: 6 }}>
           {[
             { key: 'ALL', label: 'Todas las categorias' },
-            { key: 'RAW', label: '🌾 Materias Primas' },
+            ...(isGlobalRole ? [{ key: 'RAW', label: '🌾 Materias Primas' }] : []),
             { key: 'PROCESSED', label: '⚙️ Procesados' },
             { key: 'OPERATIVE', label: '📦 Empaques / Consumibles' },
           ].map((cat) => (

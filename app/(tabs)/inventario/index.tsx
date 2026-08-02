@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { FlatList, View, StyleSheet, ScrollView, Pressable } from 'react-native';
-import { Chip, Text, TextInput, useTheme, SegmentedButtons, Card, Button, Divider } from 'react-native-paper';
+import { Chip, Text, TextInput, useTheme, SegmentedButtons, Card, Button, Divider, Snackbar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
@@ -10,6 +10,7 @@ import { InventoryLevelCard } from '../../../src/components/inventario/Inventory
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
+import { useSnackbar } from '../../../src/hooks';
 import { InventoryLevel, UserRole } from '../../../src/domain/enums';
 import { InventorySummaryItem } from '../../../src/services/InventoryService';
 
@@ -35,6 +36,7 @@ export default function InventarioScreen() {
   const { inventoryService, stockMinimumRepo } = useDI();
   const { selectedStoreId, stores, userRole } = useAppStore();
   const { supplies } = useMasterDataStore();
+  const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const isAdmin = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
   const isProductionCenter = stores.find((s) => s.id === selectedStoreId)?.isProductionCenter ?? false;
@@ -184,10 +186,13 @@ export default function InventarioScreen() {
     try {
       await stockMinimumRepo.upsert(selectedStoreId, supplyId, level, grams);
       setMinimums((prev) => ({ ...prev, [supplyId]: grams }));
-    } catch {
-      // silently fail
+      setWorkflowMinimums((prev) => ({ ...prev, [supplyId]: grams }));
+      showSuccess('Stock mínimo guardado');
+    } catch (error: any) {
+      console.error('Error al guardar stock mínimo:', error);
+      showError(error?.message || 'Error al guardar stock mínimo');
     }
-  }, [selectedStoreId, level, stockMinimumRepo]);
+  }, [selectedStoreId, level, stockMinimumRepo, showSuccess, showError]);
 
   // Filtrado de insumos bajo stock mínimo para el tablero de trabajo
   const criticalRaw = useMemo(() => {
@@ -291,85 +296,87 @@ export default function InventarioScreen() {
             Bajas/Mermas
           </Button>
           {isAdmin && (
-            <>
-              <Button
-                mode="outlined"
-                compact
-                icon="pencil-box-multiple-outline"
-                style={{ marginRight: 8, height: 32, borderColor: '#FF9800' }}
-                labelStyle={{ fontSize: 11, marginVertical: 4, color: '#FF9800' }}
-                onPress={() => router.push('/(tabs)/inventario/ajustes' as any)}
-              >
-                Ajustes / Auditoría
-              </Button>
-              <Button
-                mode="outlined"
-                compact
-                icon="store-cog"
-                style={{ marginRight: 8, height: 32, borderColor: '#E63946' }}
-                labelStyle={{ fontSize: 11, marginVertical: 4, color: '#E63946' }}
-                onPress={() => router.push('/(tabs)/inventario/sedes' as any)}
-              >
-                Gestión Sedes
-              </Button>
-            </>
+            <Button
+              mode="outlined"
+              compact
+              icon="pencil-box-multiple-outline"
+              style={{ marginRight: 8, height: 32, borderColor: '#FF9800' }}
+              labelStyle={{ fontSize: 11, marginVertical: 4, color: '#FF9800' }}
+              onPress={() => router.push('/(tabs)/inventario/ajustes' as any)}
+            >
+              Ajustes / Auditoría
+            </Button>
+          )}
+          {(userRole === UserRole.GERENTE || userRole === UserRole.RODY) && (
+            <Button
+              mode="outlined"
+              compact
+              icon="store-cog"
+              style={{ marginRight: 8, height: 32, borderColor: '#E63946' }}
+              labelStyle={{ fontSize: 11, marginVertical: 4, color: '#E63946' }}
+              onPress={() => router.push('/(tabs)/inventario/sedes' as any)}
+            >
+              Gestión Sedes
+            </Button>
           )}
         </ScrollView>
       </View>
 
       {activeTab === 'workflow' ? (
         <ScrollView showsVerticalScrollIndicator={false} style={styles.workflowScroll}>
-          {/* FASE 1: Compras y Entrada */}
-          <Card style={styles.workflowCard} mode="elevated">
-            <Card.Content>
-              <View style={styles.cardHeader}>
-                <MaterialCommunityIcons name="cart-outline" size={22} color="#D4A843" />
-                <Text variant="titleMedium" style={styles.cardTitle}>Fase 1: Entrada y Compras (Materia Prima)</Text>
-              </View>
-              <Text variant="bodySmall" style={styles.cardSubtitle}>
-                Revisión de stock y registro de insumos primarios recibidos de proveedores.
-              </Text>
-              
-              {criticalRaw.length > 0 ? (
-                <View style={styles.criticalContainer}>
-                  <Text variant="labelSmall" style={styles.criticalHeader}>⚠️ Materias Primas Críticas (Bajo Mínimo):</Text>
-                  {criticalRaw.map(item => (
-                    <View key={item.supplyId} style={styles.criticalItemRow}>
-                      <Text variant="bodySmall" style={styles.criticalItemName}>• {item.supplyName}</Text>
-                      <Text variant="bodySmall" style={styles.criticalItemQty}>
-                        {Math.round(item.quantityGrams)}g / {workflowMinimums[item.supplyId]}g
-                      </Text>
-                    </View>
-                  ))}
+          {/* FASE 1: Compras y Entrada (Solo GERENTE y RODY) */}
+          {(userRole === UserRole.GERENTE || userRole === UserRole.RODY) && (
+            <Card style={styles.workflowCard} mode="elevated">
+              <Card.Content>
+                <View style={styles.cardHeader}>
+                  <MaterialCommunityIcons name="cart-outline" size={22} color="#D4A843" />
+                  <Text variant="titleMedium" style={styles.cardTitle}>Fase 1: Entrada y Compras (Materia Prima)</Text>
                 </View>
-              ) : (
-                <Text variant="bodySmall" style={styles.criticalNone}>
-                  ✅ Materias primas con stock suficiente.
+                <Text variant="bodySmall" style={styles.cardSubtitle}>
+                  Revisión de stock y registro de insumos primarios recibidos de proveedores.
                 </Text>
-              )}
+                
+                {criticalRaw.length > 0 ? (
+                  <View style={styles.criticalContainer}>
+                    <Text variant="labelSmall" style={styles.criticalHeader}>⚠️ Materias Primas Críticas (Bajo Mínimo):</Text>
+                    {criticalRaw.map(item => (
+                      <View key={item.supplyId} style={styles.criticalItemRow}>
+                        <Text variant="bodySmall" style={styles.criticalItemName}>• {item.supplyName}</Text>
+                        <Text variant="bodySmall" style={styles.criticalItemQty}>
+                          {Math.round(item.quantityGrams)}g / {workflowMinimums[item.supplyId]}g
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <Text variant="bodySmall" style={styles.criticalNone}>
+                    ✅ Materias primas con stock suficiente.
+                  </Text>
+                )}
 
-              <View style={styles.cardActions}>
-                <Button
-                  mode="contained"
-                  onPress={() => router.push('/(tabs)/inventario/compras')}
-                  style={styles.actionBtnPrimary}
-                  buttonColor="#E63946"
-                  icon="cart-plus"
-                >
-                  Registrar Compra
-                </Button>
-                <Button
-                  mode="outlined"
-                  onPress={() => router.push('/(tabs)/inventario/historial-compras')}
-                  style={styles.actionBtnSecondary}
-                  textColor="#CCCCCC"
-                  icon="history"
-                >
-                  Historial
-                </Button>
-              </View>
-            </Card.Content>
-          </Card>
+                <View style={styles.cardActions}>
+                  <Button
+                    mode="contained"
+                    onPress={() => router.push('/(tabs)/inventario/compras')}
+                    style={styles.actionBtnPrimary}
+                    buttonColor="#E63946"
+                    icon="cart-plus"
+                  >
+                    Registrar Compra
+                  </Button>
+                  <Button
+                    mode="outlined"
+                    onPress={() => router.push('/(tabs)/inventario/historial-compras')}
+                    style={styles.actionBtnSecondary}
+                    textColor="#CCCCCC"
+                    icon="history"
+                  >
+                    Historial
+                  </Button>
+                </View>
+              </Card.Content>
+            </Card>
+          )}
 
           {/* FASE 2: Proceso (Producción) - Solo Centro de Producción */}
           {isProductionCenter && (
@@ -451,20 +458,22 @@ export default function InventarioScreen() {
               )}
 
               <View style={styles.cardActions}>
+                {(userRole === UserRole.GERENTE || userRole === UserRole.RODY) && (
+                  <Button
+                    mode="contained"
+                    onPress={() => router.push('/(tabs)/inventario/sugerencia-envio')}
+                    style={styles.actionBtnPrimary}
+                    buttonColor="#E63946"
+                    icon="calculator"
+                  >
+                    Sugerir Envíos
+                  </Button>
+                )}
                 <Button
                   mode="contained"
-                  onPress={() => router.push('/(tabs)/inventario/sugerencia-envio')}
-                  style={styles.actionBtnPrimary}
-                  buttonColor="#E63946"
-                  icon="calculator"
-                >
-                  Sugerir Envíos
-                </Button>
-                <Button
-                  mode="outlined"
                   onPress={() => router.push('/(tabs)/inventario/traslados')}
-                  style={styles.actionBtnSecondary}
-                  textColor="#CCCCCC"
+                  style={styles.actionBtnPrimary}
+                  buttonColor="#2196F3"
                   icon="truck"
                 >
                   Traslados
@@ -579,6 +588,14 @@ export default function InventarioScreen() {
           )}
         </View>
       )}
+      <Snackbar
+        visible={snackbar.visible}
+        onDismiss={hideSnackbar}
+        duration={3000}
+        style={{ backgroundColor: snackbar.error ? '#D32F2F' : '#388E3C' }}
+      >
+        {snackbar.message}
+      </Snackbar>
     </View>
   );
 }
