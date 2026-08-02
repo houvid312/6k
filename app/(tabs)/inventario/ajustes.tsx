@@ -168,7 +168,7 @@ export default function AjustesInventarioScreen() {
       refreshMasterData();
     } catch (err: any) {
       console.error('Error applying adjustment:', err);
-      showError('Error al guardar el ajuste de inventario');
+      showError(err?.message ? `Error: ${err.message}` : 'Error al guardar el ajuste de inventario');
     } finally {
       setSavingSupplyId(null);
     }

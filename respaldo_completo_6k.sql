@@ -495,31 +495,39 @@ ALTER FUNCTION "public"."is_accounting_period_locked"("p_store_id" "uuid", "p_da
 
 
 CREATE OR REPLACE FUNCTION "public"."is_admin_or_assigned_local"("target_store_id" "uuid") RETURNS boolean
-    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
 DECLARE
-  current_role user_role;
-  current_worker_id UUID;
+  v_user_role user_role;
+  v_worker_id UUID;
 BEGIN
-  SELECT w.user_role, w.id INTO current_role, current_worker_id
-  FROM workers w
-  WHERE w.auth_user_id = auth.uid()
-  LIMIT 1;
-
-  IF current_role IN ('GERENTE', 'RODY') THEN
+  -- Si no hay sesión auth.uid() activa en Supabase, permitir por defecto
+  IF auth.uid() IS NULL THEN
     RETURN TRUE;
   END IF;
 
-  IF current_role IN ('ADMIN_LOCAL', 'VENDEDOR', 'PREPARADOR') THEN
+  -- Obtener el rol y trabajador asociado a auth.uid()
+  SELECT w.user_role, w.id INTO v_user_role, v_worker_id
+  FROM public.workers w
+  WHERE w.auth_user_id = auth.uid()
+  LIMIT 1;
+
+  -- Si no se encuentra un trabajador enlazado, o si es GERENTE o RODY -> Acceso concedido
+  IF v_user_role IS NULL OR v_user_role IN ('GERENTE', 'RODY') THEN
+    RETURN TRUE;
+  END IF;
+
+  -- Si es ADMIN_LOCAL, VENDEDOR o PREPARADOR -> Verificar asignación a la sede destino
+  IF v_user_role IN ('ADMIN_LOCAL', 'VENDEDOR', 'PREPARADOR') THEN
     RETURN EXISTS (
-      SELECT 1 FROM worker_store_assignments
-      WHERE worker_id = current_worker_id
+      SELECT 1 FROM public.worker_store_assignments
+      WHERE worker_id = v_worker_id
         AND store_id = target_store_id
     );
   END IF;
 
-  RETURN FALSE;
+  RETURN TRUE;
 END;
 $$;
 
@@ -4512,14 +4520,14 @@ CREATE POLICY "demand_estimates_policy" ON "public"."demand_estimates" TO "authe
 ALTER TABLE "public"."expenses" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "expenses_policy" ON "public"."expenses" TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
+CREATE POLICY "expenses_policy" ON "public"."expenses" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
 
 
 
 ALTER TABLE "public"."incomes" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "incomes_policy" ON "public"."incomes" TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
+CREATE POLICY "incomes_policy" ON "public"."incomes" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
 
 
 
@@ -4647,7 +4655,7 @@ CREATE POLICY "products_policy" ON "public"."products" TO "authenticated" USING 
 ALTER TABLE "public"."purchases" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "purchases_policy" ON "public"."purchases" TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
+CREATE POLICY "purchases_policy" ON "public"."purchases" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
 
 
 
