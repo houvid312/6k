@@ -45,27 +45,27 @@ export default function HistorialScreen() {
 
       if (filter === 'jornada') {
         const activeDate = salesDate || today;
-        startDate = `${activeDate}T00:00:00`;
-        endDate = `${activeDate}T23:59:59`;
+        startDate = activeDate;
+        endDate = activeDate;
       } else if (filter === 'hoy') {
-        startDate = `${today}T00:00:00`;
-        endDate = `${today}T23:59:59`;
+        startDate = today;
+        endDate = today;
       } else if (filter === 'ayer') {
         const yesterday = new Date(today + 'T12:00:00');
         yesterday.setDate(yesterday.getDate() - 1);
         const yStr = toISODate(yesterday);
-        startDate = `${yStr}T00:00:00`;
-        endDate = `${yStr}T23:59:59`;
+        startDate = yStr;
+        endDate = yStr;
       } else if (filter === 'semana') {
         const weekAgo = new Date(today + 'T12:00:00');
         weekAgo.setDate(weekAgo.getDate() - 7);
         startDate = toISODate(weekAgo);
-        endDate = `${today}T23:59:59`;
+        endDate = today;
       } else {
         const monthAgo = new Date(today + 'T12:00:00');
         monthAgo.setMonth(monthAgo.getMonth() - 1);
         startDate = toISODate(monthAgo);
-        endDate = `${today}T23:59:59`;
+        endDate = today;
       }
 
       const data = await saleService.getSalesByDateRange(
@@ -74,7 +74,8 @@ export default function HistorialScreen() {
         endDate,
       );
       setSales(data.sort((a, b) => b.timestamp.localeCompare(a.timestamp)));
-    } catch {
+    } catch (err) {
+      console.error('Error cargando ventas en historial:', err);
       setSales([]);
     } finally {
       setLoading(false);
