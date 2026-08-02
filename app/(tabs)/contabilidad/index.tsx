@@ -1728,16 +1728,7 @@ export default function ContabilidadScreen() {
         >
           Cierres
         </Button>
-        <Button
-          mode="outlined"
-          compact
-          icon="cart"
-          style={{ marginRight: 8, height: 32 }}
-          labelStyle={{ fontSize: 12, marginVertical: 4 }}
-          onPress={() => router.push('/(tabs)/inventario/compras')}
-        >
-          Compras
-        </Button>
+
         <Button
           mode="outlined"
           compact
