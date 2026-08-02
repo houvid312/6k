@@ -168,6 +168,7 @@ export default function VentasScreen() {
 
   // Porciones vendidas hoy por producto
   const [soldPortions, setSoldPortions] = useState<Record<string, number>>({});
+  const [soldPackaging, setSoldPackaging] = useState<Record<string, number>>({});
   const [totalSalesToday, setTotalSalesToday] = useState(0);
 
   // Cargar porciones del día desde BD
@@ -188,32 +189,38 @@ export default function VentasScreen() {
     })();
   }, [selectedStoreId]);
 
-  // Cargar porciones vendidas hoy y total en dinero
+  // Cargar porciones vendidas hoy/fecha activa, empaques y total en dinero
   const loadSoldPortions = useCallback(async () => {
     if (!selectedStoreId) return;
-    const today = todayColombia();
-    const { fromUtc: startOfDay, toUtc: endOfDay } = colombiaDateRangeToUtc(today, today);
+    const activeDate = salesDate || todayColombia();
+    const { fromUtc: startOfDay, toUtc: endOfDay } = colombiaDateRangeToUtc(activeDate, activeDate);
 
-    // 1. Porciones
+    // 1. Porciones, bebidas y empaques por item
     const { data: itemData } = await supabase
       .from('sale_items')
-      .select('product_id, portions, sales!inner(store_id, created_at)')
+      .select('product_id, portions, quantity, packaging_supply_id, packaging_quantity, packaging_total, sales!inner(id, store_id, created_at)')
       .eq('sales.store_id', selectedStoreId)
       .gte('sales.created_at', startOfDay)
       .lte('sales.created_at', endOfDay);
 
+    const portionMap: Record<string, number> = {};
+    const packagingMap: Record<string, number> = {};
+
     if (itemData) {
-      const map: Record<string, number> = {};
       for (const row of itemData) {
-        map[row.product_id] = (map[row.product_id] ?? 0) + row.portions;
+        portionMap[row.product_id] = (portionMap[row.product_id] ?? 0) + (row.portions || row.quantity || 0);
+
+        if (row.packaging_supply_id && ((row.packaging_quantity ?? 0) > 0 || (row.packaging_total ?? 0) > 0)) {
+          const qty = row.packaging_quantity && row.packaging_quantity > 0 ? row.packaging_quantity : 1;
+          packagingMap[row.packaging_supply_id] = (packagingMap[row.packaging_supply_id] ?? 0) + qty;
+        }
       }
-      setSoldPortions(map);
     }
 
-    // 2. Ventas totales en dinero
+    // 2. Ventas totales en dinero y empaques a nivel de orden
     const { data: salesData } = await supabase
       .from('sales')
-      .select('total_amount')
+      .select('id, total_amount, packaging_supply_id, packaging_total')
       .eq('store_id', selectedStoreId)
       .gte('created_at', startOfDay)
       .lte('created_at', endOfDay);
@@ -221,8 +228,20 @@ export default function VentasScreen() {
     if (salesData) {
       const totalAmountToday = salesData.reduce((sum, s) => sum + s.total_amount, 0);
       setTotalSalesToday(totalAmountToday);
+
+      for (const s of salesData) {
+        if (s.packaging_supply_id && (s.packaging_total ?? 0) > 0) {
+          const hasItemPkg = itemData?.some((it) => (it.sales as unknown as { id: string })?.id === s.id && it.packaging_supply_id === s.packaging_supply_id);
+          if (!hasItemPkg) {
+            packagingMap[s.packaging_supply_id] = (packagingMap[s.packaging_supply_id] ?? 0) + 1;
+          }
+        }
+      }
     }
-  }, [selectedStoreId]);
+
+    setSoldPortions(portionMap);
+    setSoldPackaging(packagingMap);
+  }, [selectedStoreId, salesDate]);
 
   useEffect(() => {
     loadSoldPortions();
@@ -1663,6 +1682,7 @@ export default function VentasScreen() {
             selectedId={selectedProductId ?? undefined}
             availablePortions={portionsSet ? availablePortions : undefined}
             soldPortions={Object.keys(soldPortions).length > 0 ? soldPortions : undefined}
+            soldPackaging={Object.keys(soldPackaging).length > 0 ? soldPackaging : undefined}
             totalSalesToday={totalSalesToday}
           />
         </View>

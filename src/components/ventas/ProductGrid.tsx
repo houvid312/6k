@@ -4,8 +4,16 @@ import { Text, useTheme } from 'react-native-paper';
 import { Product } from '../../domain/entities';
 import { formatCOP } from '../../utils/currency';
 
+import { PACKAGING_LABEL_BY_ID } from '../../domain/enums';
+
 const GRID_PADDING = 12;
 const GRID_GAP = 8;
+
+const SHORT_PACKAGING_LABELS: Record<string, string> = {
+  'caja-familiar': 'C. Familiar',
+  'caja-mediana': 'C. Mediana',
+  'empaque-diamante': 'Emp. Diamante',
+};
 
 const PIZZA_EMOJI: Record<string, string> = {
   'prod-hawaiana': '\uD83C\uDF4D',
@@ -38,6 +46,7 @@ interface Props {
   selectedId?: string;
   availablePortions?: Record<string, number>;
   soldPortions?: Record<string, number>;
+  soldPackaging?: Record<string, number>;
   totalSalesToday?: number;
 }
 
@@ -48,7 +57,7 @@ function getPortionColor(count: number): string {
   return '#388E3C';
 }
 
-export function ProductGrid({ products, onSelect, selectedId, availablePortions, soldPortions, totalSalesToday }: Props) {
+export function ProductGrid({ products, onSelect, selectedId, availablePortions, soldPortions, soldPackaging, totalSalesToday }: Props) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
   const [gridWidth, setGridWidth] = useState(0);
@@ -78,6 +87,31 @@ export function ProductGrid({ products, onSelect, selectedId, availablePortions,
     if (!soldPortions) return 0;
     return Object.entries(soldPortions).reduce((sum, [id, count]) => beverageIds.has(id) ? sum + count : sum, 0);
   }, [soldPortions, beverageIds]);
+
+  const packagingSummary = useMemo(() => {
+    const list: { key: string; label: string; count: number }[] = [];
+
+    if (soldPackaging) {
+      for (const [pkgId, count] of Object.entries(soldPackaging)) {
+        if (count <= 0) continue;
+        const shortLabel = SHORT_PACKAGING_LABELS[pkgId]
+          ?? PACKAGING_LABEL_BY_ID[pkgId]
+          ?? products.find((p) => p.id === pkgId)?.name
+          ?? pkgId;
+        list.push({ key: pkgId, label: shortLabel, count });
+      }
+    }
+
+    const otroProducts = products.filter((p) => p.category === 'OTRO');
+    for (const p of otroProducts) {
+      const count = soldPortions?.[p.id] ?? 0;
+      if (count > 0 && !list.some((item) => item.key === p.id)) {
+        list.push({ key: p.id, label: p.name, count });
+      }
+    }
+
+    return list;
+  }, [soldPackaging, soldPortions, products]);
 
   if (products.length === 0) {
     return (
@@ -140,9 +174,9 @@ export function ProductGrid({ products, onSelect, selectedId, availablePortions,
       </View>
 
       {/* Total sold summary bar */}
-      {soldPortions && (totalSoldPizzaPortions > 0 || totalSoldBeverages > 0) && (
-        <View style={[styles.totalSoldRow, { backgroundColor: theme.colors.surfaceVariant, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }]}>
-          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+      {(soldPortions || soldPackaging) && (totalSoldPizzaPortions > 0 || totalSoldBeverages > 0 || packagingSummary.length > 0) && (
+        <View style={[styles.totalSoldRow, { backgroundColor: theme.colors.surfaceVariant, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }]}>
+          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             {totalSoldPizzaPortions > 0 && (
               <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
                 🍕 Porciones: <Text style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>{totalSoldPizzaPortions}</Text>
@@ -153,6 +187,11 @@ export function ProductGrid({ products, onSelect, selectedId, availablePortions,
                 🥤 Bebidas: <Text style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>{totalSoldBeverages}</Text>
               </Text>
             )}
+            {packagingSummary.map((pkg) => (
+              <Text key={pkg.key} style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
+                📦 {pkg.label}: <Text style={{ fontWeight: 'bold', color: '#FFB74D' }}>{pkg.count}</Text>
+              </Text>
+            ))}
           </View>
           {totalSalesToday !== undefined && totalSalesToday > 0 && (
             <Text style={[styles.totalSoldText, { color: theme.colors.primary, fontWeight: 'bold' }]}>
