@@ -495,10 +495,20 @@ export default function VentasScreen() {
   const selectedProduct = products.find((p) => p.id === selectedProductId);
   const getPackagingSalePrice = useCallback((packagingSupplyId?: string) => {
     if (!packagingSupplyId) return 0;
-    return supplies.find((s) => s.id === packagingSupplyId)?.salePriceCop
-      ?? PACKAGING_SALE_PRICE_COP_BY_ID[packagingSupplyId]
-      ?? 0;
-  }, [supplies]);
+    const supply = supplies.find((s) => s.id === packagingSupplyId);
+    if (supply && supply.salePriceCop > 0) return supply.salePriceCop;
+
+    const label = (PACKAGING_LABEL_BY_ID[packagingSupplyId] ?? '').toLowerCase();
+    const matchingProduct = products.find((p) => p.category === 'OTRO' && (
+      p.id === packagingSupplyId || (label && p.name.toLowerCase().includes(label))
+    ));
+    if (matchingProduct) {
+      const formats = formatsByProductId[matchingProduct.id]?.filter((f) => f.isActive) ?? [];
+      if (formats.length > 0 && formats[0].price > 0) return formats[0].price;
+    }
+
+    return PACKAGING_SALE_PRICE_COP_BY_ID[packagingSupplyId] ?? 0;
+  }, [formatsByProductId, products, supplies]);
 
   const suggestPackagingSupplyId = useCallback((format?: ProductFormat) => {
     if (!format) return undefined;
@@ -644,7 +654,7 @@ export default function VentasScreen() {
       productName: selectedProduct.name,
       formatId: format.id,
       formatName: format.name,
-      portionsPerUnit: format.portions,
+      portionsPerUnit: selectedProduct.category === 'PIZZA' ? format.portions : 0,
       quantity: modalQuantity,
       unitPrice: format.price,
       additions: selectedAdditions.length > 0 ? selectedAdditions : undefined,
@@ -671,7 +681,7 @@ export default function VentasScreen() {
       productName: selectedProduct.name,
       formatId: format.id,
       formatName: format.name,
-      portionsPerUnit: format.portions,
+      portionsPerUnit: selectedProduct.category === 'PIZZA' ? format.portions : 0,
       quantity: beverageQuantity,
       unitPrice: format.price,
       additions: selectedAdditions.length > 0 ? selectedAdditions : undefined,

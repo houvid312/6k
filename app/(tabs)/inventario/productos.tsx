@@ -74,6 +74,45 @@ export default function ProductosScreen() {
   const [newFormatPrice, setNewFormatPrice] = useState('');
   const [savingFormat, setSavingFormat] = useState(false);
 
+  // Edit product modal
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editProductName, setEditProductName] = useState('');
+  const [editProductCategory, setEditProductCategory] = useState<ProductCategory>('PIZZA');
+  const [editProductHasRecipe, setEditProductHasRecipe] = useState(false);
+  const [savingProductEdit, setSavingProductEdit] = useState(false);
+
+  const handleOpenEditProduct = (product: Product) => {
+    setEditingProduct(product);
+    setEditProductName(product.name);
+    setEditProductCategory(product.category);
+    setEditProductHasRecipe(product.hasRecipe);
+  };
+
+  const handleSaveProductEdit = async () => {
+    if (!editingProduct) return;
+    const name = editProductName.trim();
+    if (!name) {
+      showError('El nombre no puede estar vacío');
+      return;
+    }
+    setSavingProductEdit(true);
+    try {
+      await productRepo.update(editingProduct.id, {
+        name,
+        category: editProductCategory,
+        hasRecipe: editProductHasRecipe,
+      });
+      await loadProducts();
+      await refreshMasterData();
+      showSuccess(`Producto "${name}" actualizado`);
+      setEditingProduct(null);
+    } catch {
+      showError('Error al actualizar el producto');
+    } finally {
+      setSavingProductEdit(false);
+    }
+  };
+
   const loadProducts = useCallback(async () => {
     setLoading(true);
     try {
@@ -417,9 +456,20 @@ export default function ProductosScreen() {
               {/* Header */}
               <View style={styles.productHeader}>
                 <View style={{ flex: 1 }}>
-                  <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: '600' }}>
-                    {product.name}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: '600', flex: 1 }}>
+                      {product.name}
+                    </Text>
+                    {isGlobalRole && (
+                      <IconButton
+                        icon="pencil-outline"
+                        size={18}
+                        iconColor="#E63946"
+                        onPress={() => handleOpenEditProduct(product)}
+                        style={{ margin: 0 }}
+                      />
+                    )}
+                  </View>
                   {!product.isActive && (
                     <Text variant="labelSmall" style={{ color: '#666', fontSize: 10 }}>
                       Inactivo en todos los locales
@@ -857,6 +907,68 @@ export default function ProductosScreen() {
             <Button textColor="#E63946" onPress={handleConfirmDelete}>Eliminar</Button>
           </Dialog.Actions>
         </Dialog>
+
+        {/* Modal editar producto */}
+        <Modal
+          visible={!!editingProduct}
+          onDismiss={() => setEditingProduct(null)}
+          contentContainerStyle={[styles.modal, { backgroundColor: '#1E1E1E' }]}
+        >
+          <Text variant="titleMedium" style={{ color: '#F5F0EB', fontWeight: 'bold', marginBottom: 16 }}>
+            Editar Producto
+          </Text>
+          <TextInput
+            label="Nombre del Producto"
+            value={editProductName}
+            onChangeText={setEditProductName}
+            mode="outlined"
+            style={styles.modalInput}
+            dense
+          />
+          <Text variant="labelSmall" style={{ color: '#999', marginTop: 8, marginBottom: 4 }}>
+            Categoría
+          </Text>
+          <SegmentedButtons
+            value={editProductCategory}
+            onValueChange={(v) => setEditProductCategory(v as ProductCategory)}
+            buttons={[
+              { value: 'PIZZA', label: 'Pizza' },
+              { value: 'BEBIDA', label: 'Bebida' },
+              { value: 'OTRO', label: 'Otro' },
+            ]}
+            style={{ marginBottom: 12 }}
+          />
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: 8 }}>
+            <Text variant="bodyMedium" style={{ color: '#F5F0EB' }}>
+              ¿Tiene Receta?
+            </Text>
+            <Switch
+              value={editProductHasRecipe}
+              onValueChange={setEditProductHasRecipe}
+              color="#E63946"
+            />
+          </View>
+          <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+            <Button
+              mode="outlined"
+              onPress={() => setEditingProduct(null)}
+              style={{ flex: 1 }}
+              textColor="#999"
+            >
+              Cancelar
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor="#E63946"
+              onPress={handleSaveProductEdit}
+              loading={savingProductEdit}
+              disabled={savingProductEdit}
+              style={{ flex: 1 }}
+            >
+              Guardar
+            </Button>
+          </View>
+        </Modal>
 
         <Snackbar
           visible={snackbar.visible}

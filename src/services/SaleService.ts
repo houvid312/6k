@@ -1,9 +1,6 @@
 import { Recipe, Sale, SaleItem, Supply } from '../domain/entities';
 import { PaymentMethod } from '../domain/enums';
-import { ISaleRepository, DailySummary } from '../domain/interfaces/repositories';
-import { IInventoryRepository } from '../domain/interfaces/repositories';
-import { IRecipeRepository } from '../domain/interfaces/repositories';
-import { ISupplyRepository } from '../domain/interfaces/repositories';
+import { ISaleRepository, DailySummary, IInventoryRepository, IRecipeRepository, ISupplyRepository, IProductRepository } from '../domain/interfaces/repositories';
 
 export interface CreateSaleItemAdditionInput {
   additionCatalogId: string;
@@ -34,6 +31,7 @@ export class SaleService {
     private inventoryRepo: IInventoryRepository,
     private recipeRepo: IRecipeRepository,
     private supplyRepo: ISupplyRepository,
+    private productRepo?: IProductRepository,
   ) {}
 
   private valueQuantityAtStorePrice(
@@ -73,17 +71,21 @@ export class SaleService {
     totalCostCop: number;
     grossMarginCop: number;
   }> {
-    const [recipes, supplies] = await Promise.all([
+    const [recipes, supplies, products] = await Promise.all([
       this.recipeRepo.getAll(),
       this.supplyRepo.getAll(false),
+      this.productRepo ? this.productRepo.getAll() : Promise.resolve([]),
     ]);
     const recipeByProductId = new Map(recipes.map((recipe) => [recipe.productId, recipe]));
     const supplyById = new Map(supplies.map((supply) => [supply.id, supply]));
+    const productById = new Map(products.map((p) => [p.id, p]));
     const saleItems: SaleItem[] = [];
     let totalPortions = 0;
 
     for (const item of items) {
-      const portions = item.portionsPerUnit * item.quantity;
+      const product = productById.get(item.productId);
+      const isPizza = !product || product.category === 'PIZZA';
+      const portions = isPizza ? item.portionsPerUnit * item.quantity : 0;
       const additionsTotal = (item.additions ?? []).reduce((s, a) => s + a.price * a.quantity, 0);
       const packagingQuantity = item.packagingSupplyId ? (item.packagingQuantity ?? item.quantity) : 0;
       const packagingUnitPrice = item.packagingUnitPrice ?? 0;
