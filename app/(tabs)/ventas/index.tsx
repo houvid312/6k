@@ -527,11 +527,10 @@ export default function VentasScreen() {
   }, []);
 
   const handleFormatSelect = useCallback((formatId: string) => {
-    const format = formatsByProductId[selectedProductId ?? '']?.find((f) => f.id === formatId);
     setSelectedFormatId(formatId);
     setModalQuantity(1);
-    setSelectedPackagingSupplyId(selectedProduct?.category === 'PIZZA' ? suggestPackagingSupplyId(format) : undefined);
-  }, [formatsByProductId, selectedProduct?.category, selectedProductId, suggestPackagingSupplyId]);
+    setSelectedPackagingSupplyId(undefined);
+  }, []);
 
   const renderPackagingSelector = useCallback((quantity: number) => {
     if (selectedProduct?.category !== 'PIZZA') return null;
@@ -604,18 +603,18 @@ export default function VentasScreen() {
       // Single format: simple quantity modal
       setSelectedProductId(productId);
       setSelectedFormatId(activeFormats[0]?.id ?? null);
-      setSelectedPackagingSupplyId(product.category === 'PIZZA' ? suggestPackagingSupplyId(activeFormats[0]) : undefined);
+      setSelectedPackagingSupplyId(undefined);
       setBeverageQuantity(1);
       setBeverageModalVisible(true);
     } else {
       // Multiple formats: show format selector
       setSelectedProductId(productId);
       setSelectedFormatId(activeFormats[0]?.id ?? null);
-      setSelectedPackagingSupplyId(product.category === 'PIZZA' ? suggestPackagingSupplyId(activeFormats[0]) : undefined);
+      setSelectedPackagingSupplyId(undefined);
       setModalQuantity(1);
       setSizeModalVisible(true);
     }
-  }, [products, formatsByProductId, suggestPackagingSupplyId]);
+  }, [products, formatsByProductId]);
 
   // Cargar adiciones cuando cambia el formato seleccionado
   useEffect(() => {
