@@ -2,6 +2,7 @@ import { supabase } from '../../lib/supabase';
 import { Purchase } from '../../domain/entities';
 import { IPurchaseRepository } from '../../domain/interfaces/repositories';
 import { PaymentMethod } from '../../domain/enums';
+import { colombiaLocalToUtcISOString } from '../../utils/dates';
 
 interface PurchaseRow {
   id: string;
@@ -60,8 +61,10 @@ export class SupabasePurchaseRepository implements IPurchaseRepository {
   }
 
   async getByDateRange(from: string, to: string, storeId?: string): Promise<Purchase[]> {
-    const fromTs = from.includes('T') ? from : `${from}T00:00:00-05:00`;
-    const toTs = to.includes('T') ? to : `${to}T23:59:59-05:00`;
+    const cleanFrom = from.includes('T') ? from.split('T')[0] : from;
+    const cleanTo = to.includes('T') ? to.split('T')[0] : to;
+    const fromTs = colombiaLocalToUtcISOString(cleanFrom, false);
+    const toTs = colombiaLocalToUtcISOString(cleanTo, true);
 
     let query = supabase
       .from('purchases')

@@ -106,13 +106,13 @@ export default function AjustesInventarioScreen() {
     const active = cachedSupplies.filter((s) => s.isActive !== false);
     if (isProductionCenter) {
       if (level === InventoryLevel.RAW) {
-        return active.filter((s) => s.category === 'RAW');
+        return active.filter((s) => s.category === 'RAW' || s.category === 'OPERATIVE');
       } else if (level === InventoryLevel.PROCESSED) {
-        return active.filter((s) => s.category === 'PROCESSED');
+        return active.filter((s) => s.category === 'PROCESSED' || s.category === 'OPERATIVE');
       }
       return active;
     }
-    // Local store: exclude RAW
+    // Local store: show PROCESSED and OPERATIVE (empaques y consumibles)
     return active.filter((s) => s.category !== 'RAW');
   }, [cachedSupplies, isProductionCenter, level]);
 
