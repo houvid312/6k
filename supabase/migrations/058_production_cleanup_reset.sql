@@ -49,7 +49,6 @@ TRUNCATE TABLE public.schedules CASCADE;
 -- 6. Reiniciar balances de stock en inventario a cero (mantiene los insumos registrados listos para conteo)
 UPDATE public.inventory
 SET quantity_grams = 0,
-    bags = 0,
-    updated_at = NOW();
+    last_updated = NOW();
 
 COMMIT;
