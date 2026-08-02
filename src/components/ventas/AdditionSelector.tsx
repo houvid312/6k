@@ -10,9 +10,10 @@ interface Props {
   selected: CartItemAddition[];
   onToggle: (addition: AdditionCatalogItem) => void;
   onUpdateQuantity: (additionCatalogId: string, quantity: number) => void;
+  title?: string;
 }
 
-export function AdditionSelector({ additions, selected, onToggle, onUpdateQuantity }: Props) {
+export function AdditionSelector({ additions, selected, onToggle, onUpdateQuantity, title }: Props) {
   const theme = useTheme();
   const [search, setSearch] = useState('');
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -38,8 +39,8 @@ export function AdditionSelector({ additions, selected, onToggle, onUpdateQuanti
 
   return (
     <View style={styles.container}>
-      <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 6 }}>
-        Adiciones
+      <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 6, fontWeight: 'bold' }}>
+        {title ?? 'Adiciones'}
       </Text>
 
       {/* Search input */}

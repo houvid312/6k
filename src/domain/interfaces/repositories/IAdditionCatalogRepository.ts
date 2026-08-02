@@ -1,6 +1,7 @@
 import { AdditionCatalogItem } from '../../entities/Addition';
 
 export interface IAdditionCatalogRepository {
+  getAll(): Promise<AdditionCatalogItem[]>;
   getByFormatId(formatId: string): Promise<AdditionCatalogItem[]>;
   getByFormatIds(formatIds: string[]): Promise<AdditionCatalogItem[]>;
   create(data: Omit<AdditionCatalogItem, 'id'>): Promise<AdditionCatalogItem>;
