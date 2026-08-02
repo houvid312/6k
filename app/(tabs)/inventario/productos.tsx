@@ -120,6 +120,37 @@ export default function ProductosScreen() {
         productRepo.getAll(),
         recipeRepo.getAll(),
       ]);
+
+      // Auto-ensure standard packaging products exist in table products under 'OTRO'
+      const DEFAULT_PACKAGING_PRODUCTS = [
+        { name: 'Caja Familiar (30cm)', defaultPrice: 1500 },
+        { name: 'Caja Mediana (24cm)', defaultPrice: 1000 },
+        { name: 'Empaque Diamante Individual', defaultPrice: 500 },
+      ];
+
+      for (const pPkg of DEFAULT_PACKAGING_PRODUCTS) {
+        const exists = all.some((p) => p.category === 'OTRO' && p.name.toLowerCase().includes(pPkg.name.toLowerCase().slice(0, 10)));
+        if (!exists && isGlobalRole) {
+          try {
+            const created = await productRepo.create({
+              name: pPkg.name,
+              category: 'OTRO',
+              hasRecipe: false,
+            });
+            await productFormatRepo.create(created.id, {
+              name: 'Unidad',
+              portions: 0,
+              price: pPkg.defaultPrice,
+              isActive: true,
+              sortOrder: 1,
+            });
+            all.push(created);
+          } catch (e) {
+            console.error('Error auto-creando producto empaque:', e);
+          }
+        }
+      }
+
       setProducts(all);
 
       const status: Record<string, 'ok' | 'empty' | 'missing'> = {};
@@ -137,7 +168,7 @@ export default function ProductosScreen() {
     } finally {
       setLoading(false);
     }
-  }, [productRepo, recipeRepo]);
+  }, [productRepo, recipeRepo, productFormatRepo, isGlobalRole]);
 
   useEffect(() => {
     loadProducts();
@@ -416,7 +447,10 @@ export default function ProductosScreen() {
           <Button
             mode="contained"
             icon="plus"
-            onPress={() => setNewProductVisible(true)}
+            onPress={() => {
+              setNewCategory(tab);
+              setNewProductVisible(true);
+            }}
             buttonColor="#E63946"
             compact
           >

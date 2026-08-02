@@ -287,6 +287,7 @@ export class SupabaseSaleRepository implements ISaleRepository {
       .from('sales')
       .insert({
         store_id: sale.storeId,
+        created_at: sale.timestamp ?? undefined,
         worker_id: workerId,
         payment_method: sale.paymentMethod,
         total_portions: sale.totalPortions,
@@ -428,6 +429,10 @@ export class SupabaseSaleRepository implements ISaleRepository {
     });
 
     if (error) throw error;
+
+    if (sale.timestamp) {
+      await supabase.from('sales').update({ created_at: sale.timestamp }).eq('id', sale.id);
+    }
 
     const updated = await this.getById(sale.id);
     if (!updated) {

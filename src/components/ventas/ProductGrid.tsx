@@ -66,9 +66,18 @@ export function ProductGrid({ products, onSelect, selectedId, availablePortions,
 
   const pizzas = products.filter((p) => p.category === 'PIZZA');
   const beverages = products.filter((p) => p.category === 'BEBIDA');
-  const totalSoldPortions = soldPortions
-    ? Object.values(soldPortions).reduce((sum, v) => sum + v, 0)
-    : 0;
+  const pizzaIds = useMemo(() => new Set(pizzas.map((p) => p.id)), [pizzas]);
+  const beverageIds = useMemo(() => new Set(beverages.map((p) => p.id)), [beverages]);
+
+  const totalSoldPizzaPortions = useMemo(() => {
+    if (!soldPortions) return 0;
+    return Object.entries(soldPortions).reduce((sum, [id, count]) => pizzaIds.has(id) ? sum + count : sum, 0);
+  }, [soldPortions, pizzaIds]);
+
+  const totalSoldBeverages = useMemo(() => {
+    if (!soldPortions) return 0;
+    return Object.entries(soldPortions).reduce((sum, [id, count]) => beverageIds.has(id) ? sum + count : sum, 0);
+  }, [soldPortions, beverageIds]);
 
   if (products.length === 0) {
     return (
@@ -130,12 +139,21 @@ export function ProductGrid({ products, onSelect, selectedId, availablePortions,
         })}
       </View>
 
-      {/* Total sold portions */}
-      {soldPortions && totalSoldPortions > 0 && (
-        <View style={[styles.totalSoldRow, { backgroundColor: theme.colors.surfaceVariant, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
-          <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
-            Total vendidas: {totalSoldPortions} porciones
-          </Text>
+      {/* Total sold summary bar */}
+      {soldPortions && (totalSoldPizzaPortions > 0 || totalSoldBeverages > 0) && (
+        <View style={[styles.totalSoldRow, { backgroundColor: theme.colors.surfaceVariant, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }]}>
+          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+            {totalSoldPizzaPortions > 0 && (
+              <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
+                🍕 Porciones: <Text style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>{totalSoldPizzaPortions}</Text>
+              </Text>
+            )}
+            {totalSoldBeverages > 0 && (
+              <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
+                🥤 Bebidas: <Text style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>{totalSoldBeverages}</Text>
+              </Text>
+            )}
+          </View>
           {totalSalesToday !== undefined && totalSalesToday > 0 && (
             <Text style={[styles.totalSoldText, { color: theme.colors.primary, fontWeight: 'bold' }]}>
               Ventas: {formatCOP(totalSalesToday)}
