@@ -49,6 +49,8 @@ export default function CierreCajaScreen() {
   const [dayExpenses, setDayExpenses] = useState<Expense[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [existingClosing, setExistingClosing] = useState<CashClosing | null>(null);
+  const [nextDayBase, setNextDayBase] = useState<number | null>(null);
+  const [savingBase, setSavingBase] = useState(false);
 
   const actualTotal = getTotal();
   const discrepancy = actualTotal - cashBase - (expectedTotal - totalCredit - expenses);
@@ -106,14 +108,6 @@ export default function CierreCajaScreen() {
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
     try {
-      if (isAdmin) {
-        try {
-          await cashClosingService.updateOpeningBase(selectedStoreId, activeDate, cashBase);
-        } catch (err) {
-          console.error('Error guardando base de apertura:', err);
-        }
-      }
-
       if (existingClosing && isEditable) {
         // Update existing closing
         const updated = await cashClosingService.updateClosing(
@@ -143,7 +137,7 @@ export default function CierreCajaScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [selectedStoreId, activeDate, denominations, bankTotal, expenses, cashBase, isAdmin, cashClosingService, existingClosing, isEditable, discrepancy, showSuccess, showError]);
+  }, [selectedStoreId, activeDate, denominations, bankTotal, expenses, cashClosingService, existingClosing, isEditable, discrepancy, showSuccess, showError]);
 
   const handleConfirm = useCallback(async () => {
     if (!existingClosing) return;
@@ -279,13 +273,8 @@ export default function CierreCajaScreen() {
             value={cashBase}
             onChangeValue={setCashBase}
             label="Base de Apertura"
-            disabled={!isEditable || !isAdmin}
+            disabled
           />
-          {isAdmin && isEditable && (
-            <Text variant="labelSmall" style={{ color: '#4CAF50', marginTop: 4 }}>
-              ✏️ Permiso de Gerencia: Puedes ajustar la base para consignar el excedente a tesorería.
-            </Text>
-          )}
           <View style={{ height: 12 }} />
           <CurrencyInput
             value={bankTotal}
@@ -640,6 +629,66 @@ export default function CierreCajaScreen() {
         >
           Reabrir para correccion
         </Button>
+      )}
+
+      {/* POST-CLOSING: Base para el Día Siguiente (Solo Admin/Gerente, después de confirmar/aprobar) */}
+      {existingClosing && (existingClosing.status === ClosingStatus.CONFIRMED || existingClosing.status === ClosingStatus.APPROVED) && isAdmin && (
+        <Card style={[styles.card, { borderColor: '#4CAF50', borderWidth: 1 }]} mode="elevated">
+          <Card.Content>
+            <Text variant="titleMedium" style={{ fontWeight: 'bold', marginBottom: 4, color: '#4CAF50' }}>
+              🏦 Base para la Próxima Jornada
+            </Text>
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 12 }}>
+              Ajusta cuánto efectivo queda en el local como fondo fijo. El excedente entre la base actual ({formatCOP(cashBase)}) y el valor que configures será lo que se consigna a tesorería.
+            </Text>
+
+            <CurrencyInput
+              value={nextDayBase ?? cashBase}
+              onChangeValue={(v) => setNextDayBase(v)}
+              label="Base del Día Siguiente"
+            />
+
+            {nextDayBase !== null && nextDayBase !== cashBase && (
+              <View style={{ marginTop: 8, padding: 10, backgroundColor: '#1A3A1A', borderRadius: 8 }}>
+                <Text variant="bodySmall" style={{ color: '#81C784' }}>
+                  📤 Se consignará a tesorería: {formatCOP(cashBase - nextDayBase)}
+                </Text>
+                <Text variant="bodySmall" style={{ color: '#FFB74D', marginTop: 4 }}>
+                  💰 Nueva base para mañana: {formatCOP(nextDayBase)}
+                </Text>
+              </View>
+            )}
+
+            <Button
+              mode="contained"
+              onPress={async () => {
+                if (nextDayBase === null) return;
+                setSavingBase(true);
+                try {
+                  // Compute tomorrow's date
+                  const parts = activeDate.split('-');
+                  const dt = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+                  dt.setDate(dt.getDate() + 1);
+                  const tomorrowStr = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+
+                  await cashClosingService.updateOpeningBase(selectedStoreId, tomorrowStr, nextDayBase);
+                  showSuccess(`Base de apertura para ${formatDate(tomorrowStr)} configurada en ${formatCOP(nextDayBase)}`);
+                } catch (err) {
+                  showError(err instanceof Error ? err.message : 'Error al guardar la nueva base');
+                } finally {
+                  setSavingBase(false);
+                }
+              }}
+              loading={savingBase}
+              disabled={savingBase || nextDayBase === null || nextDayBase === cashBase}
+              style={{ marginTop: 12, borderRadius: 8 }}
+              buttonColor="#388E3C"
+              icon="content-save"
+            >
+              Guardar Base para Mañana
+            </Button>
+          </Card.Content>
+        </Card>
       )}
 
       <Button
