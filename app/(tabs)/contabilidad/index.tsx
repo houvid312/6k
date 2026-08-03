@@ -767,8 +767,19 @@ export default function ContabilidadScreen() {
           const salesTransferBank = isApproved ? closing.bankTotal : 0;
 
           const registeredOpening = openingsByDate.get(date);
-          const theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
-          const baseDelta = (registeredOpening !== undefined && !isApproved) ? (runningBaseLocal - registeredOpening) : 0;
+          let theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
+          let baseDelta = (registeredOpening !== undefined && !isApproved) ? (runningBaseLocal - registeredOpening) : 0;
+
+          // If a next-day opening was configured post-closing, use it as the effective base
+          const dtParts = date.split('-');
+          const nextDt = new Date(Number(dtParts[0]), Number(dtParts[1]) - 1, Number(dtParts[2]));
+          nextDt.setDate(nextDt.getDate() + 1);
+          const nextDateStr = `${nextDt.getFullYear()}-${String(nextDt.getMonth() + 1).padStart(2, '0')}-${String(nextDt.getDate()).padStart(2, '0')}`;
+          const nextDayOpening = openingsByDate.get(nextDateStr);
+          if (nextDayOpening !== undefined && nextDayOpening !== theoreticalBaseToday) {
+            baseDelta += (theoreticalBaseToday - nextDayOpening);
+            theoreticalBaseToday = nextDayOpening;
+          }
 
           const cashAdvancesToday = cashAdvancesByDate.get(date) ?? 0;
           const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
@@ -1265,8 +1276,19 @@ export default function ContabilidadScreen() {
         const salesTransferBank = isApproved ? closing.bankTotal : 0;
 
         const registeredOpening = openingsByDate.get(date);
-        const theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
-        const baseDelta = (registeredOpening !== undefined && !isApproved) ? (runningBaseLocal - registeredOpening) : 0;
+        let theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
+        let baseDelta = (registeredOpening !== undefined && !isApproved) ? (runningBaseLocal - registeredOpening) : 0;
+
+        // If a next-day opening was configured post-closing, use it as the effective base
+        const dtParts = date.split('-');
+        const nextDt = new Date(Number(dtParts[0]), Number(dtParts[1]) - 1, Number(dtParts[2]));
+        nextDt.setDate(nextDt.getDate() + 1);
+        const nextDateStr = `${nextDt.getFullYear()}-${String(nextDt.getMonth() + 1).padStart(2, '0')}-${String(nextDt.getDate()).padStart(2, '0')}`;
+        const nextDayOpening = openingsByDate.get(nextDateStr);
+        if (nextDayOpening !== undefined && nextDayOpening !== theoreticalBaseToday) {
+          baseDelta += (theoreticalBaseToday - nextDayOpening);
+          theoreticalBaseToday = nextDayOpening;
+        }
 
         const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
         const generalCashIncomeToday = cashIncomesByDate.get(date) ?? 0;
