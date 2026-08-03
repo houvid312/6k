@@ -2,7 +2,7 @@ import { supabase } from '../../lib/supabase';
 import { Expense } from '../../domain/entities';
 import { IExpenseRepository } from '../../domain/interfaces/repositories';
 import { PaymentMethod } from '../../domain/enums';
-import { colombiaDateRangeToUtc } from '../../utils/dates';
+import { colombiaDateRangeToUtc, toISODateTZ } from '../../utils/dates';
 
 // --- Row type ---
 
@@ -115,10 +115,22 @@ export class SupabaseExpenseRepository implements IExpenseRepository {
       .from('expenses')
       .select('*')
       .eq('store_id', storeId)
-      .or(`and(date.gte.${fromUtc},date.lte.${toUtc}),and(date.gte.${cleanFrom},date.lte.${cleanTo}T23:59:59.999),and(date.gte.${cleanFrom},date.lte.${cleanTo})`)
+      .or(`and(date.gte.${fromUtc},date.lte.${toUtc}),and(date.gte.${cleanFrom},date.lte.${cleanTo})`)
       .order('date', { ascending: false });
+
     if (error) throw error;
-    return (data as ExpenseRow[]).map(toEntity);
+    const entities = (data as ExpenseRow[]).map(toEntity);
+
+    return entities.filter((e) => {
+      if (!e.date) return false;
+      const d = new Date(e.date);
+      if (isNaN(d.getTime())) {
+        const datePart = e.date.slice(0, 10);
+        return datePart >= cleanFrom && datePart <= cleanTo;
+      }
+      const colDate = toISODateTZ(d);
+      return colDate >= cleanFrom && colDate <= cleanTo;
+    });
   }
 
   async getById(id: string): Promise<Expense | null> {
