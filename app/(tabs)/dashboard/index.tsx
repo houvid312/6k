@@ -443,8 +443,18 @@ export default function DashboardScreen() {
           {/* 1. Summary KPI Cards Bar */}
           <View style={styles.kpiRow}>
             <KpiCard icon="calendar-range" label="Días Operados" value={`${totalDays} días`} color="#2196F3" />
-            <KpiCard icon="pizza" label="Ventas Totales" value={`${grandTotalUnits.toLocaleString()} uds`} color="#FF9800" />
-            <KpiCard icon="speedometer" label="Promedio Diario" value={`${grandDailyAvgUnits} / día`} color="#4CAF50" />
+            <KpiCard
+              icon="pizza"
+              label="Porciones Pizza"
+              value={`${catTotals.pizzaUnits.toLocaleString()} porc.`}
+              color="#FF9800"
+            />
+            <KpiCard
+              icon="speedometer"
+              label="Promedio Porciones/Día"
+              value={`${totalDays > 0 ? (catTotals.pizzaUnits / totalDays).toFixed(1) : '0'} porc./día`}
+              color="#4CAF50"
+            />
           </View>
 
           <View style={styles.kpiRow}>
@@ -471,7 +481,7 @@ export default function DashboardScreen() {
                   style={[styles.filterChip, categoryTab === 'PIZZAS' && styles.activeFilterChip]}
                   textStyle={{ color: categoryTab === 'PIZZAS' ? '#FFF' : '#F5F0EB', fontWeight: 'bold' }}
                 >
-                  🍕 Pizzas ({catTotals.pizzaUnits.toLocaleString()} uds)
+                  🍕 Pizzas ({catTotals.pizzaUnits.toLocaleString()} porc.)
                 </Chip>
                 <Chip
                   selected={categoryTab === 'BEBIDAS'}
@@ -537,7 +547,9 @@ export default function DashboardScreen() {
                 <Text style={[styles.subtotalLabel, { flex: 2.2 }]}>SUBTOTAL UNIDADES</Text>
                 <Text style={[styles.subtotalValue, { flex: 1.5, textAlign: 'right' }]}>{currentCategoryUnits.toLocaleString()}</Text>
                 <Text style={[styles.subtotalHighlight, { flex: 1.5, textAlign: 'right' }]}>{currentCategoryAvgUnits.toFixed(1)}</Text>
-                <Text style={[styles.subtotalMeta, { flex: 1.2, textAlign: 'right' }]}>uds/día</Text>
+                <Text style={[styles.subtotalMeta, { flex: 1.2, textAlign: 'right' }]}>
+                  {categoryTab === 'PIZZAS' ? 'porc./día' : 'uds/día'}
+                </Text>
               </View>
 
               <View style={styles.subtotalRow}>
@@ -574,17 +586,17 @@ export default function DashboardScreen() {
           <Card style={styles.sectionCard} mode="elevated">
             <Card.Content>
               <Text variant="titleMedium" style={styles.cardTitle}>
-                HISTÓRICO Y COMPORTAMIENTO MENSUAL
+                HISTÓRICO Y COMPORTAMIENTO MENSUAL (PORCIONES DE PIZZA)
               </Text>
               <Text variant="bodySmall" style={styles.cardSubtitle}>
-                Ventas totales y promedio diario mes a mes
+                Ventas totales de porciones de pizza y promedio diario mes a mes
               </Text>
 
               <View style={styles.tableHeader}>
                 <Text style={[styles.colHeader, { flex: 2 }]}>MES / PERIODO</Text>
                 <Text style={[styles.colHeader, { flex: 1.2, textAlign: 'right' }]}>DÍAS</Text>
-                <Text style={[styles.colHeader, { flex: 1.8, textAlign: 'right' }]}>VENTAS UDS</Text>
-                <Text style={[styles.colHeader, { flex: 1.8, textAlign: 'right' }]}>PROMEDIO DÍA</Text>
+                <Text style={[styles.colHeader, { flex: 1.8, textAlign: 'right' }]}>PORCIONES</Text>
+                <Text style={[styles.colHeader, { flex: 1.8, textAlign: 'right' }]}>PROM. PORC/DÍA</Text>
                 <Text style={[styles.colHeader, { flex: 2.2, textAlign: 'right' }]}>VENTAS COP</Text>
               </View>
 
@@ -592,8 +604,10 @@ export default function DashboardScreen() {
               <View style={[styles.tableRow, styles.generalRow]}>
                 <Text style={[styles.generalText, { flex: 2 }]}>General (Acumulado)</Text>
                 <Text style={[styles.generalText, { flex: 1.2, textAlign: 'right' }]}>{totalDays}</Text>
-                <Text style={[styles.generalText, { flex: 1.8, textAlign: 'right' }]}>{grandTotalUnits.toLocaleString()}</Text>
-                <Text style={[styles.generalHighlight, { flex: 1.8, textAlign: 'right' }]}>{grandDailyAvgUnits.toFixed(1)}</Text>
+                <Text style={[styles.generalText, { flex: 1.8, textAlign: 'right' }]}>{catTotals.pizzaUnits.toLocaleString()}</Text>
+                <Text style={[styles.generalHighlight, { flex: 1.8, textAlign: 'right' }]}>
+                  {totalDays > 0 ? (catTotals.pizzaUnits / totalDays).toFixed(1) : '0'}
+                </Text>
                 <Text style={[styles.generalText, { flex: 2.2, textAlign: 'right' }]}>{formatCOP(grandTotalPesos)}</Text>
               </View>
 
