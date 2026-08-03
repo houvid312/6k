@@ -571,7 +571,7 @@ export default function ContabilidadScreen() {
             .select('date,total')
             .eq('store_id', appliedStoreId)
             .gte('date', anchorDate)
-            .lte('date', endDate),
+            .lte('date', (() => { const p = endDate.split('-'); const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })()),
           expenseRepo.getByDateRange(appliedStoreId, anchorDate, endDate),
           purchaseRepo.getByDateRange(anchorDate, endDate, appliedStoreId),
           supabase
@@ -1113,7 +1113,7 @@ export default function ContabilidadScreen() {
           .select('date,total')
           .eq('store_id', storeId)
           .gte('date', anchorDate)
-          .lte('date', targetDate),
+          .lte('date', (() => { const p = targetDate.split('-'); const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })()),
         expenseRepo.getByDateRange(storeId, anchorDate, targetDate),
         purchaseRepo.getByDateRange(anchorDate, targetDate, storeId),
         supabase
