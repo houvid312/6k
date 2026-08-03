@@ -417,6 +417,83 @@ export default function CierreCajaScreen() {
         </Card.Content>
       </Card>
 
+      {/* Matriz de Conciliación Multicanal (Cuadre Global) */}
+      <Card style={[styles.card, { borderColor: '#E63946', borderWidth: 1 }]} mode="elevated">
+        <Card.Content>
+          <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.primary, marginBottom: 12 }}>
+            📊 Matriz de Conciliación Multicanal (Cuadre Global)
+          </Text>
+
+          <View style={{ gap: 8 }}>
+            {/* Header row */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#333' }}>
+              <Text variant="labelMedium" style={{ flex: 1.4, color: '#aaa', fontWeight: 'bold' }}>Canal</Text>
+              <Text variant="labelMedium" style={{ flex: 1, color: '#aaa', textAlign: 'right', fontWeight: 'bold' }}>Esperado</Text>
+              <Text variant="labelMedium" style={{ flex: 1, color: '#aaa', textAlign: 'right', fontWeight: 'bold' }}>Real / Audit.</Text>
+              <Text variant="labelMedium" style={{ flex: 1, color: '#aaa', textAlign: 'right', fontWeight: 'bold' }}>Diferencia</Text>
+            </View>
+
+            {/* Row 1: Cash */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text variant="bodySmall" style={{ flex: 1.4, color: theme.colors.onSurface }}>💵 Caja Física</Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', color: theme.colors.onSurfaceVariant }}>
+                {formatCOP(cashBase + expectedTotal - bankTotal - totalCredit - expenses)}
+              </Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', color: '#FFF', fontWeight: 'bold' }}>
+                {formatCOP(cashTotal)}
+              </Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', fontWeight: 'bold', color: discrepancy >= 0 ? '#388E3C' : '#D32F2F' }}>
+                {discrepancy > 0 ? '+' : ''}{formatCOP(discrepancy)}
+              </Text>
+            </View>
+
+            {/* Row 2: Bank Transfers */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text variant="bodySmall" style={{ flex: 1.4, color: theme.colors.onSurface }}>💳 Bancos / Nequi</Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', color: theme.colors.onSurfaceVariant }}>
+                {formatCOP(bankTotal)}
+              </Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', color: '#FFF', fontWeight: 'bold' }}>
+                {formatCOP(bankTotal)}
+              </Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', fontWeight: 'bold', color: '#388E3C' }}>
+                $0
+              </Text>
+            </View>
+
+            {/* Row 3: Cartera / Fiados */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text variant="bodySmall" style={{ flex: 1.4, color: theme.colors.onSurface }}>🚩 Fiados / Cartera</Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', color: theme.colors.onSurfaceVariant }}>
+                {formatCOP(totalCredit)}
+              </Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', color: '#FFF', fontWeight: 'bold' }}>
+                {formatCOP(totalCredit)}
+              </Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', fontWeight: 'bold', color: '#388E3C' }}>
+                $0
+              </Text>
+            </View>
+
+            <Divider style={{ marginVertical: 4 }} />
+
+            {/* Row 4: Total Global */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text variant="bodyMedium" style={{ flex: 1.4, fontWeight: 'bold', color: theme.colors.onSurface }}>Total Jornada</Text>
+              <Text variant="bodyMedium" style={{ flex: 1, textAlign: 'right', fontWeight: 'bold', color: theme.colors.onSurfaceVariant }}>
+                {formatCOP(cashBase + expectedTotal - expenses)}
+              </Text>
+              <Text variant="bodyMedium" style={{ flex: 1, textAlign: 'right', fontWeight: 'bold', color: theme.colors.primary }}>
+                {formatCOP(cashTotal + bankTotal + totalCredit)}
+              </Text>
+              <Text variant="bodyMedium" style={{ flex: 1, textAlign: 'right', fontWeight: 'bold', color: discrepancy >= 0 ? '#388E3C' : '#D32F2F' }}>
+                {discrepancy > 0 ? '+' : ''}{formatCOP(discrepancy)}
+              </Text>
+            </View>
+          </View>
+        </Card.Content>
+      </Card>
+
       {/* Salidas de Caja y Egresos del Día (Desglose Itemizado) */}
       <Card style={styles.card} mode="elevated">
         <Card.Content>
