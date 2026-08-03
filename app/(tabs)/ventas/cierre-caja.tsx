@@ -106,6 +106,14 @@ export default function CierreCajaScreen() {
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
     try {
+      if (isAdmin) {
+        try {
+          await cashClosingService.updateOpeningBase(selectedStoreId, activeDate, cashBase);
+        } catch (err) {
+          console.error('Error guardando base de apertura:', err);
+        }
+      }
+
       if (existingClosing && isEditable) {
         // Update existing closing
         const updated = await cashClosingService.updateClosing(
@@ -135,7 +143,7 @@ export default function CierreCajaScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [selectedStoreId, activeDate, denominations, bankTotal, expenses, cashClosingService, existingClosing, isEditable, discrepancy, showSuccess, showError]);
+  }, [selectedStoreId, activeDate, denominations, bankTotal, expenses, cashBase, isAdmin, cashClosingService, existingClosing, isEditable, discrepancy, showSuccess, showError]);
 
   const handleConfirm = useCallback(async () => {
     if (!existingClosing) return;
@@ -271,8 +279,13 @@ export default function CierreCajaScreen() {
             value={cashBase}
             onChangeValue={setCashBase}
             label="Base de Apertura"
-            disabled
+            disabled={!isEditable || !isAdmin}
           />
+          {isAdmin && isEditable && (
+            <Text variant="labelSmall" style={{ color: '#4CAF50', marginTop: 4 }}>
+              ✏️ Permiso de Gerencia: Puedes ajustar la base para consignar el excedente a tesorería.
+            </Text>
+          )}
           <View style={{ height: 12 }} />
           <CurrencyInput
             value={bankTotal}

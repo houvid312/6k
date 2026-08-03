@@ -223,6 +223,29 @@ export class CashClosingService {
     return this.cashOpeningRepo.getByDate(storeId, date);
   }
 
+  /**
+   * Updates or creates the cash opening base for a given date (Admin power).
+   */
+  async updateOpeningBase(
+    storeId: string,
+    date: string,
+    newTotal: number,
+    updatedBy?: string,
+  ): Promise<CashOpening> {
+    if (!this.cashOpeningRepo) throw new Error('CashOpeningRepository not configured');
+    const existing = await this.cashOpeningRepo.getByDate(storeId, date);
+    const denoms = existing?.denominations ?? {
+      bills100k: 0, bills50k: 0, bills20k: 0, bills10k: 0, bills5k: 0, bills2k: 0, coins: newTotal
+    };
+    return this.cashOpeningRepo.upsert({
+      storeId,
+      date,
+      total: newTotal,
+      denominations: denoms,
+      openedBy: updatedBy ?? existing?.openedBy,
+    });
+  }
+
   // --- Private ---
 
   /**
