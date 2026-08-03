@@ -1263,13 +1263,15 @@ export default function ContabilidadScreen() {
         const salesTransferCash = isApproved ? (closing.expectedTotal - closing.bankTotal - creditSalesToday - closing.expenses) : 0;
         const salesTransferBank = isApproved ? closing.bankTotal : 0;
 
-        const theoreticalBaseToday = isApproved ? openingBaseVal : runningBaseLocal;
+        const registeredOpening = openingsByDate.get(date);
+        const theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
+        const baseDelta = (registeredOpening !== undefined && !isApproved) ? (runningBaseLocal - registeredOpening) : 0;
 
         const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
         const generalCashIncomeToday = cashIncomesByDate.get(date) ?? 0;
         const generalBankIncomeToday = bankIncomesByDate.get(date) ?? 0;
 
-        const theoreticalCashToday = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday;
+        const theoreticalCashToday = runningCash + baseDelta + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday;
         const theoreticalBankToday = runningBank + salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
         const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
 
