@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, Card, Button, Chip, Divider, IconButton, Portal, Snackbar, useTheme } from 'react-native-paper';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { DenominationCounter } from '../../../src/components/ventas/DenominationCounter';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
 import { useCashClosingStore } from '../../../src/stores/useCashClosingStore';
 import { formatCOP } from '../../../src/utils/currency';
@@ -23,8 +24,11 @@ const STATUS_CONFIG: Record<ClosingStatus, { label: string; color: string; icon:
 
 export default function CierreCajaScreen() {
   const theme = useTheme();
+  const params = useLocalSearchParams<{ date?: string }>();
+  const activeDate = params.date || todayColombia();
   const { cashClosingService, expenseRepo } = useDI();
   const { selectedStoreId, userRole } = useAppStore();
+  const { workers } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
   const {
     denominations,
@@ -45,8 +49,9 @@ export default function CierreCajaScreen() {
   const [dayExpenses, setDayExpenses] = useState<Expense[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [existingClosing, setExistingClosing] = useState<CashClosing | null>(null);
+  const [nextDayBase, setNextDayBase] = useState<number | null>(null);
+  const [savingBase, setSavingBase] = useState(false);
 
-  const today = todayColombia();
   const actualTotal = getTotal();
   const discrepancy = actualTotal - cashBase - (expectedTotal - totalCredit - expenses);
   const isAdmin = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
@@ -57,23 +62,25 @@ export default function CierreCajaScreen() {
     setCurrentStore(selectedStoreId);
     (async () => {
       try {
-        const summary = await cashClosingService.getDailyExpected(selectedStoreId, today);
-        const existing = await cashClosingService.getClosingByDate(selectedStoreId, today);
+        const summary = await cashClosingService.getDailyExpected(selectedStoreId, activeDate);
+        const existing = await cashClosingService.getClosingByDate(selectedStoreId, activeDate);
         setExistingClosing(existing);
         setTotalCredit(summary.totalCreditAmount ?? 0);
 
-        // Auto-load expenses from today (Compra Turno, etc.)
+        // Auto-load expenses from activeDate (Compra Turno, Adelantos, etc.)
         let totalExpenses = 0;
         try {
-          const dbExpenses = await expenseRepo.getByDateRange(selectedStoreId, today, today + 'T23:59:59');
+          const dbExpenses = await expenseRepo.getByDateRange(selectedStoreId, activeDate, activeDate);
           setDayExpenses(dbExpenses);
           const cashExpenses = dbExpenses.filter(e => e.paymentMethod === PaymentMethod.EFECTIVO);
           totalExpenses = cashExpenses.reduce((sum, e) => sum + e.amount, 0);
-        } catch { /* ignore */ }
+        } catch (err) {
+          console.error('Error cargando egresos:', err);
+        }
 
         // Auto-load opening base
         try {
-          const opening = await cashClosingService.getOpeningByDate(selectedStoreId, today);
+          const opening = await cashClosingService.getOpeningByDate(selectedStoreId, activeDate);
           if (opening) setCashBase(opening.total);
         } catch { /* ignore */ }
 
@@ -84,7 +91,7 @@ export default function CierreCajaScreen() {
             setDenomination(key as keyof CashClosing['denominations'], count);
           }
           setBankTotal(shouldRecalculateDraft ? summary.totalBankAmount : existing.bankTotal);
-          setExpenses(shouldRecalculateDraft ? totalExpenses : existing.expenses);
+          setExpenses(totalExpenses);
           setExpectedTotal(shouldRecalculateDraft ? summary.totalAmount : existing.expectedTotal);
         } else {
           setExpectedTotal(summary.totalAmount);
@@ -96,7 +103,7 @@ export default function CierreCajaScreen() {
         setTotalCredit(0);
       }
     })();
-  }, [selectedStoreId, today, cashClosingService, expenseRepo, setBankTotal, setCashBase, setDenomination, setExpenses, setCurrentStore]);
+  }, [selectedStoreId, activeDate, cashClosingService, expenseRepo, setBankTotal, setCashBase, setDenomination, setExpenses, setCurrentStore]);
 
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
@@ -106,31 +113,31 @@ export default function CierreCajaScreen() {
         const updated = await cashClosingService.updateClosing(
           existingClosing.id,
           selectedStoreId,
-          today,
+          activeDate,
           denominations,
           bankTotal,
           expenses,
         );
         setExistingClosing(updated);
-        showSuccess(`Borrador actualizado. Discrepancia: ${formatCOP(updated.discrepancy)}`);
+        showSuccess(`Borrador actualizado (${formatDate(activeDate)}). Discrepancia: ${formatCOP(updated.discrepancy)}`);
       } else {
         // Create new closing
         const closing = await cashClosingService.createClosing(
           selectedStoreId,
-          today,
+          activeDate,
           denominations,
           bankTotal,
           expenses,
         );
         setExistingClosing(closing);
-        showSuccess(`Cierre creado como borrador. Discrepancia: ${formatCOP(closing.discrepancy)}`);
+        showSuccess(`Cierre creado (${formatDate(activeDate)}) como borrador. Discrepancia: ${formatCOP(closing.discrepancy)}`);
       }
     } catch (err) {
       showError(err instanceof Error ? err.message : 'No se pudo registrar el cierre');
     } finally {
       setSubmitting(false);
     }
-  }, [selectedStoreId, today, denominations, bankTotal, expenses, cashClosingService, existingClosing, isEditable, discrepancy, showSuccess, showError]);
+  }, [selectedStoreId, activeDate, denominations, bankTotal, expenses, cashClosingService, existingClosing, isEditable, discrepancy, showSuccess, showError]);
 
   const handleConfirm = useCallback(async () => {
     if (!existingClosing) return;
@@ -412,6 +419,149 @@ export default function CierreCajaScreen() {
         </Card.Content>
       </Card>
 
+      {/* Matriz de Conciliación Multicanal (Cuadre Global) */}
+      <Card style={[styles.card, { borderColor: '#E63946', borderWidth: 1 }]} mode="elevated">
+        <Card.Content>
+          <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.primary, marginBottom: 12 }}>
+            📊 Matriz de Conciliación Multicanal (Cuadre Global)
+          </Text>
+
+          <View style={{ gap: 8 }}>
+            {/* Header row */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#333' }}>
+              <Text variant="labelMedium" style={{ flex: 1.4, color: '#aaa', fontWeight: 'bold' }}>Canal</Text>
+              <Text variant="labelMedium" style={{ flex: 1, color: '#aaa', textAlign: 'right', fontWeight: 'bold' }}>Esperado</Text>
+              <Text variant="labelMedium" style={{ flex: 1, color: '#aaa', textAlign: 'right', fontWeight: 'bold' }}>Real / Audit.</Text>
+              <Text variant="labelMedium" style={{ flex: 1, color: '#aaa', textAlign: 'right', fontWeight: 'bold' }}>Diferencia</Text>
+            </View>
+
+            {/* Row 1: Cash */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text variant="bodySmall" style={{ flex: 1.4, color: theme.colors.onSurface }}>💵 Caja Física</Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', color: theme.colors.onSurfaceVariant }}>
+                {formatCOP(cashBase + expectedTotal - bankTotal - totalCredit - expenses)}
+              </Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', color: '#FFF', fontWeight: 'bold' }}>
+                {formatCOP(cashTotal)}
+              </Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', fontWeight: 'bold', color: discrepancy >= 0 ? '#388E3C' : '#D32F2F' }}>
+                {discrepancy > 0 ? '+' : ''}{formatCOP(discrepancy)}
+              </Text>
+            </View>
+
+            {/* Row 2: Bank Transfers */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text variant="bodySmall" style={{ flex: 1.4, color: theme.colors.onSurface }}>💳 Bancos / Nequi</Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', color: theme.colors.onSurfaceVariant }}>
+                {formatCOP(bankTotal)}
+              </Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', color: '#FFF', fontWeight: 'bold' }}>
+                {formatCOP(bankTotal)}
+              </Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', fontWeight: 'bold', color: '#388E3C' }}>
+                $0
+              </Text>
+            </View>
+
+            {/* Row 3: Cartera / Fiados */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text variant="bodySmall" style={{ flex: 1.4, color: theme.colors.onSurface }}>🚩 Fiados / Cartera</Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', color: theme.colors.onSurfaceVariant }}>
+                {formatCOP(totalCredit)}
+              </Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', color: '#FFF', fontWeight: 'bold' }}>
+                {formatCOP(totalCredit)}
+              </Text>
+              <Text variant="bodySmall" style={{ flex: 1, textAlign: 'right', fontWeight: 'bold', color: '#388E3C' }}>
+                $0
+              </Text>
+            </View>
+
+            <Divider style={{ marginVertical: 4 }} />
+
+            {/* Row 4: Total Global */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text variant="bodyMedium" style={{ flex: 1.4, fontWeight: 'bold', color: theme.colors.onSurface }}>Total Jornada</Text>
+              <Text variant="bodyMedium" style={{ flex: 1, textAlign: 'right', fontWeight: 'bold', color: theme.colors.onSurfaceVariant }}>
+                {formatCOP(cashBase + expectedTotal - expenses)}
+              </Text>
+              <Text variant="bodyMedium" style={{ flex: 1, textAlign: 'right', fontWeight: 'bold', color: theme.colors.primary }}>
+                {formatCOP(cashTotal + bankTotal + totalCredit)}
+              </Text>
+              <Text variant="bodyMedium" style={{ flex: 1, textAlign: 'right', fontWeight: 'bold', color: discrepancy >= 0 ? '#388E3C' : '#D32F2F' }}>
+                {discrepancy > 0 ? '+' : ''}{formatCOP(discrepancy)}
+              </Text>
+            </View>
+          </View>
+        </Card.Content>
+      </Card>
+
+      {/* Salidas de Caja y Egresos del Día (Desglose Itemizado) */}
+      <Card style={styles.card} mode="elevated">
+        <Card.Content>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>
+              💸 Salidas de Caja y Egresos ({dayExpenses.length})
+            </Text>
+            <Chip compact textStyle={{ fontSize: 11, fontWeight: 'bold' }} style={{ backgroundColor: '#3E1F1F' }}>
+              <Text style={{ color: '#FF8A80' }}>Total: {formatCOP(dayExpenses.reduce((s, e) => s + e.amount, 0))}</Text>
+            </Chip>
+          </View>
+
+          {dayExpenses.length === 0 ? (
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontStyle: 'italic', textAlign: 'center', marginVertical: 8 }}>
+              No hay salidas de caja o egresos registrados para esta jornada.
+            </Text>
+          ) : (
+            dayExpenses.map((e) => {
+              const isCash = e.paymentMethod === PaymentMethod.EFECTIVO;
+              const isAdvance = e.category === 'Adelanto';
+              const worker = workers.find((w) => w.id === e.workerId);
+              const workerName = worker ? worker.name : null;
+              return (
+                <View
+                  key={e.id}
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    paddingVertical: 8,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                    borderBottomColor: theme.colors.outlineVariant,
+                  }}
+                >
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
+                      {isAdvance ? '👤' : '💸'} {e.description || e.category}
+                    </Text>
+                    {isAdvance && workerName && (
+                      <Text variant="labelSmall" style={{ color: '#FFB74D', marginTop: 2, fontWeight: 'bold' }}>
+                        Trabajador: {workerName}
+                      </Text>
+                    )}
+                    <View style={{ flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                      <Chip
+                        compact
+                        textStyle={{ fontSize: 10, color: isCash ? '#FF8A80' : '#64B5F6' }}
+                        style={{ backgroundColor: isCash ? '#3E1F1F' : '#1A3A5C' }}
+                      >
+                        {isCash ? '💵 Efectivo (Descuenta Caja)' : '💳 Transferencia (Banco)'}
+                      </Chip>
+                      <Chip compact textStyle={{ fontSize: 10, color: '#AAA' }} style={{ backgroundColor: '#2A2A2A' }}>
+                        {e.category}
+                      </Chip>
+                    </View>
+                  </View>
+                  <Text variant="titleSmall" style={{ fontWeight: 'bold', color: isCash ? '#E63946' : '#FFB74D' }}>
+                    {formatCOP(e.amount)}
+                  </Text>
+                </View>
+              );
+            })
+          )}
+        </Card.Content>
+      </Card>
+
       {/* Action Buttons */}
       {isEditable && (
         <Button
@@ -479,6 +629,66 @@ export default function CierreCajaScreen() {
         >
           Reabrir para correccion
         </Button>
+      )}
+
+      {/* POST-CLOSING: Base para el Día Siguiente (Solo Admin/Gerente, después de confirmar/aprobar) */}
+      {existingClosing && (existingClosing.status === ClosingStatus.CONFIRMED || existingClosing.status === ClosingStatus.APPROVED) && isAdmin && (
+        <Card style={[styles.card, { borderColor: '#4CAF50', borderWidth: 1 }]} mode="elevated">
+          <Card.Content>
+            <Text variant="titleMedium" style={{ fontWeight: 'bold', marginBottom: 4, color: '#4CAF50' }}>
+              🏦 Base para la Próxima Jornada
+            </Text>
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 12 }}>
+              Ajusta cuánto efectivo queda en el local como fondo fijo. El excedente entre la base actual ({formatCOP(cashBase)}) y el valor que configures será lo que se consigna a tesorería.
+            </Text>
+
+            <CurrencyInput
+              value={nextDayBase ?? cashBase}
+              onChangeValue={(v) => setNextDayBase(v)}
+              label="Base del Día Siguiente"
+            />
+
+            {nextDayBase !== null && nextDayBase !== cashBase && (
+              <View style={{ marginTop: 8, padding: 10, backgroundColor: '#1A3A1A', borderRadius: 8 }}>
+                <Text variant="bodySmall" style={{ color: '#81C784' }}>
+                  📤 Se consignará a tesorería: {formatCOP(cashBase - nextDayBase)}
+                </Text>
+                <Text variant="bodySmall" style={{ color: '#FFB74D', marginTop: 4 }}>
+                  💰 Nueva base para mañana: {formatCOP(nextDayBase)}
+                </Text>
+              </View>
+            )}
+
+            <Button
+              mode="contained"
+              onPress={async () => {
+                if (nextDayBase === null) return;
+                setSavingBase(true);
+                try {
+                  // Compute tomorrow's date
+                  const parts = activeDate.split('-');
+                  const dt = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+                  dt.setDate(dt.getDate() + 1);
+                  const tomorrowStr = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+
+                  await cashClosingService.updateOpeningBase(selectedStoreId, tomorrowStr, nextDayBase);
+                  showSuccess(`Base de apertura para ${formatDate(tomorrowStr)} configurada en ${formatCOP(nextDayBase)}`);
+                } catch (err) {
+                  showError(err instanceof Error ? err.message : 'Error al guardar la nueva base');
+                } finally {
+                  setSavingBase(false);
+                }
+              }}
+              loading={savingBase}
+              disabled={savingBase || nextDayBase === null || nextDayBase === cashBase}
+              style={{ marginTop: 12, borderRadius: 8 }}
+              buttonColor="#388E3C"
+              icon="content-save"
+            >
+              Guardar Base para Mañana
+            </Button>
+          </Card.Content>
+        </Card>
       )}
 
       <Button

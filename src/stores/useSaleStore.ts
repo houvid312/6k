@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { Sale } from '../domain/entities';
+import { todayColombia } from '../utils/dates';
+import { PACKAGING_SUPPLY_IDS } from '../domain/enums';
 
 export interface CartItemAddition {
   additionCatalogId: string;
@@ -32,6 +34,7 @@ export interface CartItem {
 }
 
 interface SaleState {
+  salesDate: string;
   cart: CartItem[];
   cartPackagingSupplyId: string | undefined;
   sales: Sale[];
@@ -40,10 +43,12 @@ interface SaleState {
   submitting: boolean;
   lastSaleResult: { success: boolean; message: string } | null;
 
+  setSalesDate: (date: string) => void;
   addToCart: (item: Omit<CartItem, 'cartItemId' | 'portions' | 'subtotal' | 'customerNote' | 'additions' | 'additionsTotal' | 'packagingUnitPrice' | 'packagingQuantity' | 'packagingTotal'> & {
     customerNote?: string;
     additions?: CartItemAddition[];
     packagingUnitPrice?: number;
+    packagingQuantity?: number;
   }) => void;
   removeFromCart: (cartItemId: string) => void;
   updateQuantity: (cartItemId: string, quantity: number) => void;
@@ -64,6 +69,7 @@ interface SaleState {
 let nextCartItemId = 1;
 
 export const useSaleStore = create<SaleState>((set) => ({
+  salesDate: todayColombia(),
   cart: [],
   cartPackagingSupplyId: undefined,
   sales: [],
@@ -72,11 +78,16 @@ export const useSaleStore = create<SaleState>((set) => ({
   submitting: false,
   lastSaleResult: null,
 
+  setSalesDate: (date: string) => set({ salesDate: date }),
+
   addToCart: (item) =>
     set((state) => {
       const additions = item.additions ?? [];
       const additionsTotal = additions.reduce((s, a) => s + a.price * a.quantity, 0);
-      const packagingQuantity = item.packagingSupplyId ? item.quantity : 0;
+      const isBox = item.packagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_FAMILIAR
+        || item.packagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_MEDIANA;
+      const defaultPkgQty = (item.portionsPerUnit === 1 && isBox) ? 1 : item.quantity;
+      const packagingQuantity = item.packagingSupplyId ? (item.packagingQuantity ?? defaultPkgQty) : 0;
       const packagingUnitPrice = item.packagingUnitPrice ?? 0;
       const packagingTotal = packagingUnitPrice * packagingQuantity;
       // Single-portion formats or items with additions get individual line items
@@ -103,7 +114,7 @@ export const useSaleStore = create<SaleState>((set) => ({
               c.packagingUnitPrice === packagingUnitPrice
                 ? (() => {
                     const nextQuantity = c.quantity + item.quantity;
-                    const nextPackagingQuantity = c.packagingSupplyId ? nextQuantity : 0;
+                    const nextPackagingQuantity = c.packagingSupplyId ? (c.portionsPerUnit === 1 && isBox ? c.packagingQuantity : nextQuantity) : 0;
                     const nextPackagingTotal = c.packagingUnitPrice * nextPackagingQuantity;
                     return {
                       ...c,
@@ -156,7 +167,11 @@ export const useSaleStore = create<SaleState>((set) => ({
         cart: state.cart.map((c) =>
           c.cartItemId === cartItemId
             ? (() => {
-                const packagingQuantity = c.packagingSupplyId ? quantity : 0;
+                const isBox = c.packagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_FAMILIAR
+                  || c.packagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_MEDIANA;
+                const packagingQuantity = c.packagingSupplyId
+                  ? (c.portionsPerUnit === 1 && isBox ? (c.packagingQuantity || 1) : quantity)
+                  : 0;
                 const packagingTotal = c.packagingUnitPrice * packagingQuantity;
                 return {
                   ...c,

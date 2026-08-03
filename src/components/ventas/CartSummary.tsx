@@ -28,7 +28,7 @@ export function CartSummary({ items, onRemove, onUpdateQuantity, onUpdateNote, p
     );
   }
 
-  const totalPortions = items.reduce((sum, i) => sum + i.portions, 0);
+  const totalPizzaPortions = items.reduce((sum, i) => sum + i.portions, 0);
   const totalAmount = items.reduce((sum, i) => sum + i.subtotal, 0);
 
   return (
@@ -57,7 +57,7 @@ export function CartSummary({ items, onRemove, onUpdateQuantity, onUpdateNote, p
                   {item.productName}
                 </Text>
                 <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  {item.formatName} · {item.portions} porc.
+                  {item.portions > 0 ? `${item.formatName} · ${item.portions} porc.` : item.formatName}
                   {item.customerNote.trim() ? '  📝' : ''}
                 </Text>
               </Pressable>
@@ -90,15 +90,24 @@ export function CartSummary({ items, onRemove, onUpdateQuantity, onUpdateNote, p
             {/* Additions list */}
             {item.additions.length > 0 && (
               <View style={styles.additionsList}>
-                {item.additions.map((a) => (
-                  <Text
-                    key={a.additionCatalogId}
-                    variant="labelSmall"
-                    style={{ color: theme.colors.onSurfaceVariant, marginLeft: 32 }}
-                  >
-                    + {a.name}{a.quantity > 1 ? ` x${a.quantity}` : ''} ({formatCOP(a.price * a.quantity)})
-                  </Text>
-                ))}
+                {item.additions.map((a) => {
+                  const isDiamondItem =
+                    item.productName.toLowerCase().includes('diamante') ||
+                    item.formatName.toLowerCase().includes('diamante');
+                  return (
+                    <Text
+                      key={a.additionCatalogId}
+                      variant="labelSmall"
+                      style={{
+                        color: isDiamondItem ? '#FFB74D' : theme.colors.onSurfaceVariant,
+                        marginLeft: 32,
+                        fontWeight: isDiamondItem ? '600' : 'normal',
+                      }}
+                    >
+                      {isDiamondItem ? '💎' : '➕'} {a.name}{a.quantity > 1 ? ` (x${a.quantity})` : ''} (+{formatCOP(a.price * a.quantity)})
+                    </Text>
+                  );
+                })}
               </View>
             )}
 
@@ -134,7 +143,7 @@ export function CartSummary({ items, onRemove, onUpdateQuantity, onUpdateNote, p
       <Divider style={styles.totalDivider} />
       <View style={styles.totalRow}>
         <Text variant="titleSmall" style={{ fontWeight: 'bold' }}>
-          TOTAL · {totalPortions} porc.
+          TOTAL {totalPizzaPortions > 0 ? `· ${totalPizzaPortions} porc. pizza` : ''}
         </Text>
         <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
           {formatCOP(totalAmount)}

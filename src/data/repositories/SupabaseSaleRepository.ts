@@ -106,7 +106,7 @@ function saleItemRowToEntity(row: SaleItemRow, additions?: SaleItemAddition[]): 
   };
 }
 
-function saleRowToEntity(row: SaleRow, items: SaleItem[]): Sale {
+function saleRowToEntity(row: SaleRow & { worker?: { name: string } | null }, items: SaleItem[]): Sale {
   return {
     id: row.id,
     timestamp: row.created_at,
@@ -129,14 +129,14 @@ function saleRowToEntity(row: SaleRow, items: SaleItem[]): Sale {
     debtorWorkerId: row.debtor_worker_id ?? undefined,
     debtorCustomerId: row.debtor_customer_id ?? undefined,
     customerNote: row.customer_note ?? undefined,
-    workerName: row.workers?.name ?? undefined,
+    workerName: row.worker?.name ?? row.workers?.name ?? undefined,
     packagingSupplyId: row.packaging_supply_id ?? undefined,
   };
 }
 
 export class SupabaseSaleRepository implements ISaleRepository {
   async getAll(storeId?: string): Promise<Sale[]> {
-    let query = supabase.from('sales').select('*');
+    let query = supabase.from('sales').select('*, worker:worker_id(name)');
     if (storeId) {
       query = query.eq('store_id', storeId);
     }
@@ -149,7 +149,7 @@ export class SupabaseSaleRepository implements ISaleRepository {
   async getById(id: string): Promise<Sale | null> {
     const { data, error } = await supabase
       .from('sales')
-      .select('*')
+      .select('*, worker:worker_id(name)')
       .eq('id', id)
       .single();
     if (error) {
@@ -167,7 +167,7 @@ export class SupabaseSaleRepository implements ISaleRepository {
 
     let query = supabase
       .from('sales')
-      .select('*, workers:workers!sales_worker_id_fkey(name)')
+      .select('*, worker:worker_id(name)')
       .gte('created_at', fromUtc)
       .lte('created_at', toUtc)
       .order('created_at', { ascending: false });
@@ -186,7 +186,7 @@ export class SupabaseSaleRepository implements ISaleRepository {
     // Get sales that are not fully resolved (unpaid OR not dispatched)
     const { data, error } = await supabase
       .from('sales')
-      .select('*, workers:workers!sales_worker_id_fkey(name)')
+      .select('*, worker:worker_id(name)')
       .eq('store_id', storeId)
       .or('is_paid.eq.false,is_dispatched.eq.false')
       .order('created_at', { ascending: false });
@@ -287,6 +287,7 @@ export class SupabaseSaleRepository implements ISaleRepository {
       .from('sales')
       .insert({
         store_id: sale.storeId,
+        created_at: sale.timestamp ?? undefined,
         worker_id: workerId,
         payment_method: sale.paymentMethod,
         total_portions: sale.totalPortions,
@@ -428,6 +429,10 @@ export class SupabaseSaleRepository implements ISaleRepository {
     });
 
     if (error) throw error;
+
+    if (sale.timestamp) {
+      await supabase.from('sales').update({ created_at: sale.timestamp }).eq('id', sale.id);
+    }
 
     const updated = await this.getById(sale.id);
     if (!updated) {

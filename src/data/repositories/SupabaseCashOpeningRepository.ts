@@ -59,4 +59,24 @@ export class SupabaseCashOpeningRepository implements ICashOpeningRepository {
     if (error) throw error;
     return toEntity(data as CashOpeningRow);
   }
+
+  async upsert(opening: Omit<CashOpening, 'id' | 'createdAt'>): Promise<CashOpening> {
+    const existing = await this.getByDate(opening.storeId, opening.date);
+    if (existing) {
+      const { data, error } = await supabase
+        .from('cash_openings')
+        .update({
+          denominations: opening.denominations,
+          total: opening.total,
+          opened_by: opening.openedBy ?? null,
+        })
+        .eq('id', existing.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return toEntity(data as CashOpeningRow);
+    } else {
+      return this.create(opening);
+    }
+  }
 }

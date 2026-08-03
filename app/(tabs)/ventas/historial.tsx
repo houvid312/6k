@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { FlatList, View, StyleSheet } from 'react-native';
-import { Button, Card, Text, Chip, Divider, Snackbar, useTheme, Searchbar } from 'react-native-paper';
+import { Button, Card, Text, Chip, Divider, Snackbar, useTheme, Searchbar, Portal, Dialog, SegmentedButtons } from 'react-native-paper';
 import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { EmptyState } from '../../../src/components/common/EmptyState';
@@ -9,9 +9,10 @@ import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { Sale } from '../../../src/domain/entities';
-import { PaymentMethod } from '../../../src/domain/enums';
+import { PaymentMethod, UserRole, PACKAGING_LABEL_BY_ID } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
-import { formatDateTime, toISODate, todayColombia } from '../../../src/utils/dates';
+import { formatDate, formatDateTime, toISODate, todayColombia } from '../../../src/utils/dates';
+import { useSaleStore } from '../../../src/stores/useSaleStore';
 
 const PAYMENT_ICONS: Record<PaymentMethod, string> = {
   [PaymentMethod.EFECTIVO]: 'cash',
@@ -23,12 +24,21 @@ const PAYMENT_ICONS: Record<PaymentMethod, string> = {
 export default function HistorialScreen() {
   const theme = useTheme();
   const { saleService } = useDI();
-  const { selectedStoreId } = useAppStore();
+  const { selectedStoreId, userRole } = useAppStore();
+  const isGlobalRole = userRole === UserRole.GERENTE || userRole === UserRole.RODY;
   const { products } = useMasterDataStore();
+  const { salesDate } = useSaleStore();
+
+  const isRetroactive = salesDate !== todayColombia();
 
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'hoy' | 'ayer' | 'semana' | 'mes'>('hoy');
+  const [editingPaymentSale, setEditingPaymentSale] = useState<Sale | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>(PaymentMethod.EFECTIVO);
+  const [savingPaymentMethod, setSavingPaymentMethod] = useState(false);
+  const [filter, setFilter] = useState<'jornada' | 'hoy' | 'ayer' | 'semana' | 'mes'>(
+    isRetroactive ? 'jornada' : 'hoy'
+  );
 
   const loadSales = useCallback(async () => {
     setLoading(true);
@@ -37,25 +47,29 @@ export default function HistorialScreen() {
       let startDate: string;
       let endDate: string;
 
-      if (filter === 'hoy') {
-        startDate = `${today}T00:00:00`;
-        endDate = `${today}T23:59:59`;
+      if (filter === 'jornada') {
+        const activeDate = salesDate || today;
+        startDate = activeDate;
+        endDate = activeDate;
+      } else if (filter === 'hoy') {
+        startDate = today;
+        endDate = today;
       } else if (filter === 'ayer') {
         const yesterday = new Date(today + 'T12:00:00');
         yesterday.setDate(yesterday.getDate() - 1);
         const yStr = toISODate(yesterday);
-        startDate = `${yStr}T00:00:00`;
-        endDate = `${yStr}T23:59:59`;
+        startDate = yStr;
+        endDate = yStr;
       } else if (filter === 'semana') {
         const weekAgo = new Date(today + 'T12:00:00');
         weekAgo.setDate(weekAgo.getDate() - 7);
         startDate = toISODate(weekAgo);
-        endDate = `${today}T23:59:59`;
+        endDate = today;
       } else {
         const monthAgo = new Date(today + 'T12:00:00');
         monthAgo.setMonth(monthAgo.getMonth() - 1);
         startDate = toISODate(monthAgo);
-        endDate = `${today}T23:59:59`;
+        endDate = today;
       }
 
       const data = await saleService.getSalesByDateRange(
@@ -64,12 +78,13 @@ export default function HistorialScreen() {
         endDate,
       );
       setSales(data.sort((a, b) => b.timestamp.localeCompare(a.timestamp)));
-    } catch {
+    } catch (err) {
+      console.error('Error cargando ventas en historial:', err);
       setSales([]);
     } finally {
       setLoading(false);
     }
-  }, [selectedStoreId, filter, saleService]);
+  }, [selectedStoreId, filter, salesDate, saleService]);
 
   const [snackbar, setSnackbar] = useState<{ visible: boolean; success: boolean; message: string }>({
     visible: false,
@@ -101,114 +116,290 @@ export default function HistorialScreen() {
     }
   }, [saleService]);
 
+  const handleOpenEditPayment = (sale: Sale) => {
+    setEditingPaymentSale(sale);
+    setSelectedPaymentMethod(sale.paymentMethod);
+  };
+
+  const handleSavePaymentMethod = async () => {
+    if (!editingPaymentSale) return;
+    setSavingPaymentMethod(true);
+    try {
+      await saleService.updatePaymentMethod(editingPaymentSale.id, selectedPaymentMethod);
+      setSales((prev) =>
+        prev.map((s) => (s.id === editingPaymentSale.id ? { ...s, paymentMethod: selectedPaymentMethod } : s))
+      );
+      setSnackbar({
+        visible: true,
+        success: true,
+        message: `Método de pago actualizado a ${selectedPaymentMethod}`,
+      });
+      setEditingPaymentSale(null);
+    } catch (err) {
+      console.error('Error al actualizar método de pago:', err);
+      setSnackbar({
+        visible: true,
+        success: false,
+        message: 'Error al cambiar el método de pago',
+      });
+    } finally {
+      setSavingPaymentMethod(false);
+    }
+  };
+
   const getProductName = (productId: string) =>
     products.find((p) => p.id === productId)?.name ?? productId;
 
-  const renderSale = ({ item }: { item: Sale }) => (
-    <Card style={styles.saleCard} mode="elevated">
-      <Card.Content>
-        {/* Header: fecha + chips */}
-        <View style={styles.saleHeader}>
-          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-            {formatDateTime(item.timestamp)}
-          </Text>
-          <View style={styles.chipsRow}>
-            <Chip
-              icon={PAYMENT_ICONS[item.paymentMethod]}
-              compact
-              textStyle={{ fontSize: 11 }}
-            >
-              {item.paymentMethod}
-            </Chip>
-          </View>
-        </View>
+  const renderSale = ({ item }: { item: Sale }) => {
+    let totalPizzaPortions = 0;
+    let totalBeverages = 0;
+    let totalPackaging = 0;
+    let totalAdditions = 0;
+    let totalDiamondAdditions = 0;
 
-        {/* Items detail */}
-        <View style={styles.itemsList}>
-          {item.items.map((si) => (
-            <View key={si.id} style={styles.itemRow}>
-              <Text variant="bodySmall" style={{ flex: 1, color: theme.colors.onSurface }}>
-                {getProductName(si.productId)}
-              </Text>
-              <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, minWidth: 40 }}>
-                {si.formatName}
-              </Text>
-              <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, minWidth: 20, textAlign: 'center' }}>
-                x{si.quantity}
-              </Text>
-              <Text variant="bodySmall" style={{ fontWeight: '600', minWidth: 65, textAlign: 'right' }}>
-                {formatCOP(si.subtotal)}
+    for (const si of item.items) {
+      const product = products.find((p) => p.id === si.productId);
+      const cat = product?.category;
+      const isDiamondItem = (product?.name ?? '').toLowerCase().includes('diamante') || (si.formatName ?? '').toLowerCase().includes('diamante');
+
+      if (cat === 'BEBIDA') {
+        totalBeverages += si.quantity;
+      } else if (cat === 'OTRO') {
+        totalPackaging += si.quantity;
+      } else {
+        if (si.portions > 0) {
+          totalPizzaPortions += si.portions;
+        }
+      }
+
+      if (si.additions && si.additions.length > 0) {
+        const addCount = si.additions.reduce((s, a) => s + a.quantity, 0);
+        if (isDiamondItem) {
+          totalDiamondAdditions += addCount;
+        } else {
+          totalAdditions += addCount;
+        }
+      }
+
+      const hasPackagingAttached =
+        !!si.packagingSupplyId &&
+        ((si.packagingQuantity ?? 0) > 0 || (si.packagingUnitPrice ?? 0) > 0 || (si.packagingTotal ?? 0) > 0);
+
+      if (hasPackagingAttached) {
+        totalPackaging += si.packagingQuantity && si.packagingQuantity > 0 ? si.packagingQuantity : 1;
+      }
+    }
+
+    const hasOrderPackaging =
+      !!item.packagingSupplyId &&
+      ((item.packagingTotal ?? 0) > 0 || item.items.some((si) => (si.packagingQuantity ?? 0) > 0));
+
+    const isCreditSale = item.isCredit || (!item.isPaid && !!item.debtorName) || !!item.debtorName;
+
+    return (
+      <Card
+        style={[
+          styles.saleCard,
+          isCreditSale && {
+            borderLeftWidth: 6,
+            borderLeftColor: item.isPaid ? '#FFB74D' : '#E63946',
+            backgroundColor: item.isPaid ? '#1E1B18' : '#221616',
+          },
+        ]}
+        mode="elevated"
+      >
+        <Card.Content>
+          {/* Header: fecha + chips */}
+          <View style={styles.saleHeader}>
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+              {formatDateTime(item.timestamp)}
+            </Text>
+            <View style={styles.chipsRow}>
+              {isCreditSale && (
+                <Chip
+                  icon="account-clock"
+                  compact
+                  textStyle={{ fontSize: 11, fontWeight: 'bold', color: item.isPaid ? '#FFB74D' : '#FF8A80' }}
+                  style={{ backgroundColor: item.isPaid ? '#4E2C14' : '#5C1D1D' }}
+                >
+                  {item.isPaid ? `FIADO (PAGADO)` : `FIADO: ${item.debtorName || 'Deudor'}`}
+                </Chip>
+              )}
+              <Chip
+                icon={PAYMENT_ICONS[item.paymentMethod]}
+                compact
+                textStyle={{ fontSize: 11 }}
+                onPress={isGlobalRole ? () => handleOpenEditPayment(item) : undefined}
+              >
+                {item.paymentMethod} {isGlobalRole ? '✏️' : ''}
+              </Chip>
+              {totalPackaging > 0 && (
+                <Chip
+                  icon="package-variant-closed"
+                  compact
+                  textStyle={{ fontSize: 11, color: '#FFB74D' }}
+                  style={{ backgroundColor: '#3E2723' }}
+                >
+                  {hasOrderPackaging && item.packagingSupplyId
+                    ? (PACKAGING_LABEL_BY_ID[item.packagingSupplyId] ?? 'Con Empaque')
+                    : `${totalPackaging} empaque(s)`}
+                </Chip>
+              )}
+            </View>
+          </View>
+
+          {/* Items detail */}
+          <View style={styles.itemsList}>
+            {item.items.map((si) => {
+              const isDiamondItem = getProductName(si.productId).toLowerCase().includes('diamante') || (si.formatName ?? '').toLowerCase().includes('diamante');
+              const hasSiPkg =
+                !!si.packagingSupplyId &&
+                ((si.packagingQuantity ?? 0) > 0 || (si.packagingUnitPrice ?? 0) > 0 || (si.packagingTotal ?? 0) > 0);
+              return (
+                <View key={si.id} style={{ marginBottom: 4 }}>
+                  <View style={styles.itemRow}>
+                    <Text variant="bodySmall" style={{ flex: 1, color: theme.colors.onSurface }}>
+                      {getProductName(si.productId)}
+                    </Text>
+                    <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, minWidth: 40 }}>
+                      {si.formatName}
+                    </Text>
+                    <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, minWidth: 20, textAlign: 'center' }}>
+                      x{si.quantity}
+                    </Text>
+                    <Text variant="bodySmall" style={{ fontWeight: '600', minWidth: 65, textAlign: 'right' }}>
+                      {formatCOP(si.subtotal)}
+                    </Text>
+                  </View>
+                  {si.additions && si.additions.length > 0 && (
+                    <View style={{ marginLeft: 8, marginTop: 2 }}>
+                      {si.additions.map((a) => (
+                        <Text key={a.additionCatalogId || a.name} variant="labelSmall" style={{ color: isDiamondItem ? '#FFB74D' : theme.colors.onSurfaceVariant, fontSize: 10 }}>
+                          {isDiamondItem ? '💎' : '➕'} {a.name}{a.quantity > 1 ? ` (x${a.quantity})` : ''} (+{formatCOP(a.price * a.quantity)})
+                        </Text>
+                      ))}
+                    </View>
+                  )}
+                  {hasSiPkg && (
+                    <Text variant="labelSmall" style={{ color: '#FFB74D', fontSize: 10, marginLeft: 8, marginTop: 2 }}>
+                      📦 Empaque: {si.packagingLabel ?? PACKAGING_LABEL_BY_ID[si.packagingSupplyId!] ?? 'Caja'} (x{si.packagingQuantity || 1})
+                    </Text>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+
+          {/* Credit / Debtor Info Banner */}
+          {(isCreditSale || item.debtorName) && (
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: item.isPaid ? '#2E2215' : '#3A1414',
+              borderRadius: 8,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              marginTop: 8,
+              borderWidth: 1,
+              borderColor: item.isPaid ? '#5D4037' : '#7A1C1C',
+            }}>
+              <Text variant="labelSmall" style={{ color: item.isPaid ? '#FFB74D' : '#FF8A80', fontWeight: 'bold' }}>
+                🚩 VENTA FIADA {item.debtorType ? `(${item.debtorType})` : ''}: {item.debtorName || 'Sin deudor especificado'} {item.isPaid ? '· [PAGADO]' : '· [PENDIENTE DE PAGO]'}
               </Text>
             </View>
-          ))}
-        </View>
+          )}
 
-        {/* Notes */}
-        {(item.customerNote || item.observations) ? (
-          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontStyle: 'italic', marginTop: 4 }} numberOfLines={2}>
-            {[item.customerNote, item.observations].filter(Boolean).join(' · ')}
-          </Text>
-        ) : null}
-
-        {/* Worker */}
-        {item.workerName ? (
-          <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, opacity: 0.6, fontSize: 10, marginTop: 2 }}>
-            {item.workerName}
-          </Text>
-        ) : null}
-
-        <Divider style={{ marginVertical: 8 }} />
-
-        {/* Footer: total + action */}
-        <View style={styles.saleFooter}>
-          <View>
-            <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
-              {formatCOP(item.totalAmount)}
+          {/* Notes */}
+          {(item.customerNote || item.observations) ? (
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontStyle: 'italic', marginTop: 4 }} numberOfLines={2}>
+              {[item.customerNote, item.observations].filter(Boolean).join(' · ')}
             </Text>
-            <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-              {item.totalPortions} porciones
+          ) : null}
+
+          {/* Worker */}
+          {item.workerName ? (
+            <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, opacity: 0.6, fontSize: 10, marginTop: 2 }}>
+              {item.workerName}
             </Text>
+          ) : null}
+
+          <Divider style={{ marginVertical: 8 }} />
+
+          {/* Footer: total + action */}
+          <View style={styles.saleFooter}>
+            <View>
+              <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+                {formatCOP(item.totalAmount)}
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                {totalPizzaPortions > 0 && (
+                  <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                    🍕 {totalPizzaPortions} porc.
+                  </Text>
+                )}
+                {totalBeverages > 0 && (
+                  <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                    🥤 {totalBeverages} beb.
+                  </Text>
+                )}
+                {totalAdditions > 0 && (
+                  <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                    ➕ {totalAdditions} adic.
+                  </Text>
+                )}
+                {totalDiamondAdditions > 0 && (
+                  <Text variant="labelSmall" style={{ color: '#FFB74D', fontWeight: '600' }}>
+                    💎 {totalDiamondAdditions} diam.
+                  </Text>
+                )}
+                {totalPackaging > 0 && (
+                  <Text variant="labelSmall" style={{ color: '#FFB74D', fontWeight: '600' }}>
+                    📦 {totalPackaging} emp.
+                  </Text>
+                )}
+              </View>
+            </View>
+            <View style={styles.actionButtons}>
+              {item.isPaid ? (
+                <Chip compact icon="check-circle" textStyle={{ fontSize: 11, color: isCreditSale ? '#FFB74D' : '#66BB6A' }} style={{ backgroundColor: isCreditSale ? '#3E2723' : '#1C3D2A' }}>
+                  {isCreditSale ? 'Fiado Pagado' : 'Pagado'}
+                </Chip>
+              ) : (
+                <Button
+                  mode="contained"
+                  compact
+                  onPress={() => handleMarkAsPaid(item)}
+                  buttonColor={isCreditSale ? '#D32F2F' : '#388E3C'}
+                  textColor="#FFFFFF"
+                  icon={isCreditSale ? 'currency-usd' : 'check'}
+                  labelStyle={{ fontSize: 12, fontWeight: isCreditSale ? 'bold' : 'normal' }}
+                >
+                  {isCreditSale ? 'Cobrar Fiado' : 'Ya pago'}
+                </Button>
+              )}
+              {item.isDispatched ? (
+                <Chip compact icon="check-circle" textStyle={{ fontSize: 11, color: '#64B5F6' }} style={{ backgroundColor: '#1A3A5C' }}>
+                  Despachado
+                </Chip>
+              ) : (
+                <Button
+                  mode="contained"
+                  compact
+                  onPress={() => handleMarkAsDispatched(item)}
+                  buttonColor="#1565C0"
+                  textColor="#FFFFFF"
+                  icon="truck-delivery"
+                  labelStyle={{ fontSize: 12 }}
+                >
+                  Despachar
+                </Button>
+              )}
+            </View>
           </View>
-          <View style={styles.actionButtons}>
-            {item.isPaid ? (
-              <Chip compact icon="check-circle" textStyle={{ fontSize: 11, color: '#66BB6A' }} style={{ backgroundColor: '#1C3D2A' }}>
-                Pagado
-              </Chip>
-            ) : (
-              <Button
-                mode="contained"
-                compact
-                onPress={() => handleMarkAsPaid(item)}
-                buttonColor="#388E3C"
-                textColor="#FFFFFF"
-                icon="check"
-                labelStyle={{ fontSize: 12 }}
-              >
-                Ya pago
-              </Button>
-            )}
-            {item.isDispatched ? (
-              <Chip compact icon="check-circle" textStyle={{ fontSize: 11, color: '#64B5F6' }} style={{ backgroundColor: '#1A3A5C' }}>
-                Despachado
-              </Chip>
-            ) : (
-              <Button
-                mode="contained"
-                compact
-                onPress={() => handleMarkAsDispatched(item)}
-                buttonColor="#1565C0"
-                textColor="#FFFFFF"
-                icon="truck-delivery"
-                labelStyle={{ fontSize: 12 }}
-              >
-                Despachar
-              </Button>
-            )}
-          </View>
-        </View>
-      </Card.Content>
-    </Card>
-  );
+        </Card.Content>
+      </Card>
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -226,7 +417,7 @@ export default function HistorialScreen() {
 
       {/* Filter chips */}
       <View style={styles.filterRow}>
-        {(['hoy', 'ayer', 'semana', 'mes'] as const).map((f) => (
+        {(isRetroactive ? (['jornada', 'hoy', 'ayer', 'semana', 'mes'] as const) : (['hoy', 'ayer', 'semana', 'mes'] as const)).map((f) => (
           <Chip
             key={f}
             selected={filter === f}
@@ -234,7 +425,7 @@ export default function HistorialScreen() {
             mode={filter === f ? 'flat' : 'outlined'}
             style={filter === f ? { backgroundColor: theme.colors.primaryContainer } : undefined}
           >
-            {f === 'hoy' ? 'Hoy' : f === 'ayer' ? 'Ayer' : f === 'semana' ? 'Semana' : 'Mes'}
+            {f === 'jornada' ? `📅 ${formatDate(salesDate)}` : f === 'hoy' ? 'Hoy' : f === 'ayer' ? 'Ayer' : f === 'semana' ? 'Semana' : 'Mes'}
           </Chip>
         ))}
       </View>
@@ -256,6 +447,46 @@ export default function HistorialScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      <Portal>
+        <Dialog
+          visible={!!editingPaymentSale}
+          onDismiss={() => setEditingPaymentSale(null)}
+          style={{ backgroundColor: '#1E1E1E' }}
+        >
+          <Dialog.Title style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
+            Editar Método de Pago
+          </Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium" style={{ color: '#999', marginBottom: 16 }}>
+              Corrige el método de pago para esta venta de {formatCOP(editingPaymentSale?.totalAmount ?? 0)}:
+            </Text>
+            <SegmentedButtons
+              value={selectedPaymentMethod}
+              onValueChange={(v) => setSelectedPaymentMethod(v as PaymentMethod)}
+              buttons={[
+                { value: PaymentMethod.EFECTIVO, label: 'Efectivo' },
+                { value: PaymentMethod.TRANSFERENCIA, label: 'Transferencia' },
+                { value: PaymentMethod.MIXTO, label: 'Mixto' },
+              ]}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setEditingPaymentSale(null)} textColor="#999">
+              Cancelar
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor="#E63946"
+              onPress={handleSavePaymentMethod}
+              loading={savingPaymentMethod}
+              disabled={savingPaymentMethod}
+            >
+              Guardar Cambio
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
 
       <Snackbar
         visible={snackbar.visible}

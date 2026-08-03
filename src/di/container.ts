@@ -85,7 +85,7 @@ const incomeRepo = new SupabaseIncomeRepository();
 const inventoryAdjustmentRepo = new SupabaseInventoryAdjustmentRepository();
 
 // Services
-const saleService = new SaleService(saleRepo, inventoryRepo, recipeRepo, supplyRepo);
+const saleService = new SaleService(saleRepo, inventoryRepo, recipeRepo, supplyRepo, productRepo);
 const inventoryService = new InventoryService(inventoryRepo, supplyRepo);
 const transferService = new TransferService(transferRepo, inventoryRepo, supplyRepo);
 const validationService = new ValidationService(saleRepo, recipeRepo, inventoryRepo, writeoffRepo);

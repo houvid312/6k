@@ -3,6 +3,8 @@ import { Income } from '../../domain/entities';
 import { IIncomeRepository } from '../../domain/interfaces/repositories';
 import { PaymentMethod } from '../../domain/enums';
 
+import { colombiaDateRangeToUtc, toISODateTZ } from '../../utils/dates';
+
 // --- Row type ---
 
 interface IncomeRow {
@@ -100,15 +102,30 @@ export class SupabaseIncomeRepository implements IIncomeRepository {
     from: string,
     to: string,
   ): Promise<Income[]> {
+    const cleanFrom = from.slice(0, 10);
+    const cleanTo = to.slice(0, 10);
+    const { fromUtc, toUtc } = colombiaDateRangeToUtc(cleanFrom, cleanTo);
+
     const { data, error } = await supabase
       .from('incomes')
       .select('*')
       .eq('store_id', storeId)
-      .gte('date', from)
-      .lte('date', to)
+      .or(`and(date.gte.${fromUtc},date.lte.${toUtc}),and(date.gte.${cleanFrom},date.lte.${cleanTo})`)
       .order('date', { ascending: false });
+
     if (error) throw error;
-    return (data as IncomeRow[]).map(toEntity);
+    const entities = (data as IncomeRow[]).map(toEntity);
+
+    return entities.filter((inc) => {
+      if (!inc.date) return false;
+      const d = new Date(inc.date);
+      if (isNaN(d.getTime())) {
+        const datePart = inc.date.slice(0, 10);
+        return datePart >= cleanFrom && datePart <= cleanTo;
+      }
+      const colDate = toISODateTZ(d);
+      return colDate >= cleanFrom && colDate <= cleanTo;
+    });
   }
 
   async getById(id: string): Promise<Income | null> {

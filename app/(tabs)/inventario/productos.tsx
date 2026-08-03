@@ -11,15 +11,28 @@ import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
-import { Product, ProductCategory, ProductFormat, Recipe } from '../../../src/domain/entities';
+import { AdditionCatalogItem, Product, ProductCategory, ProductFormat, Recipe } from '../../../src/domain/entities';
 import { UserRole } from '../../../src/domain/enums';
+import { formatCOP } from '../../../src/utils/currency';
 
 interface EditableIngredient {
   supplyId: string;
   gramsPerPortion: string;
 }
 
-type Tab = 'PIZZA' | 'BEBIDA' | 'OTRO';
+type Tab = 'PIZZA' | 'BEBIDA' | 'OTRO' | 'ADICIONES';
+
+interface GroupedAddition {
+  key: string;
+  name: string;
+  supplyId: string;
+  normalPrice: number;
+  normalGrams: number;
+  diamondPrice: number;
+  diamondGrams: number;
+  isActive: boolean;
+  rawItems: AdditionCatalogItem[];
+}
 
 const CATEGORY_LABELS: Record<ProductCategory, string> = {
   PIZZA: 'Pizza',
@@ -29,7 +42,7 @@ const CATEGORY_LABELS: Record<ProductCategory, string> = {
 
 export default function ProductosScreen() {
   const theme = useTheme();
-  const { productRepo, productFormatRepo, productStoreAssignmentRepo, recipeRepo } = useDI();
+  const { productRepo, productFormatRepo, productStoreAssignmentRepo, recipeRepo, additionCatalogRepo } = useDI();
   const { stores, userRole } = useAppStore();
   const isGlobalRole = userRole === UserRole.GERENTE || userRole === UserRole.RODY;
   const { refreshMasterData, supplies } = useMasterDataStore();
@@ -39,6 +52,19 @@ export default function ProductosScreen() {
   const [products, setProducts] = useState<Product[]>([]);
   const [tab, setTab] = useState<Tab>('PIZZA');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Addition tab state
+  const [additionsList, setAdditionsList] = useState<GroupedAddition[]>([]);
+  const [loadingAdditions, setLoadingAdditions] = useState(false);
+  const [additionModalVisible, setAdditionModalVisible] = useState(false);
+  const [editingAdditionItem, setEditingAdditionItem] = useState<GroupedAddition | null>(null);
+  const [addName, setAddName] = useState('');
+  const [addSupplyId, setAddSupplyId] = useState('');
+  const [addNormalPrice, setAddNormalPrice] = useState('2000');
+  const [addNormalGrams, setAddNormalGrams] = useState('35');
+  const [addDiamondPrice, setAddDiamondPrice] = useState('4000');
+  const [addDiamondGrams, setAddDiamondGrams] = useState('70');
+  const [savingAddition, setSavingAddition] = useState(false);
   // 'ok' | 'empty' | 'missing' — solo para productos con hasRecipe
   const [recipeStatus, setRecipeStatus] = useState<Record<string, 'ok' | 'empty' | 'missing'>>({});
   // Receta cargada por producto
@@ -74,6 +100,45 @@ export default function ProductosScreen() {
   const [newFormatPrice, setNewFormatPrice] = useState('');
   const [savingFormat, setSavingFormat] = useState(false);
 
+  // Edit product modal
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editProductName, setEditProductName] = useState('');
+  const [editProductCategory, setEditProductCategory] = useState<ProductCategory>('PIZZA');
+  const [editProductHasRecipe, setEditProductHasRecipe] = useState(false);
+  const [savingProductEdit, setSavingProductEdit] = useState(false);
+
+  const handleOpenEditProduct = (product: Product) => {
+    setEditingProduct(product);
+    setEditProductName(product.name);
+    setEditProductCategory(product.category);
+    setEditProductHasRecipe(product.hasRecipe);
+  };
+
+  const handleSaveProductEdit = async () => {
+    if (!editingProduct) return;
+    const name = editProductName.trim();
+    if (!name) {
+      showError('El nombre no puede estar vacío');
+      return;
+    }
+    setSavingProductEdit(true);
+    try {
+      await productRepo.update(editingProduct.id, {
+        name,
+        category: editProductCategory,
+        hasRecipe: editProductHasRecipe,
+      });
+      await loadProducts();
+      await refreshMasterData();
+      showSuccess(`Producto "${name}" actualizado`);
+      setEditingProduct(null);
+    } catch {
+      showError('Error al actualizar el producto');
+    } finally {
+      setSavingProductEdit(false);
+    }
+  };
+
   const loadProducts = useCallback(async () => {
     setLoading(true);
     try {
@@ -81,6 +146,37 @@ export default function ProductosScreen() {
         productRepo.getAll(),
         recipeRepo.getAll(),
       ]);
+
+      // Auto-ensure standard packaging products exist in table products under 'OTRO'
+      const DEFAULT_PACKAGING_PRODUCTS = [
+        { name: 'Caja Familiar (30cm)', defaultPrice: 1500 },
+        { name: 'Caja Mediana (24cm)', defaultPrice: 1000 },
+        { name: 'Empaque Diamante Individual', defaultPrice: 500 },
+      ];
+
+      for (const pPkg of DEFAULT_PACKAGING_PRODUCTS) {
+        const exists = all.some((p) => p.category === 'OTRO' && p.name.toLowerCase().includes(pPkg.name.toLowerCase().slice(0, 10)));
+        if (!exists && isGlobalRole) {
+          try {
+            const created = await productRepo.create({
+              name: pPkg.name,
+              category: 'OTRO',
+              hasRecipe: false,
+            });
+            await productFormatRepo.create(created.id, {
+              name: 'Unidad',
+              portions: 0,
+              price: pPkg.defaultPrice,
+              isActive: true,
+              sortOrder: 1,
+            });
+            all.push(created);
+          } catch (e) {
+            console.error('Error auto-creando producto empaque:', e);
+          }
+        }
+      }
+
       setProducts(all);
 
       const status: Record<string, 'ok' | 'empty' | 'missing'> = {};
@@ -94,11 +190,161 @@ export default function ProductosScreen() {
       }
       setRecipeStatus(status);
     } catch {
-      showError('Error cargando productos');
+      showError('Error al cargar productos');
     } finally {
       setLoading(false);
     }
-  }, [productRepo, recipeRepo]);
+  }, [productRepo, recipeRepo, isGlobalRole, productFormatRepo, showError]);
+
+  const loadAdditionsCatalog = useCallback(async () => {
+    setLoadingAdditions(true);
+    try {
+      const allItems = await additionCatalogRepo.getAll();
+      const map = new Map<string, AdditionCatalogItem[]>();
+      for (const item of allItems) {
+        const list = map.get(item.supplyId) ?? [];
+        list.push(item);
+        map.set(item.supplyId, list);
+      }
+
+      const grouped: GroupedAddition[] = [];
+      map.forEach((items, supplyId) => {
+        const firstName = items[0]?.name ?? 'Adición';
+        let normalItem = items[0];
+        let diamondItem = items[0];
+
+        for (const it of items) {
+          if (it.grams > (normalItem?.grams ?? 0)) {
+            diamondItem = it;
+          } else if (it.grams < (diamondItem?.grams ?? 999)) {
+            normalItem = it;
+          }
+        }
+
+        const nPrice = normalItem?.price ?? 2000;
+        const nGrams = normalItem?.grams ?? 35;
+        const dPrice = diamondItem !== normalItem ? diamondItem.price : nPrice * 2;
+        const dGrams = diamondItem !== normalItem ? diamondItem.grams : nGrams * 2;
+
+        grouped.push({
+          key: supplyId,
+          name: firstName,
+          supplyId,
+          normalPrice: nPrice,
+          normalGrams: nGrams,
+          diamondPrice: dPrice,
+          diamondGrams: dGrams,
+          isActive: items.some((i) => i.isActive),
+          rawItems: items,
+        });
+      });
+
+      setAdditionsList(grouped);
+    } catch {
+      showError('Error cargando catálogo de adiciones');
+    } finally {
+      setLoadingAdditions(false);
+    }
+  }, [additionCatalogRepo, showError]);
+
+  useEffect(() => {
+    if (tab === 'ADICIONES') {
+      loadAdditionsCatalog();
+    }
+  }, [tab, loadAdditionsCatalog]);
+
+  const handleOpenNewAddition = () => {
+    setEditingAdditionItem(null);
+    setAddName('');
+    setAddSupplyId('');
+    setAddNormalPrice('2000');
+    setAddNormalGrams('35');
+    setAddDiamondPrice('4000');
+    setAddDiamondGrams('70');
+    setAdditionModalVisible(true);
+  };
+
+  const handleOpenEditAddition = (item: GroupedAddition) => {
+    setEditingAdditionItem(item);
+    setAddName(item.name);
+    setAddSupplyId(item.supplyId);
+    setAddNormalPrice(String(item.normalPrice));
+    setAddNormalGrams(String(item.normalGrams));
+    setAddDiamondPrice(String(item.diamondPrice));
+    setAddDiamondGrams(String(item.diamondGrams));
+    setAdditionModalVisible(true);
+  };
+
+  const handleSaveAddition = async () => {
+    const name = addName.trim();
+    const supplyId = addSupplyId;
+    const normalPrice = parseInt(addNormalPrice.replace(/\D/g, ''), 10);
+    const normalGrams = parseFloat(addNormalGrams);
+    const diamondPrice = parseInt(addDiamondPrice.replace(/\D/g, ''), 10);
+    const diamondGrams = parseFloat(addDiamondGrams);
+
+    if (!name) { showError('Ingresa el nombre de la adición'); return; }
+    if (!supplyId) { showError('Selecciona un insumo de inventario'); return; }
+    if (isNaN(normalPrice) || normalPrice < 0) { showError('Precio porción normal inválido'); return; }
+    if (isNaN(normalGrams) || normalGrams <= 0) { showError('Gramaje porción normal inválido'); return; }
+    if (isNaN(diamondPrice) || diamondPrice < 0) { showError('Precio ingrediente diamante inválido'); return; }
+    if (isNaN(diamondGrams) || diamondGrams <= 0) { showError('Gramaje ingrediente diamante inválido'); return; }
+
+    setSavingAddition(true);
+    try {
+      const pizzaProducts = products.filter((p) => p.category === 'PIZZA');
+      const pizzaProductIds = pizzaProducts.map((p) => p.id);
+      const allPizzaFormats = await productFormatRepo.getByProductIds(pizzaProductIds);
+
+      const normalFormats = allPizzaFormats.filter((f) => !f.name.toLowerCase().includes('diamante'));
+      const diamondFormats = allPizzaFormats.filter((f) => f.name.toLowerCase().includes('diamante'));
+
+      if (editingAdditionItem && editingAdditionItem.rawItems.length > 0) {
+        for (const item of editingAdditionItem.rawItems) {
+          const isDiamFmt = diamondFormats.some((df) => df.id === item.formatId);
+          await additionCatalogRepo.update(item.id, {
+            name,
+            supplyId,
+            price: isDiamFmt ? diamondPrice : normalPrice,
+            grams: isDiamFmt ? diamondGrams : normalGrams,
+          });
+        }
+      } else {
+        for (const fmt of normalFormats) {
+          await additionCatalogRepo.create({
+            name,
+            supplyId,
+            formatId: fmt.id,
+            price: normalPrice,
+            grams: normalGrams,
+            isActive: true,
+            sortOrder: 1,
+          });
+        }
+        for (const fmt of diamondFormats) {
+          await additionCatalogRepo.create({
+            name,
+            supplyId,
+            formatId: fmt.id,
+            price: diamondPrice,
+            grams: diamondGrams,
+            isActive: true,
+            sortOrder: 1,
+          });
+        }
+      }
+
+      await loadAdditionsCatalog();
+      await refreshMasterData();
+      showSuccess(`Adición "${name}" guardada con éxito`);
+      setAdditionModalVisible(false);
+    } catch (e) {
+      console.error(e);
+      showError('Error al guardar la adición');
+    } finally {
+      setSavingAddition(false);
+    }
+  };
 
   useEffect(() => {
     loadProducts();
@@ -377,11 +623,18 @@ export default function ProductosScreen() {
           <Button
             mode="contained"
             icon="plus"
-            onPress={() => setNewProductVisible(true)}
+            onPress={() => {
+              if (tab === 'ADICIONES') {
+                handleOpenNewAddition();
+              } else {
+                setNewCategory(tab as ProductCategory);
+                setNewProductVisible(true);
+              }
+            }}
             buttonColor="#E63946"
             compact
           >
-            Nuevo
+            {tab === 'ADICIONES' ? 'Nueva Adición' : 'Nuevo'}
           </Button>
         )}
       </View>
@@ -393,15 +646,64 @@ export default function ProductosScreen() {
           { value: 'PIZZA', label: 'Pizzas' },
           { value: 'BEBIDA', label: 'Bebidas' },
           { value: 'OTRO', label: 'Otros' },
+          { value: 'ADICIONES', label: 'Adiciones' },
         ]}
         style={{ marginBottom: 16 }}
       />
 
-      {filteredProducts.length === 0 && (
-        <Text variant="bodyMedium" style={{ color: '#666', textAlign: 'center', marginTop: 20 }}>
-          Sin productos en esta categoría
-        </Text>
-      )}
+      {tab === 'ADICIONES' ? (
+        <View style={{ gap: 10 }}>
+          {loadingAdditions ? (
+            <LoadingIndicator message="Cargando adiciones..." />
+          ) : additionsList.length === 0 ? (
+            <Text variant="bodyMedium" style={{ color: '#999', textAlign: 'center', marginTop: 20 }}>
+              No hay adiciones configuradas. Presiona "Nueva Adición" para crear una.
+            </Text>
+          ) : (
+            additionsList.map((add) => {
+              const supply = supplies.find((s) => s.id === add.supplyId);
+              return (
+                <Card key={add.key} style={styles.card} mode="elevated">
+                  <Card.Content style={{ paddingVertical: 12 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <View style={{ flex: 1 }}>
+                        <Text variant="titleMedium" style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>
+                          🍕 {add.name}
+                        </Text>
+                        <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
+                          Insumo: {supply?.name ?? 'Sin vinculación'}
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                          <Chip compact style={{ backgroundColor: '#2A2A2A' }} textStyle={{ color: '#E0E0E0', fontSize: 11 }}>
+                            Porción Normal: <Text style={{ color: '#E63946', fontWeight: 'bold' }}>{formatCOP(add.normalPrice)}</Text> ({add.normalGrams}g - 1x)
+                          </Chip>
+                          <Chip compact style={{ backgroundColor: '#3E2723' }} textStyle={{ color: '#FFB74D', fontSize: 11 }}>
+                            Ingrediente Diamante: <Text style={{ color: '#FFB74D', fontWeight: 'bold' }}>{formatCOP(add.diamondPrice)}</Text> ({add.diamondGrams}g - 2x)
+                          </Chip>
+                        </View>
+                      </View>
+                      {isGlobalRole && (
+                        <IconButton
+                          icon="pencil"
+                          size={20}
+                          iconColor="#E63946"
+                          onPress={() => handleOpenEditAddition(add)}
+                        />
+                      )}
+                    </View>
+                  </Card.Content>
+                </Card>
+              );
+            })
+          )}
+        </View>
+      ) : (
+        <>
+          {filteredProducts.length === 0 && (
+            <Text variant="bodyMedium" style={{ color: '#666', textAlign: 'center', marginTop: 20 }}>
+              Sin productos en esta categoría
+            </Text>
+          )}
 
       {filteredProducts.map((product) => {
         const isExpanded = expandedId === product.id;
@@ -417,9 +719,20 @@ export default function ProductosScreen() {
               {/* Header */}
               <View style={styles.productHeader}>
                 <View style={{ flex: 1 }}>
-                  <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: '600' }}>
-                    {product.name}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: '600', flex: 1 }}>
+                      {product.name}
+                    </Text>
+                    {isGlobalRole && (
+                      <IconButton
+                        icon="pencil-outline"
+                        size={18}
+                        iconColor="#E63946"
+                        onPress={() => handleOpenEditProduct(product)}
+                        style={{ margin: 0 }}
+                      />
+                    )}
+                  </View>
                   {!product.isActive && (
                     <Text variant="labelSmall" style={{ color: '#666', fontSize: 10 }}>
                       Inactivo en todos los locales
@@ -714,11 +1027,112 @@ export default function ProductosScreen() {
           </Card>
         );
       })}
+        </>
+      )}
 
       <View style={{ height: 100 }} />
 
-      {/* Modal nuevo producto */}
       <Portal>
+        {/* Modal adición */}
+        <Modal
+          visible={additionModalVisible}
+          onDismiss={() => setAdditionModalVisible(false)}
+          contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}
+        >
+          <Text variant="titleLarge" style={{ fontWeight: 'bold', color: theme.colors.onSurface, marginBottom: 16 }}>
+            {editingAdditionItem ? 'Editar Adición / Ingrediente' : 'Nueva Adición'}
+          </Text>
+
+          <TextInput
+            label="Nombre de la Adición *"
+            value={addName}
+            onChangeText={setAddName}
+            mode="outlined"
+            style={{ marginBottom: 12 }}
+            placeholder="ej. Extra Queso"
+          />
+
+          <View style={{ marginBottom: 12 }}>
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 4 }}>
+              Insumo de Inventario a Descontar *
+            </Text>
+            <SearchableSelect
+              options={supplies.map((s) => ({ label: s.name, value: s.id }))}
+              selectedValue={addSupplyId}
+              onSelect={setAddSupplyId}
+              placeholder="Seleccionar insumo..."
+            />
+          </View>
+
+          <Divider style={{ marginVertical: 12 }} />
+
+          <Text variant="titleSmall" style={{ fontWeight: 'bold', color: '#E63946', marginBottom: 8 }}>
+            🍕 Porción Normal (1x porción)
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
+            <TextInput
+              label="Precio (COP) *"
+              value={addNormalPrice}
+              onChangeText={setAddNormalPrice}
+              keyboardType="numeric"
+              mode="outlined"
+              style={{ flex: 1 }}
+            />
+            <TextInput
+              label="Gramos (g) *"
+              value={addNormalGrams}
+              onChangeText={setAddNormalGrams}
+              keyboardType="numeric"
+              mode="outlined"
+              style={{ flex: 1 }}
+            />
+          </View>
+
+          <Text variant="titleSmall" style={{ fontWeight: 'bold', color: '#FFB74D', marginBottom: 8 }}>
+            💎 Ingrediente Diamante (2x porción)
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+            <TextInput
+              label="Precio (COP) *"
+              value={addDiamondPrice}
+              onChangeText={setAddDiamondPrice}
+              keyboardType="numeric"
+              mode="outlined"
+              style={{ flex: 1 }}
+            />
+            <TextInput
+              label="Gramos (g) *"
+              value={addDiamondGrams}
+              onChangeText={setAddDiamondGrams}
+              keyboardType="numeric"
+              mode="outlined"
+              style={{ flex: 1 }}
+            />
+          </View>
+
+          <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
+            <Button
+              mode="outlined"
+              onPress={() => setAdditionModalVisible(false)}
+              style={{ flex: 1 }}
+              textColor="#999"
+            >
+              Cancelar
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor="#E63946"
+              onPress={handleSaveAddition}
+              loading={savingAddition}
+              disabled={savingAddition}
+              style={{ flex: 1 }}
+            >
+              Guardar
+            </Button>
+          </View>
+        </Modal>
+
+        {/* Modal nuevo producto */}
         <Modal
           visible={newProductVisible}
           onDismiss={() => setNewProductVisible(false)}
@@ -857,6 +1271,68 @@ export default function ProductosScreen() {
             <Button textColor="#E63946" onPress={handleConfirmDelete}>Eliminar</Button>
           </Dialog.Actions>
         </Dialog>
+
+        {/* Modal editar producto */}
+        <Modal
+          visible={!!editingProduct}
+          onDismiss={() => setEditingProduct(null)}
+          contentContainerStyle={[styles.modal, { backgroundColor: '#1E1E1E' }]}
+        >
+          <Text variant="titleMedium" style={{ color: '#F5F0EB', fontWeight: 'bold', marginBottom: 16 }}>
+            Editar Producto
+          </Text>
+          <TextInput
+            label="Nombre del Producto"
+            value={editProductName}
+            onChangeText={setEditProductName}
+            mode="outlined"
+            style={styles.modalInput}
+            dense
+          />
+          <Text variant="labelSmall" style={{ color: '#999', marginTop: 8, marginBottom: 4 }}>
+            Categoría
+          </Text>
+          <SegmentedButtons
+            value={editProductCategory}
+            onValueChange={(v) => setEditProductCategory(v as ProductCategory)}
+            buttons={[
+              { value: 'PIZZA', label: 'Pizza' },
+              { value: 'BEBIDA', label: 'Bebida' },
+              { value: 'OTRO', label: 'Otro' },
+            ]}
+            style={{ marginBottom: 12 }}
+          />
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: 8 }}>
+            <Text variant="bodyMedium" style={{ color: '#F5F0EB' }}>
+              ¿Tiene Receta?
+            </Text>
+            <Switch
+              value={editProductHasRecipe}
+              onValueChange={setEditProductHasRecipe}
+              color="#E63946"
+            />
+          </View>
+          <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+            <Button
+              mode="outlined"
+              onPress={() => setEditingProduct(null)}
+              style={{ flex: 1 }}
+              textColor="#999"
+            >
+              Cancelar
+            </Button>
+            <Button
+              mode="contained"
+              buttonColor="#E63946"
+              onPress={handleSaveProductEdit}
+              loading={savingProductEdit}
+              disabled={savingProductEdit}
+              style={{ flex: 1 }}
+            >
+              Guardar
+            </Button>
+          </View>
+        </Modal>
 
         <Snackbar
           visible={snackbar.visible}

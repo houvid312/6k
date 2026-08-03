@@ -571,7 +571,7 @@ export default function ContabilidadScreen() {
             .select('date,total')
             .eq('store_id', appliedStoreId)
             .gte('date', anchorDate)
-            .lte('date', endDate),
+            .lte('date', (() => { const p = endDate.split('-'); const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })()),
           expenseRepo.getByDateRange(appliedStoreId, anchorDate, endDate),
           purchaseRepo.getByDateRange(anchorDate, endDate, appliedStoreId),
           supabase
@@ -766,8 +766,20 @@ export default function ContabilidadScreen() {
           const salesTransferCash = isApproved ? (closing.expectedTotal - closing.bankTotal - creditSalesToday - closing.expenses) : 0;
           const salesTransferBank = isApproved ? closing.bankTotal : 0;
 
-          // Variable base en local does not go in/out as expense. It is a separate ledger asset.
-          const theoreticalBaseToday = isApproved ? openingBaseVal : runningBaseLocal;
+          const registeredOpening = openingsByDate.get(date);
+          let theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
+          let baseDelta = (registeredOpening !== undefined && !isApproved) ? (runningBaseLocal - registeredOpening) : 0;
+
+          // If a next-day opening was configured post-closing, use it as the effective base
+          const dtParts = date.split('-');
+          const nextDt = new Date(Number(dtParts[0]), Number(dtParts[1]) - 1, Number(dtParts[2]));
+          nextDt.setDate(nextDt.getDate() + 1);
+          const nextDateStr = `${nextDt.getFullYear()}-${String(nextDt.getMonth() + 1).padStart(2, '0')}-${String(nextDt.getDate()).padStart(2, '0')}`;
+          const nextDayOpening = openingsByDate.get(nextDateStr);
+          if (nextDayOpening !== undefined && nextDayOpening !== theoreticalBaseToday) {
+            baseDelta += (theoreticalBaseToday - nextDayOpening);
+            theoreticalBaseToday = nextDayOpening;
+          }
 
           const cashAdvancesToday = cashAdvancesByDate.get(date) ?? 0;
           const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
@@ -782,7 +794,7 @@ export default function ContabilidadScreen() {
             sumEgresosGral += grossOutflowToday;
           }
 
-          const theoreticalCashToday = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday;
+          const theoreticalCashToday = runningCash + baseDelta + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday;
           const theoreticalBankToday = runningBank + salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
           const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
           const theoreticalToday = theoreticalCashToday + theoreticalBankToday + theoreticalCarteraToday + theoreticalBaseToday;
@@ -1101,7 +1113,7 @@ export default function ContabilidadScreen() {
           .select('date,total')
           .eq('store_id', storeId)
           .gte('date', anchorDate)
-          .lte('date', targetDate),
+          .lte('date', (() => { const p = targetDate.split('-'); const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })()),
         expenseRepo.getByDateRange(storeId, anchorDate, targetDate),
         purchaseRepo.getByDateRange(anchorDate, targetDate, storeId),
         supabase
@@ -1263,13 +1275,26 @@ export default function ContabilidadScreen() {
         const salesTransferCash = isApproved ? (closing.expectedTotal - closing.bankTotal - creditSalesToday - closing.expenses) : 0;
         const salesTransferBank = isApproved ? closing.bankTotal : 0;
 
-        const theoreticalBaseToday = isApproved ? openingBaseVal : runningBaseLocal;
+        const registeredOpening = openingsByDate.get(date);
+        let theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
+        let baseDelta = (registeredOpening !== undefined && !isApproved) ? (runningBaseLocal - registeredOpening) : 0;
+
+        // If a next-day opening was configured post-closing, use it as the effective base
+        const dtParts = date.split('-');
+        const nextDt = new Date(Number(dtParts[0]), Number(dtParts[1]) - 1, Number(dtParts[2]));
+        nextDt.setDate(nextDt.getDate() + 1);
+        const nextDateStr = `${nextDt.getFullYear()}-${String(nextDt.getMonth() + 1).padStart(2, '0')}-${String(nextDt.getDate()).padStart(2, '0')}`;
+        const nextDayOpening = openingsByDate.get(nextDateStr);
+        if (nextDayOpening !== undefined && nextDayOpening !== theoreticalBaseToday) {
+          baseDelta += (theoreticalBaseToday - nextDayOpening);
+          theoreticalBaseToday = nextDayOpening;
+        }
 
         const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
         const generalCashIncomeToday = cashIncomesByDate.get(date) ?? 0;
         const generalBankIncomeToday = bankIncomesByDate.get(date) ?? 0;
 
-        const theoreticalCashToday = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday;
+        const theoreticalCashToday = runningCash + baseDelta + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday;
         const theoreticalBankToday = runningBank + salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
         const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
 

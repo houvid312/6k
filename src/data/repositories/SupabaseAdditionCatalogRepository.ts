@@ -27,6 +27,15 @@ function toEntity(row: AdditionCatalogRow): AdditionCatalogItem {
 }
 
 export class SupabaseAdditionCatalogRepository implements IAdditionCatalogRepository {
+  async getAll(): Promise<AdditionCatalogItem[]> {
+    const { data, error } = await supabase
+      .from('addition_catalog')
+      .select('*')
+      .order('sort_order', { ascending: true });
+    if (error) throw error;
+    return (data as AdditionCatalogRow[]).map(toEntity);
+  }
+
   async getByFormatId(formatId: string): Promise<AdditionCatalogItem[]> {
     const { data, error } = await supabase
       .from('addition_catalog')

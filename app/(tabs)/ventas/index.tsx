@@ -40,9 +40,10 @@ import {
 } from '../../../src/domain/enums';
 import { supabase } from '../../../src/lib/supabase';
 import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
+import { CalendarPickerModal } from '../../../src/components/common/CalendarPickerModal';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { formatCOP } from '../../../src/utils/currency';
-import { colombiaDateRangeToUtc, formatDate, todayColombia } from '../../../src/utils/dates';
+import { colombiaDateRangeToUtc, formatDate, todayColombia, toISODate } from '../../../src/utils/dates';
 
 export default function VentasScreen() {
   const theme = useTheme();
@@ -53,6 +54,8 @@ export default function VentasScreen() {
     cart,
     cartPackagingSupplyId,
     pendingSales,
+    salesDate,
+    setSalesDate,
     addToCart,
     removeFromCart,
     updateQuantity,
@@ -68,20 +71,22 @@ export default function VentasScreen() {
   // V5: Calculadora de cambio
   const [amountReceived, setAmountReceived] = useState(0);
 
-  // V1: Check if cash opening exists for today (re-check on focus return)
+  const isGerente = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
+  const [calendarVisible, setCalendarVisible] = useState(false);
+
+  // V1: Check if cash opening exists for selected salesDate (re-check on focus return)
   const [needsOpening, setNeedsOpening] = useState(false);
   useEffect(() => {
     if (!selectedStoreId) return;
     (async () => {
       try {
-        const today = todayColombia();
-        const hasOpening = await cashClosingService.hasOpeningForToday(selectedStoreId, today);
+        const hasOpening = await cashClosingService.hasOpeningForToday(selectedStoreId, salesDate);
         setNeedsOpening(!hasOpening);
       } catch {
         setNeedsOpening(false);
       }
     })();
-  }, [selectedStoreId, cashClosingService, pathname]);
+  }, [selectedStoreId, salesDate, cashClosingService, pathname]);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
@@ -163,6 +168,9 @@ export default function VentasScreen() {
 
   // Porciones vendidas hoy por producto
   const [soldPortions, setSoldPortions] = useState<Record<string, number>>({});
+  const [soldPackaging, setSoldPackaging] = useState<Record<string, number>>({});
+  const [soldAdditionsCount, setSoldAdditionsCount] = useState(0);
+  const [soldDiamondAdditionsCount, setSoldDiamondAdditionsCount] = useState(0);
   const [totalSalesToday, setTotalSalesToday] = useState(0);
 
   // Cargar porciones del día desde BD
@@ -183,32 +191,64 @@ export default function VentasScreen() {
     })();
   }, [selectedStoreId]);
 
-  // Cargar porciones vendidas hoy y total en dinero
+  // Cargar porciones vendidas hoy/fecha activa, empaques y total en dinero
   const loadSoldPortions = useCallback(async () => {
     if (!selectedStoreId) return;
-    const today = todayColombia();
-    const { fromUtc: startOfDay, toUtc: endOfDay } = colombiaDateRangeToUtc(today, today);
+    const activeDate = salesDate || todayColombia();
+    const { fromUtc: startOfDay, toUtc: endOfDay } = colombiaDateRangeToUtc(activeDate, activeDate);
 
-    // 1. Porciones
+    // 1. Porciones, bebidas y empaques por item
     const { data: itemData } = await supabase
       .from('sale_items')
-      .select('product_id, portions, sales!inner(store_id, created_at)')
+      .select('id, product_id, format_name, portions, quantity, packaging_supply_id, packaging_quantity, packaging_total, sales!inner(id, store_id, created_at)')
       .eq('sales.store_id', selectedStoreId)
       .gte('sales.created_at', startOfDay)
       .lte('sales.created_at', endOfDay);
 
+    const portionMap: Record<string, number> = {};
+    const packagingMap: Record<string, number> = {};
+    let normalAddCount = 0;
+    let diamondAddCount = 0;
+
     if (itemData) {
-      const map: Record<string, number> = {};
       for (const row of itemData) {
-        map[row.product_id] = (map[row.product_id] ?? 0) + row.portions;
+        portionMap[row.product_id] = (portionMap[row.product_id] ?? 0) + (row.portions || row.quantity || 0);
+
+        if (row.packaging_supply_id && ((row.packaging_quantity ?? 0) > 0 || (row.packaging_total ?? 0) > 0)) {
+          const qty = row.packaging_quantity && row.packaging_quantity > 0 ? row.packaging_quantity : 1;
+          packagingMap[row.packaging_supply_id] = (packagingMap[row.packaging_supply_id] ?? 0) + qty;
+        }
       }
-      setSoldPortions(map);
+
+      const itemIds = itemData.map((it) => it.id);
+      if (itemIds.length > 0) {
+        const { data: addData } = await supabase
+          .from('sale_item_additions')
+          .select('sale_item_id, quantity')
+          .in('sale_item_id', itemIds);
+
+        if (addData) {
+          for (const add of addData) {
+            const itemRow = itemData.find((it) => it.id === add.sale_item_id);
+            const product = products.find((p) => p.id === itemRow?.product_id);
+            const isDiamond = (product?.name ?? '').toLowerCase().includes('diamante') || (itemRow?.format_name ?? '').toLowerCase().includes('diamante');
+            if (isDiamond) {
+              diamondAddCount += add.quantity;
+            } else {
+              normalAddCount += add.quantity;
+            }
+          }
+        }
+      }
     }
 
-    // 2. Ventas totales en dinero
+    setSoldAdditionsCount(normalAddCount);
+    setSoldDiamondAdditionsCount(diamondAddCount);
+
+    // 2. Ventas totales en dinero y empaques a nivel de orden
     const { data: salesData } = await supabase
       .from('sales')
-      .select('total_amount')
+      .select('id, total_amount, packaging_supply_id, packaging_total')
       .eq('store_id', selectedStoreId)
       .gte('created_at', startOfDay)
       .lte('created_at', endOfDay);
@@ -216,8 +256,20 @@ export default function VentasScreen() {
     if (salesData) {
       const totalAmountToday = salesData.reduce((sum, s) => sum + s.total_amount, 0);
       setTotalSalesToday(totalAmountToday);
+
+      for (const s of salesData) {
+        if (s.packaging_supply_id && (s.packaging_total ?? 0) > 0) {
+          const hasItemPkg = itemData?.some((it) => (it.sales as unknown as { id: string })?.id === s.id && it.packaging_supply_id === s.packaging_supply_id);
+          if (!hasItemPkg) {
+            packagingMap[s.packaging_supply_id] = (packagingMap[s.packaging_supply_id] ?? 0) + 1;
+          }
+        }
+      }
     }
-  }, [selectedStoreId]);
+
+    setSoldPortions(portionMap);
+    setSoldPackaging(packagingMap);
+  }, [selectedStoreId, salesDate, products]);
 
   useEffect(() => {
     loadSoldPortions();
@@ -490,10 +542,25 @@ export default function VentasScreen() {
   const selectedProduct = products.find((p) => p.id === selectedProductId);
   const getPackagingSalePrice = useCallback((packagingSupplyId?: string) => {
     if (!packagingSupplyId) return 0;
-    return supplies.find((s) => s.id === packagingSupplyId)?.salePriceCop
-      ?? PACKAGING_SALE_PRICE_COP_BY_ID[packagingSupplyId]
-      ?? 0;
-  }, [supplies]);
+
+    const label = (PACKAGING_LABEL_BY_ID[packagingSupplyId] ?? '').toLowerCase();
+
+    // 1. Prioridad: Precio del Formato de Producto configurado en Productos (Categoría OTRO)
+    const matchingProduct = cachedProducts.find((p) => p.category === 'OTRO' && (
+      p.id === packagingSupplyId || (label && p.name.toLowerCase().includes(label))
+    ));
+    if (matchingProduct) {
+      const formats = formatsByProductId[matchingProduct.id]?.filter((f) => f.isActive) ?? [];
+      if (formats.length > 0 && formats[0].price > 0) return formats[0].price;
+    }
+
+    // 2. Prioridad: Precio de venta registrado en el Insumo
+    const supply = supplies.find((s) => s.id === packagingSupplyId);
+    if (supply && supply.salePriceCop > 0) return supply.salePriceCop;
+
+    // 3. Respaldo estático
+    return PACKAGING_SALE_PRICE_COP_BY_ID[packagingSupplyId] ?? 0;
+  }, [cachedProducts, formatsByProductId, supplies]);
 
   const suggestPackagingSupplyId = useCallback((format?: ProductFormat) => {
     if (!format) return undefined;
@@ -507,15 +574,18 @@ export default function VentasScreen() {
   }, []);
 
   const handleFormatSelect = useCallback((formatId: string) => {
-    const format = formatsByProductId[selectedProductId ?? '']?.find((f) => f.id === formatId);
     setSelectedFormatId(formatId);
     setModalQuantity(1);
-    setSelectedPackagingSupplyId(selectedProduct?.category === 'PIZZA' ? suggestPackagingSupplyId(format) : undefined);
-  }, [formatsByProductId, selectedProduct?.category, selectedProductId, suggestPackagingSupplyId]);
+    setSelectedPackagingSupplyId(undefined);
+  }, []);
 
   const renderPackagingSelector = useCallback((quantity: number) => {
     if (selectedProduct?.category !== 'PIZZA') return null;
     const selectedPrice = getPackagingSalePrice(selectedPackagingSupplyId);
+    const isBox = selectedPackagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_FAMILIAR
+      || selectedPackagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_MEDIANA;
+    const selectedFormat = formatsByProductId[selectedProductId ?? '']?.find((f) => f.id === selectedFormatId);
+    const calcPkgQty = (selectedFormat?.portions === 1 && isBox) ? 1 : quantity;
 
     return (
       <View style={styles.modalPackagingSection}>
@@ -558,12 +628,12 @@ export default function VentasScreen() {
         </View>
         {selectedPackagingSupplyId && (
           <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 4 }}>
-            {PACKAGING_LABEL_BY_ID[selectedPackagingSupplyId] ?? 'Empaque'} · {quantity} und. · {formatCOP(selectedPrice * quantity)}
+            {PACKAGING_LABEL_BY_ID[selectedPackagingSupplyId] ?? 'Empaque'} · {calcPkgQty} und. · {formatCOP(selectedPrice * calcPkgQty)}
           </Text>
         )}
       </View>
     );
-  }, [getPackagingSalePrice, selectedPackagingSupplyId, selectedProduct?.category, theme.colors.onSurfaceVariant, theme.colors.primary, theme.colors.primaryContainer, theme.colors.surfaceVariant]);
+  }, [formatsByProductId, getPackagingSalePrice, selectedFormatId, selectedPackagingSupplyId, selectedProduct?.category, selectedProductId, theme.colors.onSurfaceVariant, theme.colors.primary, theme.colors.primaryContainer, theme.colors.surfaceVariant]);
 
   const handleProductSelect = useCallback((productId: string) => {
     const product = products.find((p) => p.id === productId);
@@ -580,18 +650,18 @@ export default function VentasScreen() {
       // Single format: simple quantity modal
       setSelectedProductId(productId);
       setSelectedFormatId(activeFormats[0]?.id ?? null);
-      setSelectedPackagingSupplyId(product.category === 'PIZZA' ? suggestPackagingSupplyId(activeFormats[0]) : undefined);
+      setSelectedPackagingSupplyId(undefined);
       setBeverageQuantity(1);
       setBeverageModalVisible(true);
     } else {
       // Multiple formats: show format selector
       setSelectedProductId(productId);
       setSelectedFormatId(activeFormats[0]?.id ?? null);
-      setSelectedPackagingSupplyId(product.category === 'PIZZA' ? suggestPackagingSupplyId(activeFormats[0]) : undefined);
+      setSelectedPackagingSupplyId(undefined);
       setModalQuantity(1);
       setSizeModalVisible(true);
     }
-  }, [products, formatsByProductId, suggestPackagingSupplyId]);
+  }, [products, formatsByProductId]);
 
   // Cargar adiciones cuando cambia el formato seleccionado
   useEffect(() => {
@@ -634,18 +704,23 @@ export default function VentasScreen() {
     const format = formatsByProductId[selectedProduct.id]?.find((f) => f.id === selectedFormatId);
     if (!format) return;
 
+    const isBox = selectedPackagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_FAMILIAR
+      || selectedPackagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_MEDIANA;
+    const pkgQty = (format.portions === 1 && isBox) ? 1 : modalQuantity;
+
     addToCart({
       productId: selectedProduct.id,
       productName: selectedProduct.name,
       formatId: format.id,
       formatName: format.name,
-      portionsPerUnit: format.portions,
+      portionsPerUnit: selectedProduct.category === 'PIZZA' ? format.portions : 0,
       quantity: modalQuantity,
       unitPrice: format.price,
       additions: selectedAdditions.length > 0 ? selectedAdditions : undefined,
       packagingSupplyId: selectedPackagingSupplyId,
       packagingLabel: selectedPackagingSupplyId ? PACKAGING_LABEL_BY_ID[selectedPackagingSupplyId] : undefined,
       packagingUnitPrice: getPackagingSalePrice(selectedPackagingSupplyId),
+      packagingQuantity: selectedPackagingSupplyId ? pkgQty : 0,
     });
     setSizeModalVisible(false);
     setSelectedProductId(null);
@@ -666,7 +741,7 @@ export default function VentasScreen() {
       productName: selectedProduct.name,
       formatId: format.id,
       formatName: format.name,
-      portionsPerUnit: format.portions,
+      portionsPerUnit: selectedProduct.category === 'PIZZA' ? format.portions : 0,
       quantity: beverageQuantity,
       unitPrice: format.price,
       additions: selectedAdditions.length > 0 ? selectedAdditions : undefined,
@@ -925,6 +1000,9 @@ export default function VentasScreen() {
         .map((c) => `${c.productName}: ${c.customerNote.trim()}`)
         .join(' | ');
       const customerNoteForSubmit = customerNotes || previousSale?.customerNote || undefined;
+      const customTimestamp = salesDate !== todayColombia()
+        ? `${salesDate}T${new Date().toTimeString().slice(0, 8)}-05:00`
+        : undefined;
 
       const sale = previousSale
         ? await saleService.updateSale(
@@ -943,6 +1021,7 @@ export default function VentasScreen() {
             debtorType || undefined,
             debtorWorkerId || undefined,
             debtorCustomerId || undefined,
+            customTimestamp,
           )
         : await saleService.createSale(
             selectedStoreId,
@@ -959,6 +1038,7 @@ export default function VentasScreen() {
             debtorType || undefined,
             debtorWorkerId || undefined,
             debtorCustomerId || undefined,
+            customTimestamp,
           );
 
       const totalPortions = submittedCart.reduce((sum, i) => sum + i.portions, 0);
@@ -1101,10 +1181,35 @@ export default function VentasScreen() {
       <View style={{ paddingHorizontal: 12, paddingTop: 12, backgroundColor: theme.colors.background }}>
         <View style={styles.headerRow}>
           <StoreSelector excludeProductionCenter />
-          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-            {formatDate(new Date())}
-          </Text>
+          {isGerente ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Chip
+                compact
+                icon="calendar-edit"
+                onPress={() => setCalendarVisible(true)}
+                style={{ backgroundColor: salesDate !== todayColombia() ? '#D32F2F' : '#2A2A2A' }}
+                textStyle={{ color: '#FFF', fontSize: 11, fontWeight: '700' }}
+              >
+                {salesDate === todayColombia() ? '⚡ Hoy' : `🗓️ ${formatDate(salesDate)}`}
+              </Chip>
+            </View>
+          ) : (
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+              {formatDate(new Date())}
+            </Text>
+          )}
         </View>
+
+        {isGerente && salesDate !== todayColombia() && (
+          <View style={{ backgroundColor: '#B71C1C', padding: 6, paddingHorizontal: 10, borderRadius: 8, marginTop: 4, marginBottom: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{ color: '#FFF', fontSize: 11, fontWeight: '700', flex: 1 }}>
+              ⚠️ MODO RETROACTIVO: Registrando ventas para {formatDate(salesDate)} ({salesDate})
+            </Text>
+            <Button compact mode="text" labelStyle={{ color: '#FFF', fontSize: 10, fontWeight: '700' }} onPress={() => setSalesDate(todayColombia())}>
+              Volver a Hoy
+            </Button>
+          </View>
+        )}
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4, flexGrow: 0 }}>
           <View style={styles.navRow}>
@@ -1145,9 +1250,9 @@ export default function VentasScreen() {
               mode="outlined"
               icon="cash-lock"
               compact
-              onPress={() => router.push('/(tabs)/ventas/cierre-caja')}
+              onPress={() => router.push(`/(tabs)/ventas/cierre-caja?date=${salesDate}` as any)}
             >
-              Cierre
+              Cierre ({salesDate === todayColombia() ? 'Hoy' : salesDate})
             </Button>
             <Button
               mode="outlined"
@@ -1181,10 +1286,10 @@ export default function VentasScreen() {
             <Card.Content style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <View style={{ flex: 1 }}>
                 <Text variant="titleSmall" style={{ fontWeight: '700', color: '#F57C00' }}>
-                  Caja sin abrir
+                  Caja sin abrir ({salesDate === todayColombia() ? 'Hoy' : formatDate(salesDate)})
                 </Text>
                 <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  Registra la base de efectivo del turno
+                  Registra la base de efectivo del turno para la fecha {salesDate}
                 </Text>
               </View>
               <Button
@@ -1193,7 +1298,7 @@ export default function VentasScreen() {
                 buttonColor="#F57C00"
                 textColor="#FFFFFF"
                 icon="cash-register"
-                onPress={() => router.push('/(tabs)/ventas/apertura-caja')}
+                onPress={() => router.push(`/(tabs)/ventas/apertura-caja?date=${salesDate}` as any)}
               >
                 Abrir Caja
               </Button>
@@ -1605,6 +1710,9 @@ export default function VentasScreen() {
             selectedId={selectedProductId ?? undefined}
             availablePortions={portionsSet ? availablePortions : undefined}
             soldPortions={Object.keys(soldPortions).length > 0 ? soldPortions : undefined}
+            soldPackaging={Object.keys(soldPackaging).length > 0 ? soldPackaging : undefined}
+            soldAdditionsCount={soldAdditionsCount}
+            soldDiamondAdditionsCount={soldDiamondAdditionsCount}
             totalSalesToday={totalSalesToday}
           />
         </View>
@@ -1682,7 +1790,10 @@ export default function VentasScreen() {
             const fmt = formatsByProductId[selectedProduct?.id ?? '']?.find((f) => f.id === selectedFormatId);
             if (!fmt) return null;
             const additionsTotal = selectedAdditions.reduce((s, a) => s + a.price * a.quantity, 0);
-            const packagingTotal = getPackagingSalePrice(selectedPackagingSupplyId) * (selectedPackagingSupplyId ? modalQuantity : 0);
+            const isBox = selectedPackagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_FAMILIAR
+              || selectedPackagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_MEDIANA;
+            const modalPkgQty = (fmt.portions === 1 && isBox) ? 1 : modalQuantity;
+            const packagingTotal = getPackagingSalePrice(selectedPackagingSupplyId) * (selectedPackagingSupplyId ? modalPkgQty : 0);
             return (
             <View style={styles.sizeInfo}>
               <Text variant="bodyLarge" style={{ fontWeight: '600' }}>
@@ -2201,6 +2312,16 @@ export default function VentasScreen() {
           </View>
         </Modal>
       </Portal>
+
+      <CalendarPickerModal
+        visible={calendarVisible}
+        onDismiss={() => setCalendarVisible(false)}
+        onSelect={(date: string) => {
+          setSalesDate(date);
+          setCalendarVisible(false);
+        }}
+        selectedDate={salesDate}
+      />
 
       {/* Feedback toast — top of screen */}
       {snackbar.visible && (

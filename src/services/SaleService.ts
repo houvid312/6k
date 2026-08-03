@@ -1,9 +1,6 @@
 import { Recipe, Sale, SaleItem, Supply } from '../domain/entities';
-import { PaymentMethod } from '../domain/enums';
-import { ISaleRepository, DailySummary } from '../domain/interfaces/repositories';
-import { IInventoryRepository } from '../domain/interfaces/repositories';
-import { IRecipeRepository } from '../domain/interfaces/repositories';
-import { ISupplyRepository } from '../domain/interfaces/repositories';
+import { PaymentMethod, PACKAGING_SUPPLY_IDS } from '../domain/enums';
+import { ISaleRepository, DailySummary, IInventoryRepository, IRecipeRepository, ISupplyRepository, IProductRepository } from '../domain/interfaces/repositories';
 
 export interface CreateSaleItemAdditionInput {
   additionCatalogId: string;
@@ -34,6 +31,7 @@ export class SaleService {
     private inventoryRepo: IInventoryRepository,
     private recipeRepo: IRecipeRepository,
     private supplyRepo: ISupplyRepository,
+    private productRepo?: IProductRepository,
   ) {}
 
   private valueQuantityAtStorePrice(
@@ -73,19 +71,26 @@ export class SaleService {
     totalCostCop: number;
     grossMarginCop: number;
   }> {
-    const [recipes, supplies] = await Promise.all([
+    const [recipes, supplies, products] = await Promise.all([
       this.recipeRepo.getAll(),
       this.supplyRepo.getAll(false),
+      this.productRepo ? this.productRepo.getAll() : Promise.resolve([]),
     ]);
     const recipeByProductId = new Map(recipes.map((recipe) => [recipe.productId, recipe]));
     const supplyById = new Map(supplies.map((supply) => [supply.id, supply]));
+    const productById = new Map(products.map((p) => [p.id, p]));
     const saleItems: SaleItem[] = [];
     let totalPortions = 0;
 
     for (const item of items) {
-      const portions = item.portionsPerUnit * item.quantity;
+      const product = productById.get(item.productId);
+      const isPizza = !product || product.category === 'PIZZA';
+      const portions = isPizza ? item.portionsPerUnit * item.quantity : 0;
       const additionsTotal = (item.additions ?? []).reduce((s, a) => s + a.price * a.quantity, 0);
-      const packagingQuantity = item.packagingSupplyId ? (item.packagingQuantity ?? item.quantity) : 0;
+      const isBox = item.packagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_FAMILIAR
+        || item.packagingSupplyId === PACKAGING_SUPPLY_IDS.CAJA_MEDIANA;
+      const defaultPkgQty = (item.portionsPerUnit === 1 && isBox) ? 1 : item.quantity;
+      const packagingQuantity = item.packagingSupplyId ? (item.packagingQuantity ?? defaultPkgQty) : 0;
       const packagingUnitPrice = item.packagingUnitPrice ?? 0;
       const packagingTotal = packagingUnitPrice * packagingQuantity;
       const subtotal = item.unitPrice * item.quantity + additionsTotal + packagingTotal;
@@ -157,12 +162,13 @@ export class SaleService {
     debtorType?: string,
     debtorWorkerId?: string,
     debtorCustomerId?: string,
+    customTimestamp?: string,
   ): Promise<Sale> {
     const { saleItems, totalPortions, totalAmount, totalCostCop, grossMarginCop } = await this.buildSaleItems(items);
 
     const sale = await this.saleRepo.create({
       storeId,
-      timestamp: new Date().toISOString(),
+      timestamp: customTimestamp ?? new Date().toISOString(),
       items: saleItems,
       totalPortions,
       totalAmount,
@@ -206,13 +212,14 @@ export class SaleService {
     debtorType?: string,
     debtorWorkerId?: string,
     debtorCustomerId?: string,
+    customTimestamp?: string,
   ): Promise<Sale> {
     const { saleItems, totalPortions, totalAmount, totalCostCop, grossMarginCop } = await this.buildSaleItems(items);
 
     return this.saleRepo.update({
       id: saleId,
       storeId,
-      timestamp: new Date().toISOString(),
+      timestamp: customTimestamp ?? new Date().toISOString(),
       items: saleItems,
       totalPortions,
       totalAmount,

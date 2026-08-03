@@ -68,8 +68,24 @@ export default function DashboardScreen() {
   const [grandTotalPesos, setGrandTotalPesos] = useState(0);
   const [grandDailyAvgPesos, setGrandDailyAvgPesos] = useState(0);
 
-  // Tables
-  const [flavorRows, setFlavorRows] = useState<FlavorSegment[]>([]);
+  // Tables & Category Filters
+  type CategoryTab = 'PIZZAS' | 'BEBIDAS' | 'ADICIONES_EMPAQUES' | 'TODOS';
+  const [categoryTab, setCategoryTab] = useState<CategoryTab>('PIZZAS');
+
+  const [pizzaRows, setPizzaRows] = useState<FlavorSegment[]>([]);
+  const [beverageRows, setBeverageRows] = useState<FlavorSegment[]>([]);
+  const [addPkgRows, setAddPkgRows] = useState<FlavorSegment[]>([]);
+  const [allProductRows, setAllProductRows] = useState<FlavorSegment[]>([]);
+
+  const [catTotals, setCatTotals] = useState({
+    pizzaUnits: 0,
+    pizzaPesos: 0,
+    beverageUnits: 0,
+    beveragePesos: 0,
+    addPkgUnits: 0,
+    addPkgPesos: 0,
+  });
+
   const [monthRows, setMonthRows] = useState<MonthRow[]>([]);
 
   // Update dates based on filterPreset
@@ -119,25 +135,101 @@ export default function DashboardScreen() {
         cachedProducts.length > 0 ? cachedProducts : productRepo.getAll(),
       ]);
 
-      const productMap = new Map(dbProducts.map((p) => [p.id, p.name]));
+      const fullProductMap = new Map(dbProducts.map((p) => [p.id, p]));
 
-      // 1. Calculate Flavor breakdown
-      const flavorMap = new Map<string, { units: number; pesos: number }>();
+      // 1. Calculate Product breakdowns by category
+      const pizzaMap = new Map<string, { units: number; pesos: number }>();
+      const beverageMap = new Map<string, { units: number; pesos: number }>();
+      const addPkgMap = new Map<string, { units: number; pesos: number }>();
+      const allProductMap = new Map<string, { units: number; pesos: number }>();
+
+      let pizzaUnitsSum = 0;
+      let pizzaPesosSum = 0;
+      let beverageUnitsSum = 0;
+      let beveragePesosSum = 0;
+      let addPkgUnitsSum = 0;
+      let addPkgPesosSum = 0;
+
       let totalUnitsSum = 0;
       let totalPesosSum = 0;
 
       for (const sale of sales) {
         totalPesosSum += sale.totalAmount;
-        totalUnitsSum += sale.totalPortions;
 
         for (const item of sale.items) {
-          const rawName = productMap.get(item.productId) ?? item.productId;
+          const prodObj = fullProductMap.get(item.productId);
+          const rawName = prodObj?.name ?? item.formatName ?? item.productId;
           const flavorKey = rawName.toUpperCase();
+          const itemUnits = item.portions || item.quantity || 1;
+          const itemPesos = item.subtotal;
 
-          const existing = flavorMap.get(flavorKey) ?? { units: 0, pesos: 0 };
-          existing.units += item.quantity || item.portions || 1;
-          existing.pesos += item.subtotal;
-          flavorMap.set(flavorKey, existing);
+          totalUnitsSum += itemUnits;
+
+          // All products map
+          const allExist = allProductMap.get(flavorKey) ?? { units: 0, pesos: 0 };
+          allExist.units += itemUnits;
+          allExist.pesos += itemPesos;
+          allProductMap.set(flavorKey, allExist);
+
+          const upperName = rawName.toUpperCase();
+          const category = (prodObj?.category === 'BEBIDA' || upperName.includes('GASEOSA') || upperName.includes('JUGO') || upperName.includes('AGUA') || upperName.includes('BEBIDA') || upperName.includes('CERVEZA') || upperName.includes('COCA') || upperName.includes('POSTOBON'))
+            ? 'BEBIDAS'
+            : (upperName.includes('CAJA') || upperName.includes('EMPAQUE') || upperName.includes('BOLSA') || upperName.includes('ADICION') || upperName.includes('ADICIÓN'))
+              ? 'ADICIONES_EMPAQUES'
+              : 'PIZZAS';
+
+          if (category === 'BEBIDAS') {
+            const exist = beverageMap.get(flavorKey) ?? { units: 0, pesos: 0 };
+            exist.units += itemUnits;
+            exist.pesos += itemPesos;
+            beverageMap.set(flavorKey, exist);
+            beverageUnitsSum += itemUnits;
+            beveragePesosSum += itemPesos;
+          } else if (category === 'ADICIONES_EMPAQUES') {
+            const exist = addPkgMap.get(flavorKey) ?? { units: 0, pesos: 0 };
+            exist.units += itemUnits;
+            exist.pesos += itemPesos;
+            addPkgMap.set(flavorKey, exist);
+            addPkgUnitsSum += itemUnits;
+            addPkgPesosSum += itemPesos;
+          } else {
+            const exist = pizzaMap.get(flavorKey) ?? { units: 0, pesos: 0 };
+            exist.units += itemUnits;
+            exist.pesos += itemPesos;
+            pizzaMap.set(flavorKey, exist);
+            pizzaUnitsSum += itemUnits;
+            pizzaPesosSum += itemPesos;
+          }
+
+          // Process item additions
+          if (item.additions && item.additions.length > 0) {
+            for (const add of item.additions) {
+              const addKey = add.name ? `➕ ${add.name.toUpperCase()}` : '➕ ADICIÓN';
+              const addUnits = add.quantity || 1;
+              const addPesos = (add.price || 0) * addUnits;
+
+              const exist = addPkgMap.get(addKey) ?? { units: 0, pesos: 0 };
+              exist.units += addUnits;
+              exist.pesos += addPesos;
+              addPkgMap.set(addKey, exist);
+              addPkgUnitsSum += addUnits;
+              addPkgPesosSum += addPesos;
+            }
+          }
+
+          // Process item packaging
+          if (item.packagingLabel && item.packagingQuantity) {
+            const pkgKey = `📦 ${item.packagingLabel.toUpperCase()}`;
+            const pkgUnits = item.packagingQuantity || 1;
+            const pkgPesos = item.packagingTotal || 0;
+
+            const exist = addPkgMap.get(pkgKey) ?? { units: 0, pesos: 0 };
+            exist.units += pkgUnits;
+            exist.pesos += pkgPesos;
+            addPkgMap.set(pkgKey, exist);
+            addPkgUnitsSum += pkgUnits;
+            addPkgPesosSum += pkgPesos;
+          }
         }
       }
 
@@ -150,21 +242,35 @@ export default function DashboardScreen() {
       setGrandDailyAvgPesos(Math.round(dailyAvgP));
 
       let colorIdx = 0;
-      const flavors: FlavorSegment[] = Array.from(flavorMap.entries())
-        .map(([name, data]) => {
-          const pct = totalUnitsSum > 0 ? Math.round((data.units / totalUnitsSum) * 1000) / 10 : 0;
-          const color = FLAVOR_COLORS[name] ?? DEFAULT_COLORS[colorIdx++ % DEFAULT_COLORS.length];
-          return {
-            flavorName: name,
-            totalUnits: data.units,
-            dailyAvgUnits: daysCount > 0 ? Math.round((data.units / daysCount) * 10) / 10 : 0,
-            percentage: pct,
-            color,
-          };
-        })
-        .sort((a, b) => b.totalUnits - a.totalUnits);
+      const buildSegments = (map: Map<string, { units: number; pesos: number }>, catTotalUnits: number): FlavorSegment[] => {
+        return Array.from(map.entries())
+          .map(([name, data]) => {
+            const pct = catTotalUnits > 0 ? Math.round((data.units / catTotalUnits) * 1000) / 10 : 0;
+            const color = FLAVOR_COLORS[name] ?? DEFAULT_COLORS[colorIdx++ % DEFAULT_COLORS.length];
+            return {
+              flavorName: name,
+              totalUnits: data.units,
+              dailyAvgUnits: daysCount > 0 ? Math.round((data.units / daysCount) * 10) / 10 : 0,
+              percentage: pct,
+              color,
+            };
+          })
+          .sort((a, b) => b.totalUnits - a.totalUnits);
+      };
 
-      setFlavorRows(flavors);
+      setPizzaRows(buildSegments(pizzaMap, pizzaUnitsSum));
+      setBeverageRows(buildSegments(beverageMap, beverageUnitsSum));
+      setAddPkgRows(buildSegments(addPkgMap, addPkgUnitsSum));
+      setAllProductRows(buildSegments(allProductMap, totalUnitsSum));
+
+      setCatTotals({
+        pizzaUnits: pizzaUnitsSum,
+        pizzaPesos: pizzaPesosSum,
+        beverageUnits: beverageUnitsSum,
+        beveragePesos: beveragePesosSum,
+        addPkgUnits: addPkgUnitsSum,
+        addPkgPesos: addPkgPesosSum,
+      });
 
       // 2. Calculate Monthly breakdown (Enero to Diciembre)
       const currentYear = new Date(startDateStr).getFullYear();
@@ -219,6 +325,36 @@ export default function DashboardScreen() {
   useEffect(() => {
     loadDashboardData();
   }, [loadDashboardData]);
+
+  const currentCategoryRows =
+    categoryTab === 'PIZZAS'
+      ? pizzaRows
+      : categoryTab === 'BEBIDAS'
+        ? beverageRows
+        : categoryTab === 'ADICIONES_EMPAQUES'
+          ? addPkgRows
+          : allProductRows;
+
+  const currentCategoryUnits =
+    categoryTab === 'PIZZAS'
+      ? catTotals.pizzaUnits
+      : categoryTab === 'BEBIDAS'
+        ? catTotals.beverageUnits
+        : categoryTab === 'ADICIONES_EMPAQUES'
+          ? catTotals.addPkgUnits
+          : grandTotalUnits;
+
+  const currentCategoryPesos =
+    categoryTab === 'PIZZAS'
+      ? catTotals.pizzaPesos
+      : categoryTab === 'BEBIDAS'
+        ? catTotals.beveragePesos
+        : categoryTab === 'ADICIONES_EMPAQUES'
+          ? catTotals.addPkgPesos
+          : grandTotalPesos;
+
+  const currentCategoryAvgUnits = totalDays > 0 ? Math.round((currentCategoryUnits / totalDays) * 10) / 10 : 0;
+  const currentCategoryAvgPesos = totalDays > 0 ? Math.round(currentCategoryPesos / totalDays) : 0;
 
   if (loading) {
     return <LoadingIndicator message="Cargando dashboard de analítica..." />;
@@ -307,8 +443,18 @@ export default function DashboardScreen() {
           {/* 1. Summary KPI Cards Bar */}
           <View style={styles.kpiRow}>
             <KpiCard icon="calendar-range" label="Días Operados" value={`${totalDays} días`} color="#2196F3" />
-            <KpiCard icon="pizza" label="Ventas Totales" value={`${grandTotalUnits.toLocaleString()} uds`} color="#FF9800" />
-            <KpiCard icon="speedometer" label="Promedio Diario" value={`${grandDailyAvgUnits} / día`} color="#4CAF50" />
+            <KpiCard
+              icon="pizza"
+              label="Porciones Pizza"
+              value={`${catTotals.pizzaUnits.toLocaleString()} porc.`}
+              color="#FF9800"
+            />
+            <KpiCard
+              icon="speedometer"
+              label="Promedio Porciones/Día"
+              value={`${totalDays > 0 ? (catTotals.pizzaUnits / totalDays).toFixed(1) : '0'} porc./día`}
+              color="#4CAF50"
+            />
           </View>
 
           <View style={styles.kpiRow}>
@@ -316,71 +462,141 @@ export default function DashboardScreen() {
             <KpiCard icon="chart-line" label="Promedio COP / Día" value={`${formatCOP(grandDailyAvgPesos)} / día`} color="#00BCD4" />
           </View>
 
-          {/* 2. Tabla 1: Desglose por Sabores y Promedios Diarios (Google Sheets Imagen 1) */}
+          {/* 2. Selector de Categoría (Pizzas vs Bebidas vs Adiciones y Empaques) */}
           <Card style={styles.sectionCard} mode="elevated">
             <Card.Content>
               <Text variant="titleMedium" style={styles.cardTitle}>
-                PROMEDIO 6K {(selectedStore?.name ?? 'LOCAL').toUpperCase()} DESDE {formatDate(startDateStr)}
+                PROMEDIO Y DISTRIBUCIÓN POR CATEGORÍA DESDE {formatDate(startDateStr)}
               </Text>
-              <Text variant="bodySmall" style={styles.cardSubtitle}>
-                Ventas acumuladas y promedio diario calculados en {totalDays} días de operación
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 12 }}>
+                Filtra el análisis entre Pizzas, Bebidas, Adiciones/Empaques o la vista general acumulada
               </Text>
+
+              {/* Category Selector Chips */}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                <Chip
+                  selected={categoryTab === 'PIZZAS'}
+                  onPress={() => setCategoryTab('PIZZAS')}
+                  mode="flat"
+                  style={[styles.filterChip, categoryTab === 'PIZZAS' && styles.activeFilterChip]}
+                  textStyle={{ color: categoryTab === 'PIZZAS' ? '#FFF' : '#F5F0EB', fontWeight: 'bold' }}
+                >
+                  🍕 Pizzas ({catTotals.pizzaUnits.toLocaleString()} porc.)
+                </Chip>
+                <Chip
+                  selected={categoryTab === 'BEBIDAS'}
+                  onPress={() => setCategoryTab('BEBIDAS')}
+                  mode="flat"
+                  style={[styles.filterChip, categoryTab === 'BEBIDAS' && styles.activeFilterChip]}
+                  textStyle={{ color: categoryTab === 'BEBIDAS' ? '#FFF' : '#F5F0EB', fontWeight: 'bold' }}
+                >
+                  🥤 Bebidas ({catTotals.beverageUnits.toLocaleString()} uds)
+                </Chip>
+                <Chip
+                  selected={categoryTab === 'ADICIONES_EMPAQUES'}
+                  onPress={() => setCategoryTab('ADICIONES_EMPAQUES')}
+                  mode="flat"
+                  style={[styles.filterChip, categoryTab === 'ADICIONES_EMPAQUES' && styles.activeFilterChip]}
+                  textStyle={{ color: categoryTab === 'ADICIONES_EMPAQUES' ? '#FFF' : '#F5F0EB', fontWeight: 'bold' }}
+                >
+                  ➕/📦 Adiciones y Empaques ({catTotals.addPkgUnits.toLocaleString()} uds)
+                </Chip>
+                <Chip
+                  selected={categoryTab === 'TODOS'}
+                  onPress={() => setCategoryTab('TODOS')}
+                  mode="flat"
+                  style={[styles.filterChip, categoryTab === 'TODOS' && styles.activeFilterChip]}
+                  textStyle={{ color: categoryTab === 'TODOS' ? '#FFF' : '#F5F0EB', fontWeight: 'bold' }}
+                >
+                  🌐 Vista General ({grandTotalUnits.toLocaleString()} uds)
+                </Chip>
+              </View>
 
               {/* Table Header */}
               <View style={styles.tableHeader}>
-                <Text style={[styles.colHeader, { flex: 2.2 }]}>SABOR</Text>
+                <Text style={[styles.colHeader, { flex: 2.2 }]}>PRODUCTO / SABOR</Text>
                 <Text style={[styles.colHeader, { flex: 1.5, textAlign: 'right' }]}>UNIDADES</Text>
                 <Text style={[styles.colHeader, { flex: 1.5, textAlign: 'right' }]}>PROM. DÍA</Text>
-                <Text style={[styles.colHeader, { flex: 1.2, textAlign: 'right' }]}>% TOTAL</Text>
+                <Text style={[styles.colHeader, { flex: 1.2, textAlign: 'right' }]}>% CAT.</Text>
               </View>
 
-              {/* Flavor Rows */}
-              {flavorRows.map((row) => (
-                <View key={row.flavorName} style={styles.tableRow}>
-                  <View style={{ flex: 2.2, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: row.color }} />
-                    <Text style={styles.flavorText}>{row.flavorName}</Text>
+              {/* Flavor / Product Rows */}
+              {currentCategoryRows.length === 0 ? (
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontStyle: 'italic', textAlign: 'center', marginVertical: 12 }}>
+                  No se registran ventas para esta categoría en el periodo seleccionado.
+                </Text>
+              ) : (
+                currentCategoryRows.map((row) => (
+                  <View key={row.flavorName} style={styles.tableRow}>
+                    <View style={{ flex: 2.2, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: row.color }} />
+                      <Text style={styles.flavorText}>{row.flavorName}</Text>
+                    </View>
+                    <Text style={[styles.cellText, { flex: 1.5, textAlign: 'right' }]}>{row.totalUnits.toLocaleString()}</Text>
+                    <Text style={[styles.cellText, { flex: 1.5, textAlign: 'right', fontWeight: 'bold', color: '#4CAF50' }]}>
+                      {row.dailyAvgUnits.toFixed(1)}
+                    </Text>
+                    <Text style={[styles.cellText, { flex: 1.2, textAlign: 'right', fontWeight: '600' }]}>{row.percentage}%</Text>
                   </View>
-                  <Text style={[styles.cellText, { flex: 1.5, textAlign: 'right' }]}>{row.totalUnits.toLocaleString()}</Text>
-                  <Text style={[styles.cellText, { flex: 1.5, textAlign: 'right', fontWeight: 'bold', color: '#4CAF50' }]}>
-                    {row.dailyAvgUnits.toFixed(1)}
-                  </Text>
-                  <Text style={[styles.cellText, { flex: 1.2, textAlign: 'right', fontWeight: '600' }]}>{row.percentage}%</Text>
-                </View>
-              ))}
+                ))
+              )}
 
               {/* Subtotal Row */}
               <Divider style={styles.divider} />
               <View style={styles.subtotalRow}>
                 <Text style={[styles.subtotalLabel, { flex: 2.2 }]}>SUBTOTAL UNIDADES</Text>
-                <Text style={[styles.subtotalValue, { flex: 1.5, textAlign: 'right' }]}>{grandTotalUnits.toLocaleString()}</Text>
-                <Text style={[styles.subtotalHighlight, { flex: 1.5, textAlign: 'right' }]}>{grandDailyAvgUnits.toFixed(1)}</Text>
-                <Text style={[styles.subtotalMeta, { flex: 1.2, textAlign: 'right' }]}>pizzas/día</Text>
+                <Text style={[styles.subtotalValue, { flex: 1.5, textAlign: 'right' }]}>{currentCategoryUnits.toLocaleString()}</Text>
+                <Text style={[styles.subtotalHighlight, { flex: 1.5, textAlign: 'right' }]}>{currentCategoryAvgUnits.toFixed(1)}</Text>
+                <Text style={[styles.subtotalMeta, { flex: 1.2, textAlign: 'right' }]}>
+                  {categoryTab === 'PIZZAS' ? 'porc./día' : 'uds/día'}
+                </Text>
               </View>
 
               <View style={styles.subtotalRow}>
                 <Text style={[styles.subtotalLabel, { flex: 2.2 }]}>SUBTOTAL PESOS</Text>
-                <Text style={[styles.subtotalValue, { flex: 2.2, textAlign: 'right' }]}>{formatCOP(grandTotalPesos)}</Text>
-                <Text style={[styles.subtotalHighlight, { flex: 2.0, textAlign: 'right' }]}>{formatCOP(grandDailyAvgPesos)}/día</Text>
+                <Text style={[styles.subtotalValue, { flex: 2.2, textAlign: 'right' }]}>{formatCOP(currentCategoryPesos)}</Text>
+                <Text style={[styles.subtotalHighlight, { flex: 2.0, textAlign: 'right' }]}>{formatCOP(currentCategoryAvgPesos)}/día</Text>
               </View>
             </Card.Content>
           </Card>
 
-          {/* 3. Tabla 2: Comportamiento Mensual (Google Sheets Imagen 2) */}
+          {/* 3. Gráfico de Distribución Porcentual (%) */}
           <Card style={styles.sectionCard} mode="elevated">
             <Card.Content>
               <Text variant="titleMedium" style={styles.cardTitle}>
-                HISTÓRICO Y COMPORTAMIENTO MENSUAL
+                GRÁFICO DE DISTRIBUCIÓN (
+                {categoryTab === 'PIZZAS'
+                  ? '🍕 PIZZAS Y SABORES'
+                  : categoryTab === 'BEBIDAS'
+                    ? '🥤 BEBIDAS'
+                    : categoryTab === 'ADICIONES_EMPAQUES'
+                      ? '➕/📦 ADICIONES Y EMPAQUES'
+                      : '🌐 VISTA GENERAL'}
+                )
               </Text>
               <Text variant="bodySmall" style={styles.cardSubtitle}>
-                Ventas totales y promedio diario mes a mes
+                Participación porcentual sobre el volumen de ventas de la categoría
+              </Text>
+
+              <FlavorDistributionChart segments={currentCategoryRows} />
+            </Card.Content>
+          </Card>
+
+          {/* 4. Tabla de Comportamiento Mensual */}
+          <Card style={styles.sectionCard} mode="elevated">
+            <Card.Content>
+              <Text variant="titleMedium" style={styles.cardTitle}>
+                HISTÓRICO Y COMPORTAMIENTO MENSUAL (PORCIONES DE PIZZA)
+              </Text>
+              <Text variant="bodySmall" style={styles.cardSubtitle}>
+                Ventas totales de porciones de pizza y promedio diario mes a mes
               </Text>
 
               <View style={styles.tableHeader}>
                 <Text style={[styles.colHeader, { flex: 2 }]}>MES / PERIODO</Text>
                 <Text style={[styles.colHeader, { flex: 1.2, textAlign: 'right' }]}>DÍAS</Text>
-                <Text style={[styles.colHeader, { flex: 1.8, textAlign: 'right' }]}>VENTAS UDS</Text>
-                <Text style={[styles.colHeader, { flex: 1.8, textAlign: 'right' }]}>PROMEDIO DÍA</Text>
+                <Text style={[styles.colHeader, { flex: 1.8, textAlign: 'right' }]}>PORCIONES</Text>
+                <Text style={[styles.colHeader, { flex: 1.8, textAlign: 'right' }]}>PROM. PORC/DÍA</Text>
                 <Text style={[styles.colHeader, { flex: 2.2, textAlign: 'right' }]}>VENTAS COP</Text>
               </View>
 
@@ -388,8 +604,10 @@ export default function DashboardScreen() {
               <View style={[styles.tableRow, styles.generalRow]}>
                 <Text style={[styles.generalText, { flex: 2 }]}>General (Acumulado)</Text>
                 <Text style={[styles.generalText, { flex: 1.2, textAlign: 'right' }]}>{totalDays}</Text>
-                <Text style={[styles.generalText, { flex: 1.8, textAlign: 'right' }]}>{grandTotalUnits.toLocaleString()}</Text>
-                <Text style={[styles.generalHighlight, { flex: 1.8, textAlign: 'right' }]}>{grandDailyAvgUnits.toFixed(1)}</Text>
+                <Text style={[styles.generalText, { flex: 1.8, textAlign: 'right' }]}>{catTotals.pizzaUnits.toLocaleString()}</Text>
+                <Text style={[styles.generalHighlight, { flex: 1.8, textAlign: 'right' }]}>
+                  {totalDays > 0 ? (catTotals.pizzaUnits / totalDays).toFixed(1) : '0'}
+                </Text>
                 <Text style={[styles.generalText, { flex: 2.2, textAlign: 'right' }]}>{formatCOP(grandTotalPesos)}</Text>
               </View>
 
@@ -409,20 +627,6 @@ export default function DashboardScreen() {
                   </Text>
                 </View>
               ))}
-            </Card.Content>
-          </Card>
-
-          {/* 4. Gráfico 3: Distribución de Sabores (%) (Google Sheets Imagen 3) */}
-          <Card style={styles.sectionCard} mode="elevated">
-            <Card.Content>
-              <Text variant="titleMedium" style={styles.cardTitle}>
-                DISTRIBUCIÓN DE SABORES DESDE {formatDate(startDateStr)}
-              </Text>
-              <Text variant="bodySmall" style={styles.cardSubtitle}>
-                Participación porcentual sobre el volumen total de ventas
-              </Text>
-
-              <FlavorDistributionChart segments={flavorRows} />
             </Card.Content>
           </Card>
 
