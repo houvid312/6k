@@ -751,7 +751,7 @@ export default function ContabilidadScreen() {
           const audit = auditsByDate.get(date);
 
           const openingBaseVal = openingsByDate.get(date) ?? 100000;
-          const isApproved = closing && closing.status === ClosingStatus.APPROVED;
+          const isApproved = closing && (closing.status === ClosingStatus.APPROVED || closing.status === ClosingStatus.CONFIRMED);
 
           const generalCashExp = (cashExpensesByDate.get(date) ?? 0) + (cashPurchasesByDate.get(date) ?? 0);
           const generalBankExp = (bankExpensesByDate.get(date) ?? 0) + (bankPurchasesByDate.get(date) ?? 0);
@@ -1260,7 +1260,7 @@ export default function ContabilidadScreen() {
         const closing = closingsByDate.get(date);
 
         const openingBaseVal = openingsByDate.get(date) ?? 100000;
-        const isApproved = closing && closing.status === ClosingStatus.APPROVED;
+        const isApproved = closing && (closing.status === ClosingStatus.APPROVED || closing.status === ClosingStatus.CONFIRMED);
 
         const generalCashExp = (cashExpensesByDate.get(date) ?? 0) + (cashPurchasesByDate.get(date) ?? 0);
         const generalBankExp = (bankExpensesByDate.get(date) ?? 0) + (bankPurchasesByDate.get(date) ?? 0);
