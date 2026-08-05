@@ -236,7 +236,7 @@ export default function ContabilidadScreen() {
   const [cashAuditRows, setCashAuditRows] = useState<CashAuditRow[]>([]);
   const [cashAuditYear, setCashAuditYear] = useState('');
   const [loading, setLoading] = useState(false);
-  const [hasAppliedFilter, setHasAppliedFilter] = useState(false);
+  const [hasAppliedFilter, setHasAppliedFilter] = useState(true);
 
   // C1: Daily audit
   const [openingBase, setOpeningBase] = useState(0);
@@ -721,9 +721,18 @@ export default function ContabilidadScreen() {
           }
         }
 
-        // Segment newly created credits by date
+        // Segment newly created credits and bank sales by date
         const creditsByDate = new Map<string, number>();
         const creditSalesByDate = new Map<string, number>();
+        const bankSalesByDate = new Map<string, number>();
+        for (const s of sales) {
+          const sDate = getColombiaDateKey(s.timestamp);
+          if (s.paymentMethod === PaymentMethod.TRANSFERENCIA || (s.bankAmount ?? 0) > 0) {
+            const amt = (s.bankAmount ?? 0) > 0 ? s.bankAmount! : s.totalAmount;
+            bankSalesByDate.set(sDate, (bankSalesByDate.get(sDate) ?? 0) + amt);
+          }
+        }
+
         for (const c of credits) {
           const cDate = getColombiaDateKey(c.date);
           const isCpCredit = c.debtorType === 'LOCAL';
@@ -763,8 +772,11 @@ export default function ContabilidadScreen() {
           const newCreditsToday = creditsByDate.get(date) ?? 0;
           const creditSalesToday = creditSalesByDate.get(date) ?? 0;
 
-          const salesTransferCash = isApproved ? (closing.expectedTotal - closing.bankTotal - creditSalesToday - closing.expenses) : 0;
-          const salesTransferBank = isApproved ? closing.bankTotal : 0;
+          const dayBankSales = bankSalesByDate.get(date) ?? 0;
+          const effectiveClosingBank = (closing && closing.bankTotal > 0) ? closing.bankTotal : dayBankSales;
+
+          const salesTransferCash = isApproved ? (closing.expectedTotal - effectiveClosingBank - creditSalesToday - closing.expenses) : 0;
+          const salesTransferBank = isApproved ? effectiveClosingBank : 0;
 
           const registeredOpening = openingsByDate.get(date);
           let theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
@@ -1104,7 +1116,7 @@ export default function ContabilidadScreen() {
       const lastAudit = await cashAuditRepo.getLastAuditBeforeDate(storeId, targetDate);
       const anchorDate = lastAudit ? lastAudit.date : '2020-01-01';
 
-      const [credits, closings, audits, openingsRes, ledgerExpenses, ledgerPurchases, creditPaymentsRes, ledgerIncomes] = await Promise.all([
+      const [credits, closings, audits, openingsRes, ledgerExpenses, ledgerPurchases, creditPaymentsRes, ledgerIncomes, salesRes] = await Promise.all([
         creditRepo.getAll(),
         cashClosingService.getClosingsByDateRange(storeId, anchorDate, targetDate),
         cashAuditRepo.getByDateRange(storeId, anchorDate, targetDate),
@@ -1122,6 +1134,7 @@ export default function ContabilidadScreen() {
           .gte('date', anchorDate)
           .lte('date', targetDate),
         incomeRepo.getByDateRange(storeId, anchorDate, targetDate),
+        saleService.getSalesByDateRange(storeId, anchorDate, targetDate + 'T23:59:59'),
       ]);
 
       const openingsByDate = new Map<string, number>(
@@ -1137,14 +1150,12 @@ export default function ContabilidadScreen() {
       const bankAdvancesByDate = new Map<string, number>();
       for (const exp of ledgerExpenses) {
         const expDate = exp.date.split('T')[0];
-        if (exp.category === 'Adelanto') {
+        if (exp.category === 'Compra Turno' || exp.category === 'Adelanto') {
           if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
             cashAdvancesByDate.set(expDate, (cashAdvancesByDate.get(expDate) ?? 0) + exp.amount);
           } else {
             bankAdvancesByDate.set(expDate, (bankAdvancesByDate.get(expDate) ?? 0) + exp.amount);
           }
-        } else if (exp.category === 'Compra Turno') {
-          // Exclude Compra Turno as it is already included in closing.expenses
         } else {
           if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
             cashExpensesByDate.set(expDate, (cashExpensesByDate.get(expDate) ?? 0) + exp.amount);
@@ -1225,6 +1236,14 @@ export default function ContabilidadScreen() {
 
       const creditsByDate = new Map<string, number>();
       const creditSalesByDate = new Map<string, number>();
+      const bankSalesByDate = new Map<string, number>();
+      for (const s of salesRes) {
+        const sDate = getColombiaDateKey(s.timestamp);
+        if (s.paymentMethod === PaymentMethod.TRANSFERENCIA || (s.bankAmount ?? 0) > 0) {
+          const amt = (s.bankAmount ?? 0) > 0 ? s.bankAmount! : s.totalAmount;
+          bankSalesByDate.set(sDate, (bankSalesByDate.get(sDate) ?? 0) + amt);
+        }
+      }
       for (const c of credits) {
         const isCpCredit = c.debtorType === 'LOCAL';
         if (isProd) {
@@ -1272,8 +1291,11 @@ export default function ContabilidadScreen() {
         const newCreditsToday = creditsByDate.get(date) ?? 0;
         const creditSalesToday = creditSalesByDate.get(date) ?? 0;
 
-        const salesTransferCash = isApproved ? (closing.expectedTotal - closing.bankTotal - creditSalesToday - closing.expenses) : 0;
-        const salesTransferBank = isApproved ? closing.bankTotal : 0;
+        const dayBankSales = bankSalesByDate.get(date) ?? 0;
+        const effectiveClosingBank = (closing && closing.bankTotal > 0) ? closing.bankTotal : dayBankSales;
+
+        const salesTransferCash = isApproved ? (closing.expectedTotal - effectiveClosingBank - creditSalesToday - closing.expenses) : 0;
+        const salesTransferBank = isApproved ? effectiveClosingBank : 0;
 
         const registeredOpening = openingsByDate.get(date);
         let theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
