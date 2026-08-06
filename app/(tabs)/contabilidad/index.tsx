@@ -819,7 +819,8 @@ export default function ContabilidadScreen() {
           }
 
           if (audit) {
-            runningBank = audit.bankTotal;
+            const effectiveAuditBank = Math.max(audit.bankTotal, theoreticalBankToday);
+            runningBank = effectiveAuditBank;
             runningCartera = audit.cartera;
             runningBaseLocal = audit.openingBase;
             runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - audit.openingBase;
@@ -1321,7 +1322,7 @@ export default function ContabilidadScreen() {
         const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
 
         if (audit && date !== targetDate) {
-          runningBank = audit.bankTotal;
+          runningBank = Math.max(audit.bankTotal, theoreticalBankToday);
           runningCartera = audit.cartera;
           runningBaseLocal = audit.openingBase;
           runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - audit.openingBase;
