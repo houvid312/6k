@@ -815,9 +815,10 @@ export default function ContabilidadScreen() {
             const effectiveAuditBank = Math.max(audit.bankTotal, theoreticalBankToday);
             runningBank = effectiveAuditBank;
             runningCartera = audit.cartera;
-            // Use the real cash_openings value for this day if available; audit.openingBase may be stale
-            runningBaseLocal = registeredOpening !== undefined ? registeredOpening : audit.openingBase;
-            runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - runningBaseLocal;
+            // Decompose actual_total using the SAME base as theoreticalBaseToday to keep Cash/Base split consistent.
+            // theoreticalBaseToday already accounts for nextDayOpening corrections.
+            runningBaseLocal = theoreticalBaseToday;
+            runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - theoreticalBaseToday;
             if (date >= startDate) {
               calculatedAudits.push({
                 date,
@@ -1095,23 +1096,31 @@ export default function ContabilidadScreen() {
       coins: existingAudit?.coins ?? 0,
     });
     setAuditBankTotal(latestTheoreticalBank);
+    // Pre-fill base from the real cash_opening for today; fall back to theoretical if none registered
     setAuditBase(latestTheoreticalBase);
     setAuditError('');
     setAuditCartera(latestTheoreticalCartera);
     setAuditModalVisible(true);
 
     try {
-      const freshCredits = await creditRepo.getAll();
+      const [freshCredits, todayOpening] = await Promise.all([
+        creditRepo.getAll(),
+        cashClosingService.getOpeningByDate(appliedStoreId, defaultDate),
+      ]);
       const appliedStore = stores.find((s) => s.id === appliedStoreId);
       const isProd = appliedStore?.isProductionCenter ?? false;
       const freshTotal = isProd
         ? freshCredits.filter(c => c.debtorType === 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0)
         : freshCredits.filter(c => c.storeId === appliedStoreId && c.debtorType !== 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0);
       setAuditCartera(freshTotal);
+      // Override base with the actual registered opening for today if it exists
+      if (todayOpening?.total !== undefined && todayOpening.total > 0) {
+        setAuditBase(todayOpening.total);
+      }
     } catch (err) {
-      console.warn('Error reloading fresh cartera for audit:', err);
+      console.warn('Error reloading fresh data for audit:', err);
     }
-  }, [cashAuditRows, latestTheoreticalBank, latestTheoreticalCartera, latestTheoreticalBase, creditRepo, appliedStoreId, stores]);
+  }, [cashAuditRows, latestTheoreticalBank, latestTheoreticalCartera, latestTheoreticalBase, creditRepo, cashClosingService, appliedStoreId, stores]);
 
   const calculateLiveTheoreticalTotal = useCallback(async (storeId: string, targetDate: string): Promise<number> => {
     try {
@@ -1325,10 +1334,9 @@ export default function ContabilidadScreen() {
         if (audit && date !== targetDate) {
           runningBank = Math.max(audit.bankTotal, theoreticalBankToday);
           runningCartera = audit.cartera;
-          // Use the real cash_openings value for this day if available; audit.openingBase may be stale
-          const effectiveBase = registeredOpening !== undefined ? registeredOpening : audit.openingBase;
-          runningBaseLocal = effectiveBase;
-          runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - effectiveBase;
+          // Decompose using theoreticalBaseToday for consistency with the main loop
+          runningBaseLocal = theoreticalBaseToday;
+          runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - theoreticalBaseToday;
         } else {
           runningCash = theoreticalCashToday;
           runningBank = theoreticalBankToday;
