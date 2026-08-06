@@ -1947,12 +1947,6 @@ export default function ContabilidadScreen() {
                   value={formatCOP(latestCashAuditDiscrepancy)}
                   color={latestCashAuditDiscrepancy >= 0 ? '#388E3C' : '#D32F2F'}
                 />
-                <KpiCard
-                  icon="chart-timeline-variant"
-                  label="Mayor descuadre"
-                  value={formatCOP(maxCashAuditDiscrepancy)}
-                  color={maxCashAuditDiscrepancy >= 0 ? '#388E3C' : '#D32F2F'}
-                />
               </View>
 
               <Card style={[styles.txCard, { marginTop: 4 }]} mode="outlined">
