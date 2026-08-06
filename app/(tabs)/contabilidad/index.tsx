@@ -236,7 +236,7 @@ export default function ContabilidadScreen() {
   const [cashAuditRows, setCashAuditRows] = useState<CashAuditRow[]>([]);
   const [cashAuditYear, setCashAuditYear] = useState('');
   const [loading, setLoading] = useState(false);
-  const [hasAppliedFilter, setHasAppliedFilter] = useState(false);
+  const [hasAppliedFilter, setHasAppliedFilter] = useState(true);
 
   // C1: Daily audit
   const [openingBase, setOpeningBase] = useState(0);
@@ -559,8 +559,7 @@ export default function ContabilidadScreen() {
       let cashAuditYearValue = auditYear;
 
       if (appliedStoreId !== 'consolidado') {
-        const lastAudit = await cashAuditRepo.getLastAuditBeforeDate(appliedStoreId, startDate);
-        const anchorDate = lastAudit ? lastAudit.date : '2020-01-01';
+        const anchorDate = '2020-01-01';
 
         const [credits, closings, audits, openingsRes, ledgerExpenses, ledgerPurchases, creditPaymentsRes, ledgerIncomes] = await Promise.all([
           creditRepo.getAll(),
@@ -605,18 +604,13 @@ export default function ContabilidadScreen() {
         setDbCartera(totalCartera);
         setDbCuentasPorPagar(totalCuentasPorPagar);
         setReportClosings(closings.filter(c => c.date >= startDate));
-
-        const initialBase = lastAudit ? lastAudit.actualTotal : 0;
-        const initialBank = lastAudit ? lastAudit.bankTotal : 0;
-        const initialCartera = lastAudit ? lastAudit.cartera : 0;
-        const initialBaseLocal = lastAudit ? lastAudit.openingBase : 0;
-        const initialCash = initialBase - initialBank - initialCartera - initialBaseLocal;
+        let runningCash = 0;
+        let runningBank = 0;
+        let runningCartera = 0;
+        let runningBaseLocal = 0;
+        let previousBase = 0;
 
         const dates = getDatesInRange(anchorDate, endDate);
-        let runningCash = initialCash;
-        let runningBank = initialBank;
-        let runningCartera = initialCartera;
-        let runningBaseLocal = initialBaseLocal;
 
         const closingsByDate = new Map(closings.map(c => [c.date, c]));
         const auditsByDate = new Map(audits.map(a => [a.date, a]));
@@ -698,19 +692,10 @@ export default function ContabilidadScreen() {
             if (entry.store_id === appliedStoreId) {
               if (isCpCredit) {
                 // Outflow payment made to CP
-                // ONLY subtract from outflow if this payment does NOT have an associated expense record
-                if (!p.expense_id) {
-                  const isCash = p.notes?.toLowerCase().includes('efectivo') ?? false;
-                  if (isCash) {
-                    cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
-                  } else {
-                    cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
-                  }
-                }
+                cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
               } else {
-                // Inflow abono received
-                const isCash = p.notes?.toLowerCase().includes('efectivo') ?? false;
-                if (isCash) {
+                // Inflow payment from customer
+                if (p.payment_method === PaymentMethod.EFECTIVO) {
                   cashPaymentsByDate.set(pDate, (cashPaymentsByDate.get(pDate) ?? 0) + p.amount);
                 } else {
                   bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
@@ -721,7 +706,7 @@ export default function ContabilidadScreen() {
           }
         }
 
-        // Segment newly created credits by date
+        // Segment credits by date
         const creditsByDate = new Map<string, number>();
         const creditSalesByDate = new Map<string, number>();
         for (const c of credits) {
@@ -735,9 +720,7 @@ export default function ContabilidadScreen() {
           } else {
             if (c.storeId === appliedStoreId && !isCpCredit) {
               creditsByDate.set(cDate, (creditsByDate.get(cDate) ?? 0) + c.amount);
-              if (c.saleId) {
-                creditSalesByDate.set(cDate, (creditSalesByDate.get(cDate) ?? 0) + c.amount);
-              }
+              creditSalesByDate.set(cDate, (creditSalesByDate.get(cDate) ?? 0) + c.amount);
             }
           }
         }
@@ -750,8 +733,7 @@ export default function ContabilidadScreen() {
           const closing = closingsByDate.get(date);
           const audit = auditsByDate.get(date);
 
-          const openingBaseVal = openingsByDate.get(date) ?? 100000;
-          const isApproved = closing && closing.status === ClosingStatus.APPROVED;
+          const isApproved = closing && (closing.status === ClosingStatus.APPROVED || closing.status === ClosingStatus.CONFIRMED);
 
           const generalCashExp = (cashExpensesByDate.get(date) ?? 0) + (cashPurchasesByDate.get(date) ?? 0);
           const generalBankExp = (bankExpensesByDate.get(date) ?? 0) + (bankPurchasesByDate.get(date) ?? 0);
@@ -763,23 +745,16 @@ export default function ContabilidadScreen() {
           const newCreditsToday = creditsByDate.get(date) ?? 0;
           const creditSalesToday = creditSalesByDate.get(date) ?? 0;
 
-          const salesTransferCash = isApproved ? (closing.expectedTotal - closing.bankTotal - creditSalesToday - closing.expenses) : 0;
-          const salesTransferBank = isApproved ? closing.bankTotal : 0;
+          const dayBankSales = (isApproved ? closing.bankTotal : 0);
+          const effectiveClosingBank = (closing && closing.bankTotal > 0) ? closing.bankTotal : 0;
+
+          const salesTransferCash = isApproved ? (closing.expectedTotal - effectiveClosingBank - creditSalesToday - closing.expenses) : 0;
+          const salesTransferBank = isApproved ? effectiveClosingBank : 0;
 
           const registeredOpening = openingsByDate.get(date);
-          let theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
-          let baseDelta = (registeredOpening !== undefined && !isApproved) ? (runningBaseLocal - registeredOpening) : 0;
-
-          // If a next-day opening was configured post-closing, use it as the effective base
-          const dtParts = date.split('-');
-          const nextDt = new Date(Number(dtParts[0]), Number(dtParts[1]) - 1, Number(dtParts[2]));
-          nextDt.setDate(nextDt.getDate() + 1);
-          const nextDateStr = `${nextDt.getFullYear()}-${String(nextDt.getMonth() + 1).padStart(2, '0')}-${String(nextDt.getDate()).padStart(2, '0')}`;
-          const nextDayOpening = openingsByDate.get(nextDateStr);
-          if (nextDayOpening !== undefined && nextDayOpening !== theoreticalBaseToday) {
-            baseDelta += (theoreticalBaseToday - nextDayOpening);
-            theoreticalBaseToday = nextDayOpening;
-          }
+          const openingBaseVal = openingsByDate.get(date) ?? 100000;
+          const theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
+          const baseAdjustmentToCash = (previousBase === 0) ? 0 : (previousBase - theoreticalBaseToday);
 
           const cashAdvancesToday = cashAdvancesByDate.get(date) ?? 0;
           const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
@@ -794,84 +769,79 @@ export default function ContabilidadScreen() {
             sumEgresosGral += grossOutflowToday;
           }
 
-          const theoreticalCashToday = runningCash + baseDelta + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday;
+          const theoreticalCashToday = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday + baseAdjustmentToCash;
           const theoreticalBankToday = runningBank + salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
           const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
           const theoreticalToday = theoreticalCashToday + theoreticalBankToday + theoreticalCarteraToday + theoreticalBaseToday;
 
-          if (date === dates[dates.length - 1]) {
-            setLatestTheoreticalCash(theoreticalCashToday);
-            setLatestTheoreticalBank(theoreticalBankToday);
-            setLatestTheoreticalCartera(theoreticalCarteraToday);
-            setLatestTheoreticalBase(theoreticalBaseToday);
+          // Pure cumulative math update with base conservation
+          runningCash = theoreticalCashToday;
+          runningBank = theoreticalBankToday;
+          runningCartera = theoreticalCarteraToday;
+          runningBaseLocal = theoreticalBaseToday;
+          previousBase = theoreticalBaseToday;
+
+          if (audit && date >= startDate) {
+            calculatedAudits.push({
+              date,
+              status: 'AUDIT',
+              source: 'MANUAL',
+              openingBase: theoreticalBaseToday,
+              expectedTotal: grossInflowToday,
+              expenses: grossOutflowToday,
+              theoreticalTotal: theoreticalToday,
+              actualTotal: audit.actualTotal,
+              discrepancy: audit.actualTotal - theoreticalToday,
+              notes: audit.notes ?? '',
+              bills100k: audit.bills100k ?? 0,
+              bills50k: audit.bills50k ?? 0,
+              bills20k: audit.bills20k ?? 0,
+              bills10k: audit.bills10k ?? 0,
+              bills5k: audit.bills5k ?? 0,
+              bills2k: audit.bills2k ?? 0,
+              coins: audit.coins ?? 0,
+              bankTotal: audit.bankTotal,
+              cartera: audit.cartera,
+            });
+          } else if (date >= startDate) {
+            calculatedAudits.push({
+              date,
+              status: closing ? closing.status : 'DRAFT',
+              source: 'CLOSING',
+              openingBase: theoreticalBaseToday,
+              expectedTotal: grossInflowToday,
+              expenses: grossOutflowToday,
+              theoreticalTotal: theoreticalToday,
+              actualTotal: theoreticalToday,
+              discrepancy: 0,
+              notes: '',
+              bills100k: 0,
+              bills50k: 0,
+              bills20k: 0,
+              bills10k: 0,
+              bills5k: 0,
+              bills2k: 0,
+              coins: 0,
+              bankTotal: runningBank,
+              cartera: runningCartera,
+            });
           }
 
-          if (audit) {
-            runningBank = audit.bankTotal;
-            runningCartera = audit.cartera;
-            runningBaseLocal = audit.openingBase;
-            runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - audit.openingBase;
-            if (date >= startDate) {
-              calculatedAudits.push({
-                date,
-                status: 'AUDIT',
-                source: 'MANUAL',
-                openingBase: theoreticalBaseToday,
-                expectedTotal: grossInflowToday,
-                expenses: grossOutflowToday,
-                theoreticalTotal: theoreticalToday,
-                actualTotal: audit.actualTotal,
-                discrepancy: audit.actualTotal - theoreticalToday,
-                notes: audit.notes ?? '',
-                bills100k: audit.bills100k ?? 0,
-                bills50k: audit.bills50k ?? 0,
-                bills20k: audit.bills20k ?? 0,
-                bills10k: audit.bills10k ?? 0,
-                bills5k: audit.bills5k ?? 0,
-                bills2k: audit.bills2k ?? 0,
-                coins: audit.coins ?? 0,
-                bankTotal: audit.bankTotal,
-                cartera: audit.cartera,
-              });
-            }
-          } else {
-            runningCash = theoreticalCashToday;
-            runningBank = theoreticalBankToday;
-            runningCartera = theoreticalCarteraToday;
-            runningBaseLocal = theoreticalBaseToday;
-            if (date >= startDate) {
-              calculatedAudits.push({
-                date,
-                status: closing ? closing.status : 'DRAFT',
-                source: 'CLOSING',
-                openingBase: theoreticalBaseToday,
-                expectedTotal: grossInflowToday,
-                expenses: grossOutflowToday,
-                theoreticalTotal: theoreticalToday,
-                actualTotal: theoreticalToday,
-                discrepancy: 0,
-                notes: '',
-                bills100k: 0,
-                bills50k: 0,
-                bills20k: 0,
-                bills10k: 0,
-                bills5k: 0,
-                bills2k: 0,
-                coins: 0,
-                bankTotal: runningBank,
-                cartera: runningCartera,
-              });
-            }
+          if (date === dates[dates.length - 1]) {
+            setLatestTheoreticalCash(runningCash);
+            setLatestTheoreticalBank(runningBank);
+            setLatestTheoreticalCartera(runningCartera);
+            setLatestTheoreticalBase(runningBaseLocal);
           }
         }
 
         setGeneralIngresos(sumIngresosGral);
         setGeneralEgresos(sumEgresosGral);
         if (dates.length === 0) {
-          setLatestTheoreticalCash(initialCash);
-          setLatestTheoreticalBank(initialBank);
-          setLatestTheoreticalCartera(initialCartera);
-          setLatestTheoreticalBase(initialBaseLocal);
+          setLatestTheoreticalCash(0);
+          setLatestTheoreticalBank(0);
+          setLatestTheoreticalCartera(0);
+          setLatestTheoreticalBase(0);
         }
         auditRows = calculatedAudits;
       } else {
@@ -1081,30 +1051,37 @@ export default function ContabilidadScreen() {
       coins: existingAudit?.coins ?? 0,
     });
     setAuditBankTotal(latestTheoreticalBank);
+    // Pre-fill base from the real cash_opening for today; fall back to theoretical if none registered
     setAuditBase(latestTheoreticalBase);
     setAuditError('');
     setAuditCartera(latestTheoreticalCartera);
     setAuditModalVisible(true);
 
     try {
-      const freshCredits = await creditRepo.getAll();
+      const [freshCredits, todayOpening] = await Promise.all([
+        creditRepo.getAll(),
+        cashClosingService.getOpeningByDate(appliedStoreId, defaultDate),
+      ]);
       const appliedStore = stores.find((s) => s.id === appliedStoreId);
       const isProd = appliedStore?.isProductionCenter ?? false;
       const freshTotal = isProd
         ? freshCredits.filter(c => c.debtorType === 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0)
         : freshCredits.filter(c => c.storeId === appliedStoreId && c.debtorType !== 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0);
       setAuditCartera(freshTotal);
+      // Override base with the actual registered opening for today if it exists
+      if (todayOpening?.total !== undefined && todayOpening.total > 0) {
+        setAuditBase(todayOpening.total);
+      }
     } catch (err) {
-      console.warn('Error reloading fresh cartera for audit:', err);
+      console.warn('Error reloading fresh data for audit:', err);
     }
-  }, [cashAuditRows, latestTheoreticalBank, latestTheoreticalCartera, latestTheoreticalBase, creditRepo, appliedStoreId, stores]);
+  }, [cashAuditRows, latestTheoreticalBank, latestTheoreticalCartera, latestTheoreticalBase, creditRepo, cashClosingService, appliedStoreId, stores]);
 
   const calculateLiveTheoreticalTotal = useCallback(async (storeId: string, targetDate: string): Promise<number> => {
     try {
-      const lastAudit = await cashAuditRepo.getLastAuditBeforeDate(storeId, targetDate);
-      const anchorDate = lastAudit ? lastAudit.date : '2020-01-01';
+      const anchorDate = '2020-01-01';
 
-      const [credits, closings, audits, openingsRes, ledgerExpenses, ledgerPurchases, creditPaymentsRes, ledgerIncomes] = await Promise.all([
+      const [credits, closings, audits, openingsRes, ledgerExpenses, ledgerPurchases, creditPaymentsRes, ledgerIncomes, salesRes] = await Promise.all([
         creditRepo.getAll(),
         cashClosingService.getClosingsByDateRange(storeId, anchorDate, targetDate),
         cashAuditRepo.getByDateRange(storeId, anchorDate, targetDate),
@@ -1122,6 +1099,7 @@ export default function ContabilidadScreen() {
           .gte('date', anchorDate)
           .lte('date', targetDate),
         incomeRepo.getByDateRange(storeId, anchorDate, targetDate),
+        saleService.getSalesByDateRange(storeId, anchorDate, targetDate + 'T23:59:59'),
       ]);
 
       const openingsByDate = new Map<string, number>(
@@ -1137,14 +1115,12 @@ export default function ContabilidadScreen() {
       const bankAdvancesByDate = new Map<string, number>();
       for (const exp of ledgerExpenses) {
         const expDate = exp.date.split('T')[0];
-        if (exp.category === 'Adelanto') {
+        if (exp.category === 'Compra Turno' || exp.category === 'Adelanto') {
           if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
             cashAdvancesByDate.set(expDate, (cashAdvancesByDate.get(expDate) ?? 0) + exp.amount);
           } else {
             bankAdvancesByDate.set(expDate, (bankAdvancesByDate.get(expDate) ?? 0) + exp.amount);
           }
-        } else if (exp.category === 'Compra Turno') {
-          // Exclude Compra Turno as it is already included in closing.expenses
         } else {
           if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
             cashExpensesByDate.set(expDate, (cashExpensesByDate.get(expDate) ?? 0) + exp.amount);
@@ -1225,6 +1201,14 @@ export default function ContabilidadScreen() {
 
       const creditsByDate = new Map<string, number>();
       const creditSalesByDate = new Map<string, number>();
+      const bankSalesByDate = new Map<string, number>();
+      for (const s of salesRes) {
+        const sDate = getColombiaDateKey(s.timestamp);
+        if (s.paymentMethod === PaymentMethod.TRANSFERENCIA || (s.bankAmount ?? 0) > 0) {
+          const amt = (s.bankAmount ?? 0) > 0 ? s.bankAmount! : s.totalAmount;
+          bankSalesByDate.set(sDate, (bankSalesByDate.get(sDate) ?? 0) + amt);
+        }
+      }
       for (const c of credits) {
         const isCpCredit = c.debtorType === 'LOCAL';
         if (isProd) {
@@ -1243,24 +1227,18 @@ export default function ContabilidadScreen() {
         }
       }
 
-      const initialBase = lastAudit ? lastAudit.actualTotal : 0;
-      const initialBank = lastAudit ? lastAudit.bankTotal : 0;
-      const initialCartera = lastAudit ? lastAudit.cartera : 0;
-      const initialBaseLocal = lastAudit ? lastAudit.openingBase : 0;
-      const initialCash = initialBase - initialBank - initialCartera - initialBaseLocal;
+      let runningCash = 0;
+      let runningBank = 0;
+      let runningCartera = 0;
+      let runningBaseLocal = 0;
+      let previousBase = 0;
 
       const dates = getDatesInRange(anchorDate, targetDate);
-      let runningCash = initialCash;
-      let runningBank = initialBank;
-      let runningCartera = initialCartera;
-      let runningBaseLocal = initialBaseLocal;
 
       for (const date of dates) {
-        const audit = auditsByDate.get(date);
         const closing = closingsByDate.get(date);
-
         const openingBaseVal = openingsByDate.get(date) ?? 100000;
-        const isApproved = closing && closing.status === ClosingStatus.APPROVED;
+        const isApproved = closing && (closing.status === ClosingStatus.APPROVED || closing.status === ClosingStatus.CONFIRMED);
 
         const generalCashExp = (cashExpensesByDate.get(date) ?? 0) + (cashPurchasesByDate.get(date) ?? 0);
         const generalBankExp = (bankExpensesByDate.get(date) ?? 0) + (bankPurchasesByDate.get(date) ?? 0);
@@ -1272,43 +1250,25 @@ export default function ContabilidadScreen() {
         const newCreditsToday = creditsByDate.get(date) ?? 0;
         const creditSalesToday = creditSalesByDate.get(date) ?? 0;
 
-        const salesTransferCash = isApproved ? (closing.expectedTotal - closing.bankTotal - creditSalesToday - closing.expenses) : 0;
-        const salesTransferBank = isApproved ? closing.bankTotal : 0;
+        const dayBankSales = bankSalesByDate.get(date) ?? 0;
+        const effectiveClosingBank = (closing && closing.bankTotal > 0) ? closing.bankTotal : dayBankSales;
+
+        const salesTransferCash = isApproved ? (closing.expectedTotal - effectiveClosingBank - creditSalesToday - closing.expenses) : 0;
+        const salesTransferBank = isApproved ? effectiveClosingBank : 0;
 
         const registeredOpening = openingsByDate.get(date);
-        let theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
-        let baseDelta = (registeredOpening !== undefined && !isApproved) ? (runningBaseLocal - registeredOpening) : 0;
-
-        // If a next-day opening was configured post-closing, use it as the effective base
-        const dtParts = date.split('-');
-        const nextDt = new Date(Number(dtParts[0]), Number(dtParts[1]) - 1, Number(dtParts[2]));
-        nextDt.setDate(nextDt.getDate() + 1);
-        const nextDateStr = `${nextDt.getFullYear()}-${String(nextDt.getMonth() + 1).padStart(2, '0')}-${String(nextDt.getDate()).padStart(2, '0')}`;
-        const nextDayOpening = openingsByDate.get(nextDateStr);
-        if (nextDayOpening !== undefined && nextDayOpening !== theoreticalBaseToday) {
-          baseDelta += (theoreticalBaseToday - nextDayOpening);
-          theoreticalBaseToday = nextDayOpening;
-        }
+        const theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
+        const baseAdjustmentToCash = (previousBase === 0) ? 0 : (previousBase - theoreticalBaseToday);
 
         const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
         const generalCashIncomeToday = cashIncomesByDate.get(date) ?? 0;
         const generalBankIncomeToday = bankIncomesByDate.get(date) ?? 0;
 
-        const theoreticalCashToday = runningCash + baseDelta + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday;
-        const theoreticalBankToday = runningBank + salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
-        const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
-
-        if (audit && date !== targetDate) {
-          runningBank = audit.bankTotal;
-          runningCartera = audit.cartera;
-          runningBaseLocal = audit.openingBase;
-          runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - audit.openingBase;
-        } else {
-          runningCash = theoreticalCashToday;
-          runningBank = theoreticalBankToday;
-          runningCartera = theoreticalCarteraToday;
-          runningBaseLocal = theoreticalBaseToday;
-        }
+        runningCash = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday + baseAdjustmentToCash;
+        runningBank = runningBank + salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
+        runningCartera = runningCartera + newCreditsToday - totalPayToday;
+        runningBaseLocal = theoreticalBaseToday;
+        previousBase = theoreticalBaseToday;
       }
 
       return runningCash + runningBank + runningCartera + runningBaseLocal;
@@ -1325,11 +1285,39 @@ export default function ContabilidadScreen() {
       return;
     }
 
+    // ── Advertencia: verificar que el día tenga cierre aprobado ──────────────
+    try {
+      const closingForDate = await cashClosingService.getClosingByDate(appliedStoreId, auditDate);
+      const isClosingApproved =
+        closingForDate?.status === ClosingStatus.APPROVED ||
+        closingForDate?.status === ClosingStatus.CONFIRMED;
+
+      if (!isClosingApproved) {
+        await new Promise<void>((resolve, reject) => {
+          Alert.alert(
+            '⚠️ Cierre pendiente',
+            `El día ${auditDate} no tiene un cierre de caja aprobado.\n\nRegistrar el conteo antes del cierre puede generar descuadres. Se recomienda aprobar el cierre primero.\n\n¿Deseas continuar de todas formas?`,
+            [
+              { text: 'Cancelar', style: 'cancel', onPress: () => reject(new Error('CANCEL')) },
+              { text: 'Continuar', style: 'destructive', onPress: () => resolve() },
+            ],
+            { cancelable: false }
+          );
+        });
+      }
+    } catch (err: any) {
+      if (err?.message === 'CANCEL') return; // User chose to go back
+      // If the closing check itself fails (network), allow proceeding with a console warning
+      console.warn('No se pudo verificar el cierre antes del arqueo:', err);
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     setAuditSaving(true);
     setAuditError('');
     try {
       const [opening, dailySales, dayExpenses, dayPurchases] = await Promise.all([
         cashClosingService.getOpeningByDate(appliedStoreId, auditDate),
+
         saleService.getDailySummary(appliedStoreId, auditDate),
         expenseRepo.getByDateRange(appliedStoreId, auditDate, `${auditDate}T23:59:59`),
         purchaseRepo.getByDateRange(auditDate, `${auditDate}T23:59:59`, appliedStoreId),
@@ -1923,12 +1911,6 @@ export default function ContabilidadScreen() {
                   label="Descuadre"
                   value={formatCOP(latestCashAuditDiscrepancy)}
                   color={latestCashAuditDiscrepancy >= 0 ? '#388E3C' : '#D32F2F'}
-                />
-                <KpiCard
-                  icon="chart-timeline-variant"
-                  label="Mayor descuadre"
-                  value={formatCOP(maxCashAuditDiscrepancy)}
-                  color={maxCashAuditDiscrepancy >= 0 ? '#388E3C' : '#D32F2F'}
                 />
               </View>
 

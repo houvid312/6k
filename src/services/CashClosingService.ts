@@ -58,21 +58,20 @@ export class CashClosingService {
     bankTotal: number,
     expenses: number,
   ): Promise<CashClosing> {
+    const summary = await this.saleRepo.getDailySummary(storeId, date);
+    const effectiveBankTotal = (bankTotal === 0 && summary.totalBankAmount > 0) ? summary.totalBankAmount : bankTotal;
     const cashTotal = this.calculateDenominationTotal(denominations);
-    const actualTotal = cashTotal + bankTotal;
+    const actualTotal = cashTotal + effectiveBankTotal;
     const openingBase = await this.getOpeningBase(storeId, date);
 
-    // Expected total from sales
-    const summary = await this.saleRepo.getDailySummary(storeId, date);
     const expectedTotal = summary.totalAmount;
-
     const discrepancy = actualTotal - openingBase - (expectedTotal - summary.totalCreditAmount - expenses);
 
     const closing = await this.cashClosingRepo.create({
       storeId,
       date,
       denominations,
-      bankTotal,
+      bankTotal: effectiveBankTotal,
       expectedTotal,
       actualTotal,
       discrepancy,
@@ -104,17 +103,18 @@ export class CashClosingService {
       throw new Error('Devuelve el cierre a borrador antes de editar el periodo');
     }
 
+    const summary = await this.saleRepo.getDailySummary(storeId, date);
+    const effectiveBankTotal = (bankTotal === 0 && summary.totalBankAmount > 0) ? summary.totalBankAmount : bankTotal;
     const cashTotal = this.calculateDenominationTotal(denominations);
-    const actualTotal = cashTotal + bankTotal;
+    const actualTotal = cashTotal + effectiveBankTotal;
     const openingBase = await this.getOpeningBase(storeId, date);
 
-    const summary = await this.saleRepo.getDailySummary(storeId, date);
     const expectedTotal = summary.totalAmount;
     const discrepancy = actualTotal - openingBase - (expectedTotal - summary.totalCreditAmount - expenses);
 
     const closing = await this.cashClosingRepo.update(id, {
       denominations,
-      bankTotal,
+      bankTotal: effectiveBankTotal,
       expectedTotal,
       actualTotal,
       discrepancy,

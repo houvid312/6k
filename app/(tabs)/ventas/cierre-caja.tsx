@@ -90,7 +90,8 @@ export default function CierreCajaScreen() {
           for (const [key, count] of Object.entries(existing.denominations)) {
             setDenomination(key as keyof CashClosing['denominations'], count);
           }
-          setBankTotal(shouldRecalculateDraft ? summary.totalBankAmount : existing.bankTotal);
+          const effectiveBank = (shouldRecalculateDraft || existing.bankTotal === 0) ? summary.totalBankAmount : existing.bankTotal;
+          setBankTotal(effectiveBank);
           setExpenses(totalExpenses);
           setExpectedTotal(shouldRecalculateDraft ? summary.totalAmount : existing.expectedTotal);
         } else {
