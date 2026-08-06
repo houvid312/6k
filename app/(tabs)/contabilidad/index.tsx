@@ -608,6 +608,7 @@ export default function ContabilidadScreen() {
         let runningBank = 0;
         let runningCartera = 0;
         let runningBaseLocal = 0;
+        let previousBase = 0;
 
         const dates = getDatesInRange(anchorDate, endDate);
 
@@ -753,6 +754,7 @@ export default function ContabilidadScreen() {
           const registeredOpening = openingsByDate.get(date);
           const openingBaseVal = openingsByDate.get(date) ?? 100000;
           const theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
+          const baseAdjustmentToCash = (previousBase === 0) ? 0 : (previousBase - theoreticalBaseToday);
 
           const cashAdvancesToday = cashAdvancesByDate.get(date) ?? 0;
           const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
@@ -767,16 +769,17 @@ export default function ContabilidadScreen() {
             sumEgresosGral += grossOutflowToday;
           }
 
-          const theoreticalCashToday = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday;
+          const theoreticalCashToday = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday + baseAdjustmentToCash;
           const theoreticalBankToday = runningBank + salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
           const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
           const theoreticalToday = theoreticalCashToday + theoreticalBankToday + theoreticalCarteraToday + theoreticalBaseToday;
 
-          // Pure cumulative math update
+          // Pure cumulative math update with base conservation
           runningCash = theoreticalCashToday;
           runningBank = theoreticalBankToday;
           runningCartera = theoreticalCarteraToday;
           runningBaseLocal = theoreticalBaseToday;
+          previousBase = theoreticalBaseToday;
 
           if (audit && date >= startDate) {
             calculatedAudits.push({
@@ -1228,6 +1231,7 @@ export default function ContabilidadScreen() {
       let runningBank = 0;
       let runningCartera = 0;
       let runningBaseLocal = 0;
+      let previousBase = 0;
 
       const dates = getDatesInRange(anchorDate, targetDate);
 
@@ -1254,15 +1258,17 @@ export default function ContabilidadScreen() {
 
         const registeredOpening = openingsByDate.get(date);
         const theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
+        const baseAdjustmentToCash = (previousBase === 0) ? 0 : (previousBase - theoreticalBaseToday);
 
         const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
         const generalCashIncomeToday = cashIncomesByDate.get(date) ?? 0;
         const generalBankIncomeToday = bankIncomesByDate.get(date) ?? 0;
 
-        runningCash = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday;
+        runningCash = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday + baseAdjustmentToCash;
         runningBank = runningBank + salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
         runningCartera = runningCartera + newCreditsToday - totalPayToday;
         runningBaseLocal = theoreticalBaseToday;
+        previousBase = theoreticalBaseToday;
       }
 
       return runningCash + runningBank + runningCartera + runningBaseLocal;
