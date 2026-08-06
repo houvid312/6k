@@ -815,8 +815,9 @@ export default function ContabilidadScreen() {
             const effectiveAuditBank = Math.max(audit.bankTotal, theoreticalBankToday);
             runningBank = effectiveAuditBank;
             runningCartera = audit.cartera;
-            runningBaseLocal = audit.openingBase;
-            runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - audit.openingBase;
+            // Use the real cash_openings value for this day if available; audit.openingBase may be stale
+            runningBaseLocal = registeredOpening !== undefined ? registeredOpening : audit.openingBase;
+            runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - runningBaseLocal;
             if (date >= startDate) {
               calculatedAudits.push({
                 date,
@@ -1324,8 +1325,10 @@ export default function ContabilidadScreen() {
         if (audit && date !== targetDate) {
           runningBank = Math.max(audit.bankTotal, theoreticalBankToday);
           runningCartera = audit.cartera;
-          runningBaseLocal = audit.openingBase;
-          runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - audit.openingBase;
+          // Use the real cash_openings value for this day if available; audit.openingBase may be stale
+          const effectiveBase = registeredOpening !== undefined ? registeredOpening : audit.openingBase;
+          runningBaseLocal = effectiveBase;
+          runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - effectiveBase;
         } else {
           runningCash = theoreticalCashToday;
           runningBank = theoreticalBankToday;
