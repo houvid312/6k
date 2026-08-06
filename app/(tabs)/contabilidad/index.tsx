@@ -1359,11 +1359,39 @@ export default function ContabilidadScreen() {
       return;
     }
 
+    // ── Advertencia: verificar que el día tenga cierre aprobado ──────────────
+    try {
+      const closingForDate = await cashClosingService.getClosingByDate(appliedStoreId, auditDate);
+      const isClosingApproved =
+        closingForDate?.status === ClosingStatus.APPROVED ||
+        closingForDate?.status === ClosingStatus.CONFIRMED;
+
+      if (!isClosingApproved) {
+        await new Promise<void>((resolve, reject) => {
+          Alert.alert(
+            '⚠️ Cierre pendiente',
+            `El día ${auditDate} no tiene un cierre de caja aprobado.\n\nRegistrar el conteo antes del cierre puede generar descuadres. Se recomienda aprobar el cierre primero.\n\n¿Deseas continuar de todas formas?`,
+            [
+              { text: 'Cancelar', style: 'cancel', onPress: () => reject(new Error('CANCEL')) },
+              { text: 'Continuar', style: 'destructive', onPress: () => resolve() },
+            ],
+            { cancelable: false }
+          );
+        });
+      }
+    } catch (err: any) {
+      if (err?.message === 'CANCEL') return; // User chose to go back
+      // If the closing check itself fails (network), allow proceeding with a console warning
+      console.warn('No se pudo verificar el cierre antes del arqueo:', err);
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     setAuditSaving(true);
     setAuditError('');
     try {
       const [opening, dailySales, dayExpenses, dayPurchases] = await Promise.all([
         cashClosingService.getOpeningByDate(appliedStoreId, auditDate),
+
         saleService.getDailySummary(appliedStoreId, auditDate),
         expenseRepo.getByDateRange(appliedStoreId, auditDate, `${auditDate}T23:59:59`),
         purchaseRepo.getByDateRange(auditDate, `${auditDate}T23:59:59`, appliedStoreId),
