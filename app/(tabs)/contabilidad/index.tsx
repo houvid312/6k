@@ -811,13 +811,6 @@ export default function ContabilidadScreen() {
           const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
           const theoreticalToday = theoreticalCashToday + theoreticalBankToday + theoreticalCarteraToday + theoreticalBaseToday;
 
-          if (date === dates[dates.length - 1]) {
-            setLatestTheoreticalCash(theoreticalCashToday);
-            setLatestTheoreticalBank(theoreticalBankToday);
-            setLatestTheoreticalCartera(theoreticalCarteraToday);
-            setLatestTheoreticalBase(theoreticalBaseToday);
-          }
-
           if (audit) {
             const effectiveAuditBank = Math.max(audit.bankTotal, theoreticalBankToday);
             runningBank = effectiveAuditBank;
@@ -875,6 +868,13 @@ export default function ContabilidadScreen() {
                 cartera: runningCartera,
               });
             }
+          }
+
+          if (date === dates[dates.length - 1]) {
+            setLatestTheoreticalCash(runningCash);
+            setLatestTheoreticalBank(runningBank);
+            setLatestTheoreticalCartera(runningCartera);
+            setLatestTheoreticalBase(runningBaseLocal);
           }
         }
 
