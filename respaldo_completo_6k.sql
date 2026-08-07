@@ -3880,11 +3880,6 @@ ALTER TABLE ONLY "public"."inventory_adjustments"
 
 
 
-ALTER TABLE ONLY "public"."inventory_adjustments"
-    ADD CONSTRAINT "inventory_adjustments_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id");
-
-
-
 ALTER TABLE ONLY "public"."inventory"
     ADD CONSTRAINT "inventory_store_id_fkey" FOREIGN KEY ("store_id") REFERENCES "public"."stores"("id");
 
@@ -4285,10 +4280,6 @@ CREATE POLICY "Authenticated read demand_estimates" ON "public"."demand_estimate
 
 
 
-CREATE POLICY "Authenticated read inventory_adjustments" ON "public"."inventory_adjustments" FOR SELECT TO "authenticated" USING (true);
-
-
-
 CREATE POLICY "Authenticated read physical_count_items" ON "public"."physical_count_items" FOR SELECT TO "authenticated" USING (true);
 
 
@@ -4414,10 +4405,6 @@ CREATE POLICY "Colaborador update expenses" ON "public"."expenses" FOR UPDATE TO
 
 
 
-CREATE POLICY "Gerente insert inventory_adjustments" ON "public"."inventory_adjustments" FOR INSERT TO "authenticated" WITH CHECK ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR ("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role")));
-
-
-
 CREATE POLICY "Inventory operators delete daily_alerts" ON "public"."daily_alerts" FOR DELETE TO "authenticated" USING ("public"."is_inventory_operator"());
 
 
@@ -4537,11 +4524,19 @@ ALTER TABLE "public"."inventory" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."inventory_adjustments" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "inventory_select_policy" ON "public"."inventory" FOR SELECT TO "authenticated" USING ((("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'PREPARADOR'::"public"."user_role"])) OR "public"."is_admin_or_assigned_local"("store_id")));
+CREATE POLICY "inventory_adjustments_select_policy" ON "public"."inventory_adjustments" FOR SELECT USING (true);
 
 
 
-CREATE POLICY "inventory_write_policy" ON "public"."inventory" TO "authenticated" USING ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND "public"."is_admin_or_assigned_local"("store_id")))) WITH CHECK ((("public"."get_user_role"() = 'GERENTE'::"public"."user_role") OR (("public"."get_user_role"() = 'ADMIN_LOCAL'::"public"."user_role") AND "public"."is_admin_or_assigned_local"("store_id"))));
+CREATE POLICY "inventory_adjustments_write_policy" ON "public"."inventory_adjustments" USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "inventory_select_policy" ON "public"."inventory" FOR SELECT USING (true);
+
+
+
+CREATE POLICY "inventory_write_policy" ON "public"."inventory" USING (true) WITH CHECK (true);
 
 
 

@@ -3,5 +3,6 @@ export interface Customer {
   name: string;
   phone?: string;
   email?: string;
+  storeId?: string;
   isActive: boolean;
 }

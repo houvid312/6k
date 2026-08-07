@@ -2188,10 +2188,8 @@ export default function VentasScreen() {
                   options={workers
                     .filter((w) => {
                       if (!w.isActive) return false;
-                      if ([UserRole.GERENTE, UserRole.RODY].includes(userRole)) return true;
-                      if (!w.storeIds || w.storeIds.length === 0) return true;
-                      const userStoreIds = useAppStore.getState().storeIds;
-                      return w.storeIds.some((id) => id === selectedStoreId || userStoreIds.includes(id));
+                      if (!selectedStoreId) return true;
+                      return !w.storeIds || w.storeIds.includes(selectedStoreId);
                     })
                     .map((w) => ({ value: w.id, label: w.name, subtitle: w.role }))}
                   selectedValue={salidaWorkerId}

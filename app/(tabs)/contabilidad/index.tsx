@@ -1293,17 +1293,24 @@ export default function ContabilidadScreen() {
         closingForDate?.status === ClosingStatus.CONFIRMED;
 
       if (!isClosingApproved) {
-        await new Promise<void>((resolve, reject) => {
-          Alert.alert(
-            '⚠️ Cierre pendiente',
-            `El día ${auditDate} no tiene un cierre de caja aprobado.\n\nRegistrar el conteo antes del cierre puede generar descuadres. Se recomienda aprobar el cierre primero.\n\n¿Deseas continuar de todas formas?`,
-            [
-              { text: 'Cancelar', style: 'cancel', onPress: () => reject(new Error('CANCEL')) },
-              { text: 'Continuar', style: 'destructive', onPress: () => resolve() },
-            ],
-            { cancelable: false }
+        if (Platform.OS === 'web') {
+          const confirmed = window.confirm(
+            `⚠️ Cierre pendiente\n\nEl día ${auditDate} no tiene un cierre de caja aprobado.\n\nRegistrar el conteo antes del cierre puede generar descuadres. Se recomienda aprobar el cierre primero.\n\n¿Deseas continuar de todas formas?`
           );
-        });
+          if (!confirmed) return;
+        } else {
+          await new Promise<void>((resolve, reject) => {
+            Alert.alert(
+              '⚠️ Cierre pendiente',
+              `El día ${auditDate} no tiene un cierre de caja aprobado.\n\nRegistrar el conteo antes del cierre puede generar descuadres. Se recomienda aprobar el cierre primero.\n\n¿Deseas continuar de todas formas?`,
+              [
+                { text: 'Cancelar', style: 'cancel', onPress: () => reject(new Error('CANCEL')) },
+                { text: 'Continuar', style: 'destructive', onPress: () => resolve() },
+              ],
+              { cancelable: false }
+            );
+          });
+        }
       }
     } catch (err: any) {
       if (err?.message === 'CANCEL') return; // User chose to go back
