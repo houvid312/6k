@@ -493,7 +493,7 @@ export default function VentasScreen() {
       const payMethod = salidaType === 'ADELANTO' ? salidaPaymentMethod : PaymentMethod.EFECTIVO;
 
       await expenseRepo.create({
-        date: todayColombia(),
+        date: salesDate || todayColombia(),
         storeId: selectedStoreId,
         category,
         description: desc,
@@ -537,7 +537,7 @@ export default function VentasScreen() {
     } finally {
       setCompraTurnoSubmitting(false);
     }
-  }, [compraTurnoDesc, compraTurnoAmount, selectedStoreId, expenseRepo, inventoryRepo, salidaType, salidaWorkerId, salidaSupplyId, salidaBags, selectedAuthorizedSupply, salidaPaymentMethod, workers]);
+  }, [compraTurnoDesc, compraTurnoAmount, selectedStoreId, expenseRepo, inventoryRepo, salidaType, salidaWorkerId, salidaSupplyId, salidaBags, selectedAuthorizedSupply, salidaPaymentMethod, workers, salesDate]);
 
   const selectedProduct = products.find((p) => p.id === selectedProductId);
   const getPackagingSalePrice = useCallback((packagingSupplyId?: string) => {
@@ -2188,10 +2188,8 @@ export default function VentasScreen() {
                   options={workers
                     .filter((w) => {
                       if (!w.isActive) return false;
-                      if ([UserRole.GERENTE, UserRole.RODY].includes(userRole)) return true;
-                      if (!w.storeIds || w.storeIds.length === 0) return true;
-                      const userStoreIds = useAppStore.getState().storeIds;
-                      return w.storeIds.some((id) => id === selectedStoreId || userStoreIds.includes(id));
+                      if (!selectedStoreId) return true;
+                      return !w.storeIds || w.storeIds.includes(selectedStoreId);
                     })
                     .map((w) => ({ value: w.id, label: w.name, subtitle: w.role }))}
                   selectedValue={salidaWorkerId}

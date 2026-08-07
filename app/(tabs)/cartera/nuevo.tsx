@@ -108,7 +108,7 @@ export default function NuevoCreditoScreen() {
         <View style={{ marginBottom: 12 }}>
           <SearchableSelect
             options={workers
-              .filter((w) => w.isActive)
+              .filter((w) => w.isActive && (!selectedStoreId || w.storeIds?.includes(selectedStoreId)))
               .map((w) => ({ value: w.id, label: w.name, subtitle: w.role }))}
             selectedValue={debtorWorkerId}
             placeholder="Seleccionar Trabajador"
@@ -123,7 +123,9 @@ export default function NuevoCreditoScreen() {
       ) : (
         <View style={{ marginBottom: 12 }}>
           <SearchableSelect
-            options={customers.map((c) => ({ value: c.id, label: c.name, subtitle: c.phone || 'Sin teléfono' }))}
+            options={customers
+              .filter((c) => c.isActive && (!c.storeId || c.storeId === selectedStoreId))
+              .map((c) => ({ value: c.id, label: c.name, subtitle: c.phone || 'Sin teléfono' }))}
             selectedValue={debtorCustomerId}
             placeholder="Seleccionar Cliente"
             icon="account-tie"

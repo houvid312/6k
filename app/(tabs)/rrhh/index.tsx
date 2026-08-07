@@ -41,7 +41,7 @@ const USER_ROLE_LABELS: Record<UserRole, string> = {
 export default function RRHHScreen() {
   const theme = useTheme();
   const { workers, loading, loadWorkers } = useWorkerStore();
-  const { stores, selectedStoreId, loadStores } = useAppStore();
+  const { stores, selectedStoreId, loadStores, userRole: currentUserRole } = useAppStore();
 
   const [modalVisible, setModalVisible] = useState(false);
   const [editingWorker, setEditingWorker] = useState<Worker | null>(null);
@@ -144,8 +144,14 @@ export default function RRHHScreen() {
       await container.workerStoreAssignmentRepo.setWorkerStores(worker.id, selectedStoreIds, selectedStoreIds[0]);
       closeModal();
       await loadWorkers();
-    } catch (error) {
-      Alert.alert('Error', 'No se pudo guardar el trabajador. Intente de nuevo.');
+    } catch (error: any) {
+      console.error('Error al guardar trabajador:', error);
+      const errMsg = error?.message || 'No se pudo guardar el trabajador. Intente de nuevo.';
+      if (Platform.OS === 'web') {
+        window.alert(`Error: ${errMsg}`);
+      } else {
+        Alert.alert('Error', errMsg);
+      }
     } finally {
       setSaving(false);
     }
@@ -484,7 +490,9 @@ export default function RRHHScreen() {
              </Text>
              <RadioButton.Group onValueChange={(value) => setUserRole(value as UserRole)} value={userRole}>
                <View style={styles.roleGrid}>
-                 {Object.values(UserRole).map((ur) => (
+                 {Object.values(UserRole)
+                   .filter((ur) => currentUserRole === UserRole.GERENTE || ur !== UserRole.GERENTE)
+                   .map((ur) => (
                    <View key={ur} style={styles.roleOption}>
                      <RadioButton.Item
                        label={USER_ROLE_LABELS[ur]}

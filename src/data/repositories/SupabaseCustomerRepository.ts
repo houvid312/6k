@@ -7,6 +7,7 @@ interface CustomerRow {
   name: string;
   phone: string | null;
   email: string | null;
+  store_id?: string | null;
   is_active: boolean;
 }
 
@@ -16,6 +17,7 @@ function toEntity(row: CustomerRow): Customer {
     name: row.name,
     phone: row.phone ?? undefined,
     email: row.email ?? undefined,
+    storeId: row.store_id ?? undefined,
     isActive: row.is_active,
   };
 }
@@ -25,6 +27,7 @@ function toRow(customer: Omit<Customer, 'id' | 'isActive'>): Record<string, unkn
     name: customer.name,
     phone: customer.phone ?? null,
     email: customer.email ?? null,
+    store_id: customer.storeId ?? null,
   };
 }
 

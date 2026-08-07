@@ -2,7 +2,7 @@ import { supabase } from '../../lib/supabase';
 import { Expense } from '../../domain/entities';
 import { IExpenseRepository } from '../../domain/interfaces/repositories';
 import { PaymentMethod } from '../../domain/enums';
-import { colombiaDateRangeToUtc, toISODateTZ } from '../../utils/dates';
+import { colombiaDateRangeToUtc, getColombiaDateString } from '../../utils/dates';
 
 // --- Row type ---
 
@@ -123,12 +123,7 @@ export class SupabaseExpenseRepository implements IExpenseRepository {
 
     return entities.filter((e) => {
       if (!e.date) return false;
-      const d = new Date(e.date);
-      if (isNaN(d.getTime())) {
-        const datePart = e.date.slice(0, 10);
-        return datePart >= cleanFrom && datePart <= cleanTo;
-      }
-      const colDate = toISODateTZ(d);
+      const colDate = getColombiaDateString(e.date);
       return colDate >= cleanFrom && colDate <= cleanTo;
     });
   }
