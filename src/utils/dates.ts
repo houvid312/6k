@@ -179,3 +179,22 @@ export function toISODateTZ(date: Date): string {
   }).format(date);
   return parts; // en-CA formats as YYYY-MM-DD
 }
+
+/**
+ * Safely converts a date/datetime input into a Colombia YYYY-MM-DD string.
+ * Prevents UTC midnight shift when input is already a date-only YYYY-MM-DD string.
+ */
+export function getColombiaDateString(dateVal: string | Date): string {
+  if (!dateVal) return '';
+  if (typeof dateVal === 'string') {
+    if (DATE_ONLY_PATTERN.test(dateVal)) {
+      return dateVal;
+    }
+    const d = new Date(dateVal);
+    if (!isNaN(d.getTime())) {
+      return toISODateTZ(d);
+    }
+    return dateVal.slice(0, 10);
+  }
+  return toISODateTZ(dateVal);
+}

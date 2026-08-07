@@ -3,7 +3,7 @@ import { Income } from '../../domain/entities';
 import { IIncomeRepository } from '../../domain/interfaces/repositories';
 import { PaymentMethod } from '../../domain/enums';
 
-import { colombiaDateRangeToUtc, toISODateTZ } from '../../utils/dates';
+import { colombiaDateRangeToUtc, getColombiaDateString } from '../../utils/dates';
 
 // --- Row type ---
 
@@ -118,12 +118,7 @@ export class SupabaseIncomeRepository implements IIncomeRepository {
 
     return entities.filter((inc) => {
       if (!inc.date) return false;
-      const d = new Date(inc.date);
-      if (isNaN(d.getTime())) {
-        const datePart = inc.date.slice(0, 10);
-        return datePart >= cleanFrom && datePart <= cleanTo;
-      }
-      const colDate = toISODateTZ(d);
+      const colDate = getColombiaDateString(inc.date);
       return colDate >= cleanFrom && colDate <= cleanTo;
     });
   }

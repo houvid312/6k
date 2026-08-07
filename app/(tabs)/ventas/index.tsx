@@ -493,7 +493,7 @@ export default function VentasScreen() {
       const payMethod = salidaType === 'ADELANTO' ? salidaPaymentMethod : PaymentMethod.EFECTIVO;
 
       await expenseRepo.create({
-        date: todayColombia(),
+        date: salesDate || todayColombia(),
         storeId: selectedStoreId,
         category,
         description: desc,
@@ -537,7 +537,7 @@ export default function VentasScreen() {
     } finally {
       setCompraTurnoSubmitting(false);
     }
-  }, [compraTurnoDesc, compraTurnoAmount, selectedStoreId, expenseRepo, inventoryRepo, salidaType, salidaWorkerId, salidaSupplyId, salidaBags, selectedAuthorizedSupply, salidaPaymentMethod, workers]);
+  }, [compraTurnoDesc, compraTurnoAmount, selectedStoreId, expenseRepo, inventoryRepo, salidaType, salidaWorkerId, salidaSupplyId, salidaBags, selectedAuthorizedSupply, salidaPaymentMethod, workers, salesDate]);
 
   const selectedProduct = products.find((p) => p.id === selectedProductId);
   const getPackagingSalePrice = useCallback((packagingSupplyId?: string) => {
