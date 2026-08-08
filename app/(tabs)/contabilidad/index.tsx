@@ -966,32 +966,48 @@ export default function ContabilidadScreen() {
     || (filterPeriod === 'rango' && (rangeStartDraft !== rangeStartDate || rangeEndDraft !== rangeEndDate));
 
   const handleDeleteSale = useCallback((sale: Sale) => {
-    Alert.alert(
-      'Eliminar venta',
-      `¿Seguro que deseas eliminar esta venta de ${formatCOP(sale.totalAmount)}?`,
-      [
+    const confirmMsg = `¿Seguro que deseas eliminar esta venta de ${formatCOP(sale.totalAmount)}?`;
+    const doDelete = async () => {
+      try {
+        await saleRepo.delete(sale.id);
+        loadData();
+      } catch (err: any) {
+        if (Platform.OS === 'web') {
+          window.alert(`Error: ${err?.message || 'No se pudo eliminar la venta'}`);
+        } else {
+          Alert.alert('Error', err?.message || 'No se pudo eliminar la venta');
+        }
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(confirmMsg)) doDelete();
+    } else {
+      Alert.alert('Eliminar venta', confirmMsg, [
         { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await saleRepo.delete(sale.id);
-              loadData();
-            } catch {
-              Alert.alert('Error', 'No se pudo eliminar la venta');
-            }
-          },
-        },
-      ],
-    );
+        { text: 'Eliminar', style: 'destructive', onPress: doDelete },
+      ]);
+    }
   }, [saleRepo, loadData]);
 
   const handleDeleteExpense = useCallback((expense: Expense) => {
+    if (Platform.OS === 'web') {
+      const confirmMsg = `¿Estás seguro de eliminar este egreso (${expense.category}: ${formatCOP(expense.amount)})?`;
+      if (window.confirm(confirmMsg)) {
+        expenseRepo.delete(expense.id)
+          .then(() => {
+            loadData();
+          })
+          .catch((err) => {
+            window.alert(`Error al eliminar egreso: ${err?.message || 'Revisa permisos'}`);
+          });
+      }
+      return;
+    }
     setDeletingExpense(expense);
     setDeleteExpenseError('');
     setDeleteExpenseModalVisible(true);
-  }, []);
+  }, [expenseRepo, loadData]);
 
   const handleConfirmDeleteExpense = useCallback(async () => {
     if (!deletingExpense) return;
