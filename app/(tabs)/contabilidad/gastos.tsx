@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { TextInput, Button, Text, Card, Menu, Divider, Portal, Snackbar, useTheme, Chip } from 'react-native-paper';
+import { View, StyleSheet, Platform, Alert } from 'react-native';
+import { TextInput, Button, Text, Card, Menu, Divider, Portal, Snackbar, useTheme, Chip, IconButton } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { PaymentMethodPicker } from '../../../src/components/ventas/PaymentMethodPicker';
@@ -60,7 +60,7 @@ export default function GastosScreen() {
       // Combine both lists and sort by date descending
       const combined = [...allExpenses, ...mappedPurchases];
       combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      
+
       setExpenses(combined);
     } catch (err) {
       console.error('Error loading expenses and purchases:', err);
@@ -104,6 +104,33 @@ export default function GastosScreen() {
       setSubmitting(false);
     }
   }, [category, description, amount, paymentMethod, isFixed, selectedStoreId, expenseRepo, loadExpenses, showSuccess, showError]);
+
+  const handleDeleteExpense = useCallback((item: Expense) => {
+    const isPurchase = item.category === 'Compra Insumo';
+    const confirmMsg = `¿Seguro que deseas eliminar este egreso (${item.category}: ${formatCOP(item.amount)})?`;
+    const doDelete = async () => {
+      try {
+        if (isPurchase) {
+          await purchaseRepo.delete(item.id);
+        } else {
+          await expenseRepo.delete(item.id);
+        }
+        showSuccess('Egreso eliminado');
+        loadExpenses();
+      } catch (err: any) {
+        showError(err?.message || 'No se pudo eliminar el egreso');
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(confirmMsg)) doDelete();
+    } else {
+      Alert.alert('Eliminar egreso', confirmMsg, [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: doDelete },
+      ]);
+    }
+  }, [expenseRepo, purchaseRepo, loadExpenses, showSuccess, showError]);
 
   return (
     <ScreenContainer>
@@ -206,15 +233,24 @@ export default function GastosScreen() {
         expenses.map((expense) => (
           <Card key={expense.id} style={styles.expenseCard} mode="elevated">
             <Card.Content style={styles.expenseRow}>
-              <View>
+              <View style={{ flex: 1, paddingRight: 8 }}>
                 <Text variant="bodyMedium" style={{ fontWeight: '600' }}>{expense.category}</Text>
                 <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
                   {expense.description} - {formatDate(expense.date)}
                 </Text>
               </View>
-              <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.error }}>
-                {formatCOP(expense.amount)}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.error }}>
+                  {formatCOP(expense.amount)}
+                </Text>
+                <IconButton
+                  icon="delete-outline"
+                  size={18}
+                  iconColor="#D32F2F"
+                  onPress={() => handleDeleteExpense(expense)}
+                  style={{ margin: 0 }}
+                />
+              </View>
             </Card.Content>
           </Card>
         ))

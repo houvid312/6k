@@ -80,4 +80,16 @@ export class SupabasePurchaseRepository implements IPurchaseRepository {
     if (error) throw error;
     return (data as PurchaseRow[]).map(toEntity);
   }
+
+  async delete(id: string): Promise<void> {
+    const { data, error } = await supabase
+      .from('purchases')
+      .delete()
+      .eq('id', id)
+      .select('id');
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      throw new Error('No se elimino la compra. Verifica permisos.');
+    }
+  }
 }

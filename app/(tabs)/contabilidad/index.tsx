@@ -1030,6 +1030,31 @@ export default function ContabilidadScreen() {
     }
   }, [deletingExpense, expenseRepo, loadData]);
 
+  const handleDeletePurchase = useCallback((purchase: Purchase) => {
+    const confirmMsg = `¿Seguro que deseas eliminar esta compra de ${formatCOP(purchase.priceCOP)}?`;
+    const doDelete = async () => {
+      try {
+        await purchaseRepo.delete(purchase.id);
+        loadData();
+      } catch (err: any) {
+        if (Platform.OS === 'web') {
+          window.alert(`Error: ${err?.message || 'No se pudo eliminar la compra'}`);
+        } else {
+          Alert.alert('Error', err?.message || 'No se pudo eliminar la compra');
+        }
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(confirmMsg)) doDelete();
+    } else {
+      Alert.alert('Eliminar compra', confirmMsg, [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: doDelete },
+      ]);
+    }
+  }, [purchaseRepo, loadData]);
+
   const handleEditExpense = useCallback((expense: Expense) => {
     setEditingExpense(expense);
     setEditDescription(expense.description);
@@ -2488,6 +2513,13 @@ export default function ContabilidadScreen() {
             <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#D32F2F', flexShrink: 0, marginRight: 4 }}>
               -{formatCOP(purchase.priceCOP)}
             </Text>
+            <IconButton
+              icon="delete-outline"
+              size={18}
+              iconColor="#D32F2F"
+              onPress={() => handleDeletePurchase(purchase)}
+              style={{ margin: 0 }}
+            />
           </Card.Content>
         </Card>
       ))}

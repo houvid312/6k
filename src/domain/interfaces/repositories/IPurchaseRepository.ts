@@ -4,4 +4,5 @@ export interface IPurchaseRepository {
   getAll(storeId?: string): Promise<Purchase[]>;
   create(purchase: Omit<Purchase, 'id'>): Promise<Purchase>;
   getByDateRange(from: string, to: string, storeId?: string): Promise<Purchase[]>;
+  delete(id: string): Promise<void>;
 }
