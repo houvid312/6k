@@ -67,12 +67,13 @@ export default function CierreCajaScreen() {
         setExistingClosing(existing);
         setTotalCredit(summary.totalCreditAmount ?? 0);
 
-        // Auto-load expenses from activeDate (Compra Turno, Adelantos, etc.)
+        // Auto-load shift expenses from activeDate (Compra Turno, Adelantos de la jornada)
         let totalExpenses = 0;
         try {
-          const dbExpenses = await expenseRepo.getByDateRange(selectedStoreId, activeDate, activeDate);
-          setDayExpenses(dbExpenses);
-          const cashExpenses = dbExpenses.filter(e => e.paymentMethod === PaymentMethod.EFECTIVO);
+          const allDbExpenses = await expenseRepo.getByDateRange(selectedStoreId, activeDate, activeDate);
+          const shiftExpenses = allDbExpenses.filter(e => e.category === 'Compra Turno' || e.category === 'Adelanto');
+          setDayExpenses(shiftExpenses);
+          const cashExpenses = shiftExpenses.filter(e => e.paymentMethod === PaymentMethod.EFECTIVO);
           totalExpenses = cashExpenses.reduce((sum, e) => sum + e.amount, 0);
         } catch (err) {
           console.error('Error cargando egresos:', err);
@@ -188,9 +189,10 @@ export default function CierreCajaScreen() {
       try {
         await expenseRepo.delete(exp.id);
         showSuccess('Egreso eliminado correctamente');
-        const dbExpenses = await expenseRepo.getByDateRange(selectedStoreId, activeDate, activeDate);
-        setDayExpenses(dbExpenses);
-        const cashExpenses = dbExpenses.filter(e => e.paymentMethod === PaymentMethod.EFECTIVO);
+        const allDbExpenses = await expenseRepo.getByDateRange(selectedStoreId, activeDate, activeDate);
+        const shiftExpenses = allDbExpenses.filter(e => e.category === 'Compra Turno' || e.category === 'Adelanto');
+        setDayExpenses(shiftExpenses);
+        const cashExpenses = shiftExpenses.filter(e => e.paymentMethod === PaymentMethod.EFECTIVO);
         const totalExpenses = cashExpenses.reduce((sum, e) => sum + e.amount, 0);
         setExpenses(totalExpenses);
       } catch (err: any) {
@@ -228,11 +230,11 @@ export default function CierreCajaScreen() {
     .reduce((sum, e) => sum + e.amount, 0);
 
   const cashPurchases = dayExpenses
-    .filter((e) => e.category !== 'Adelanto' && e.paymentMethod === PaymentMethod.EFECTIVO)
+    .filter((e) => e.category === 'Compra Turno' && e.paymentMethod === PaymentMethod.EFECTIVO)
     .reduce((sum, e) => sum + e.amount, 0);
 
   const bankPurchases = dayExpenses
-    .filter((e) => e.category !== 'Adelanto' && e.paymentMethod === PaymentMethod.TRANSFERENCIA)
+    .filter((e) => e.category === 'Compra Turno' && e.paymentMethod === PaymentMethod.TRANSFERENCIA)
     .reduce((sum, e) => sum + e.amount, 0);
 
   return (
