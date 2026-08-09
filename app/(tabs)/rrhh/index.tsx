@@ -63,9 +63,15 @@ export default function RRHHScreen() {
     loadStores();
   }, [loadStores, loadWorkers]);
 
+  const isWorkerInStore = useCallback((w: Worker) => {
+    if (!selectedStoreId) return true;
+    if (w.userRole === UserRole.GERENTE || !w.storeIds || w.storeIds.length === 0) return true;
+    return w.storeIds.includes(selectedStoreId);
+  }, [selectedStoreId]);
+
   const filteredWorkers = useMemo(() => {
     return workers.filter((w) => {
-      if (selectedStoreId && !w.storeIds?.includes(selectedStoreId)) {
+      if (!isWorkerInStore(w)) {
         return false;
       }
       if (statusFilter === 'ACTIVE' && !w.isActive) {
@@ -76,7 +82,7 @@ export default function RRHHScreen() {
       }
       return true;
     });
-  }, [workers, selectedStoreId, statusFilter]);
+  }, [workers, isWorkerInStore, statusFilter]);
 
   const resetForm = useCallback((worker?: Worker) => {
     setEditingWorker(worker ?? null);
@@ -355,7 +361,7 @@ export default function RRHHScreen() {
           style={[styles.filterChip, statusFilter === 'ALL' && styles.activeFilterChip]}
           textStyle={{ fontSize: 12, color: statusFilter === 'ALL' ? '#FFFFFF' : '#F5F0EB' }}
         >
-          Todos ({workers.filter((w) => !selectedStoreId || w.storeIds?.includes(selectedStoreId)).length})
+          Todos ({workers.filter(isWorkerInStore).length})
         </Chip>
         <Chip
           selected={statusFilter === 'ACTIVE'}
@@ -363,7 +369,7 @@ export default function RRHHScreen() {
           style={[styles.filterChip, statusFilter === 'ACTIVE' && styles.activeFilterChip]}
           textStyle={{ fontSize: 12, color: statusFilter === 'ACTIVE' ? '#FFFFFF' : '#F5F0EB' }}
         >
-          Activos ({workers.filter((w) => (!selectedStoreId || w.storeIds?.includes(selectedStoreId)) && w.isActive).length})
+          Activos ({workers.filter((w) => isWorkerInStore(w) && w.isActive).length})
         </Chip>
         <Chip
           selected={statusFilter === 'INACTIVE'}
@@ -371,7 +377,7 @@ export default function RRHHScreen() {
           style={[styles.filterChip, statusFilter === 'INACTIVE' && styles.activeFilterChip]}
           textStyle={{ fontSize: 12, color: statusFilter === 'INACTIVE' ? '#FFFFFF' : '#F5F0EB' }}
         >
-          Inactivos ({workers.filter((w) => (!selectedStoreId || w.storeIds?.includes(selectedStoreId)) && !w.isActive).length})
+          Inactivos ({workers.filter((w) => isWorkerInStore(w) && !w.isActive).length})
         </Chip>
       </View>
 

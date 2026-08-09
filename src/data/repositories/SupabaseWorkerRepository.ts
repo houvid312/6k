@@ -76,8 +76,7 @@ export class SupabaseWorkerRepository implements IWorkerRepository {
   async getByStore(storeId: string): Promise<Worker[]> {
     const { data, error } = await supabase
       .from('workers')
-      .select('*, worker_store_assignments!inner(store_id)')
-      .eq('worker_store_assignments.store_id', storeId)
+      .select('*, worker_store_assignments(store_id)')
       .order('name', { ascending: true });
     if (error) throw error;
     return (data as WorkerRow[]).map(toEntity);
