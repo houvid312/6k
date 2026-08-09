@@ -64,10 +64,16 @@ export default function RRHHScreen() {
   }, [loadStores, loadWorkers]);
 
   const isWorkerInStore = useCallback((w: Worker) => {
+    // Non-GERENTE users (e.g. ADMIN_LOCAL) must never see GERENTE workers
+    if (currentUserRole !== UserRole.GERENTE && w.userRole === UserRole.GERENTE) {
+      return false;
+    }
     if (!selectedStoreId) return true;
-    if (w.userRole === UserRole.GERENTE || !w.storeIds || w.storeIds.length === 0) return true;
-    return w.storeIds.includes(selectedStoreId);
-  }, [selectedStoreId]);
+    if (currentUserRole === UserRole.GERENTE) {
+      if (w.userRole === UserRole.GERENTE || !w.storeIds || w.storeIds.length === 0) return true;
+    }
+    return w.storeIds?.includes(selectedStoreId) ?? false;
+  }, [selectedStoreId, currentUserRole]);
 
   const filteredWorkers = useMemo(() => {
     return workers.filter((w) => {
