@@ -39,6 +39,7 @@ export default function InventarioScreen() {
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const isAdmin = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
+  const canManageRecipesAndSupplies = userRole === UserRole.GERENTE || userRole === UserRole.PREPARADOR;
   const isProductionCenter = stores.find((s) => s.id === selectedStoreId)?.isProductionCenter ?? false;
 
   const [level, setLevel] = useState<InventoryLevel>(
@@ -276,16 +277,18 @@ export default function InventarioScreen() {
           style={{ marginTop: 8, maxHeight: 38 }}
           contentContainerStyle={{ paddingHorizontal: 4 }}
         >
-          <Button
-            mode="outlined"
-            compact
-            icon="silverware-fork-knife"
-            style={{ marginRight: 8, height: 32 }}
-            labelStyle={{ fontSize: 11, marginVertical: 4 }}
-            onPress={() => router.push('/(tabs)/inventario/recetas')}
-          >
-            Recetas Ventas
-          </Button>
+          {canManageRecipesAndSupplies && (
+            <Button
+              mode="outlined"
+              compact
+              icon="silverware-fork-knife"
+              style={{ marginRight: 8, height: 32 }}
+              labelStyle={{ fontSize: 11, marginVertical: 4 }}
+              onPress={() => router.push('/(tabs)/inventario/recetas')}
+            >
+              Recetas Ventas
+            </Button>
+          )}
           <Button
             mode="outlined"
             compact
@@ -296,16 +299,18 @@ export default function InventarioScreen() {
           >
             Productos
           </Button>
-          <Button
-            mode="outlined"
-            compact
-            icon="package-variant-closed"
-            style={{ marginRight: 8, height: 32 }}
-            labelStyle={{ fontSize: 11, marginVertical: 4 }}
-            onPress={() => router.push('/(tabs)/inventario/insumos')}
-          >
-            Insumos
-          </Button>
+          {canManageRecipesAndSupplies && (
+            <Button
+              mode="outlined"
+              compact
+              icon="package-variant-closed"
+              style={{ marginRight: 8, height: 32 }}
+              labelStyle={{ fontSize: 11, marginVertical: 4 }}
+              onPress={() => router.push('/(tabs)/inventario/insumos')}
+            >
+              Insumos
+            </Button>
+          )}
           <Button
             mode="outlined"
             compact
@@ -449,15 +454,17 @@ export default function InventarioScreen() {
                   >
                     Registrar Producción
                   </Button>
-                  <Button
-                    mode="outlined"
-                    onPress={() => router.push('/(tabs)/inventario/recetas-produccion')}
-                    style={styles.actionBtnSecondary}
-                    textColor="#CCCCCC"
-                    icon="book-cog"
-                  >
-                    Recetas Prod.
-                  </Button>
+                  {canManageRecipesAndSupplies && (
+                    <Button
+                      mode="outlined"
+                      onPress={() => router.push('/(tabs)/inventario/recetas-produccion')}
+                      style={styles.actionBtnSecondary}
+                      textColor="#CCCCCC"
+                      icon="book-cog"
+                    >
+                      Recetas Prod.
+                    </Button>
+                  )}
                 </View>
               </Card.Content>
             </Card>

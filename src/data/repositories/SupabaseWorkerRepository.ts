@@ -15,12 +15,25 @@ interface WorkerRow {
   phone: string | null;
   pin: string | null;
   username?: string | null;
+  store_id?: string | null;
   worker_store_assignments?: { store_id: string }[];
 }
 
 // --- Mappers ---
 
 function toEntity(row: WorkerRow): Worker {
+  const storeIds: string[] = [];
+  if (row.store_id && !storeIds.includes(row.store_id)) {
+    storeIds.push(row.store_id);
+  }
+  if (row.worker_store_assignments) {
+    row.worker_store_assignments.forEach((assignment) => {
+      if (assignment.store_id && !storeIds.includes(assignment.store_id)) {
+        storeIds.push(assignment.store_id);
+      }
+    });
+  }
+
   return {
     id: row.id,
     name: row.name,
@@ -31,7 +44,7 @@ function toEntity(row: WorkerRow): Worker {
     phone: row.phone ?? undefined,
     pin: row.pin ?? undefined,
     username: row.username ?? undefined,
-    storeIds: row.worker_store_assignments?.map((assignment) => assignment.store_id) ?? [],
+    storeIds,
   };
 }
 
@@ -63,8 +76,7 @@ export class SupabaseWorkerRepository implements IWorkerRepository {
   async getByStore(storeId: string): Promise<Worker[]> {
     const { data, error } = await supabase
       .from('workers')
-      .select('*, worker_store_assignments!inner(store_id)')
-      .eq('worker_store_assignments.store_id', storeId)
+      .select('*, worker_store_assignments(store_id)')
       .order('name', { ascending: true });
     if (error) throw error;
     return (data as WorkerRow[]).map(toEntity);
