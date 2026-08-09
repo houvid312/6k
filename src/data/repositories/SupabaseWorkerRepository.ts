@@ -15,12 +15,25 @@ interface WorkerRow {
   phone: string | null;
   pin: string | null;
   username?: string | null;
+  store_id?: string | null;
   worker_store_assignments?: { store_id: string }[];
 }
 
 // --- Mappers ---
 
 function toEntity(row: WorkerRow): Worker {
+  const storeIds: string[] = [];
+  if (row.store_id && !storeIds.includes(row.store_id)) {
+    storeIds.push(row.store_id);
+  }
+  if (row.worker_store_assignments) {
+    row.worker_store_assignments.forEach((assignment) => {
+      if (assignment.store_id && !storeIds.includes(assignment.store_id)) {
+        storeIds.push(assignment.store_id);
+      }
+    });
+  }
+
   return {
     id: row.id,
     name: row.name,
@@ -31,7 +44,7 @@ function toEntity(row: WorkerRow): Worker {
     phone: row.phone ?? undefined,
     pin: row.pin ?? undefined,
     username: row.username ?? undefined,
-    storeIds: row.worker_store_assignments?.map((assignment) => assignment.store_id) ?? [],
+    storeIds,
   };
 }
 
