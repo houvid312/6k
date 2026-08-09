@@ -966,32 +966,48 @@ export default function ContabilidadScreen() {
     || (filterPeriod === 'rango' && (rangeStartDraft !== rangeStartDate || rangeEndDraft !== rangeEndDate));
 
   const handleDeleteSale = useCallback((sale: Sale) => {
-    Alert.alert(
-      'Eliminar venta',
-      `¿Seguro que deseas eliminar esta venta de ${formatCOP(sale.totalAmount)}?`,
-      [
+    const confirmMsg = `¿Seguro que deseas eliminar esta venta de ${formatCOP(sale.totalAmount)}?`;
+    const doDelete = async () => {
+      try {
+        await saleRepo.delete(sale.id);
+        loadData();
+      } catch (err: any) {
+        if (Platform.OS === 'web') {
+          window.alert(`Error: ${err?.message || 'No se pudo eliminar la venta'}`);
+        } else {
+          Alert.alert('Error', err?.message || 'No se pudo eliminar la venta');
+        }
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(confirmMsg)) doDelete();
+    } else {
+      Alert.alert('Eliminar venta', confirmMsg, [
         { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await saleRepo.delete(sale.id);
-              loadData();
-            } catch {
-              Alert.alert('Error', 'No se pudo eliminar la venta');
-            }
-          },
-        },
-      ],
-    );
+        { text: 'Eliminar', style: 'destructive', onPress: doDelete },
+      ]);
+    }
   }, [saleRepo, loadData]);
 
   const handleDeleteExpense = useCallback((expense: Expense) => {
+    if (Platform.OS === 'web') {
+      const confirmMsg = `¿Estás seguro de eliminar este egreso (${expense.category}: ${formatCOP(expense.amount)})?`;
+      if (window.confirm(confirmMsg)) {
+        expenseRepo.delete(expense.id)
+          .then(() => {
+            loadData();
+          })
+          .catch((err) => {
+            window.alert(`Error al eliminar egreso: ${err?.message || 'Revisa permisos'}`);
+          });
+      }
+      return;
+    }
     setDeletingExpense(expense);
     setDeleteExpenseError('');
     setDeleteExpenseModalVisible(true);
-  }, []);
+  }, [expenseRepo, loadData]);
 
   const handleConfirmDeleteExpense = useCallback(async () => {
     if (!deletingExpense) return;
@@ -1013,6 +1029,31 @@ export default function ContabilidadScreen() {
       setIsDeletingExpense(false);
     }
   }, [deletingExpense, expenseRepo, loadData]);
+
+  const handleDeletePurchase = useCallback((purchase: Purchase) => {
+    const confirmMsg = `¿Seguro que deseas eliminar esta compra de ${formatCOP(purchase.priceCOP)}?`;
+    const doDelete = async () => {
+      try {
+        await purchaseRepo.delete(purchase.id);
+        loadData();
+      } catch (err: any) {
+        if (Platform.OS === 'web') {
+          window.alert(`Error: ${err?.message || 'No se pudo eliminar la compra'}`);
+        } else {
+          Alert.alert('Error', err?.message || 'No se pudo eliminar la compra');
+        }
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(confirmMsg)) doDelete();
+    } else {
+      Alert.alert('Eliminar compra', confirmMsg, [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: doDelete },
+      ]);
+    }
+  }, [purchaseRepo, loadData]);
 
   const handleEditExpense = useCallback((expense: Expense) => {
     setEditingExpense(expense);
@@ -2472,6 +2513,13 @@ export default function ContabilidadScreen() {
             <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#D32F2F', flexShrink: 0, marginRight: 4 }}>
               -{formatCOP(purchase.priceCOP)}
             </Text>
+            <IconButton
+              icon="delete-outline"
+              size={18}
+              iconColor="#D32F2F"
+              onPress={() => handleDeletePurchase(purchase)}
+              style={{ margin: 0 }}
+            />
           </Card.Content>
         </Card>
       ))}

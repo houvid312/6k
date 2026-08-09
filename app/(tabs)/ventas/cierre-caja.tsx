@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Platform, Alert } from 'react-native';
 import { Text, Card, Button, Chip, Divider, IconButton, Portal, Snackbar, useTheme } from 'react-native-paper';
 import { router, useLocalSearchParams } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
@@ -67,12 +67,13 @@ export default function CierreCajaScreen() {
         setExistingClosing(existing);
         setTotalCredit(summary.totalCreditAmount ?? 0);
 
-        // Auto-load expenses from activeDate (Compra Turno, Adelantos, etc.)
+        // Auto-load shift expenses from activeDate (Compra Turno, Adelantos de la jornada)
         let totalExpenses = 0;
         try {
-          const dbExpenses = await expenseRepo.getByDateRange(selectedStoreId, activeDate, activeDate);
-          setDayExpenses(dbExpenses);
-          const cashExpenses = dbExpenses.filter(e => e.paymentMethod === PaymentMethod.EFECTIVO);
+          const allDbExpenses = await expenseRepo.getByDateRange(selectedStoreId, activeDate, activeDate);
+          const shiftExpenses = allDbExpenses.filter(e => e.category === 'Compra Turno' || e.category === 'Adelanto');
+          setDayExpenses(shiftExpenses);
+          const cashExpenses = shiftExpenses.filter(e => e.paymentMethod === PaymentMethod.EFECTIVO);
           totalExpenses = cashExpenses.reduce((sum, e) => sum + e.amount, 0);
         } catch (err) {
           console.error('Error cargando egresos:', err);
@@ -182,6 +183,33 @@ export default function CierreCajaScreen() {
     }
   }, [existingClosing, cashClosingService, showSuccess, showError]);
 
+  const handleDeleteExpenseItem = useCallback((exp: Expense) => {
+    const confirmMsg = `¿Estás seguro de eliminar este egreso (${exp.category}: ${formatCOP(exp.amount)})?`;
+    const doDelete = async () => {
+      try {
+        await expenseRepo.delete(exp.id);
+        showSuccess('Egreso eliminado correctamente');
+        const allDbExpenses = await expenseRepo.getByDateRange(selectedStoreId, activeDate, activeDate);
+        const shiftExpenses = allDbExpenses.filter(e => e.category === 'Compra Turno' || e.category === 'Adelanto');
+        setDayExpenses(shiftExpenses);
+        const cashExpenses = shiftExpenses.filter(e => e.paymentMethod === PaymentMethod.EFECTIVO);
+        const totalExpenses = cashExpenses.reduce((sum, e) => sum + e.amount, 0);
+        setExpenses(totalExpenses);
+      } catch (err: any) {
+        showError(err?.message || 'No se pudo eliminar el egreso');
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(confirmMsg)) doDelete();
+    } else {
+      Alert.alert('Eliminar Egreso', confirmMsg, [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: doDelete },
+      ]);
+    }
+  }, [expenseRepo, showSuccess, showError, selectedStoreId, activeDate, setExpenses]);
+
   const cashTotal = actualTotal - bankTotal;
   const statusConfig = existingClosing ? STATUS_CONFIG[existingClosing.status] : null;
   const displayedClosingDiscrepancy = existingClosing?.status === ClosingStatus.DRAFT
@@ -202,11 +230,11 @@ export default function CierreCajaScreen() {
     .reduce((sum, e) => sum + e.amount, 0);
 
   const cashPurchases = dayExpenses
-    .filter((e) => e.category !== 'Adelanto' && e.paymentMethod === PaymentMethod.EFECTIVO)
+    .filter((e) => e.category === 'Compra Turno' && e.paymentMethod === PaymentMethod.EFECTIVO)
     .reduce((sum, e) => sum + e.amount, 0);
 
   const bankPurchases = dayExpenses
-    .filter((e) => e.category !== 'Adelanto' && e.paymentMethod === PaymentMethod.TRANSFERENCIA)
+    .filter((e) => e.category === 'Compra Turno' && e.paymentMethod === PaymentMethod.TRANSFERENCIA)
     .reduce((sum, e) => sum + e.amount, 0);
 
   return (
@@ -553,9 +581,20 @@ export default function CierreCajaScreen() {
                       </Chip>
                     </View>
                   </View>
-                  <Text variant="titleSmall" style={{ fontWeight: 'bold', color: isCash ? '#E63946' : '#FFB74D' }}>
-                    {formatCOP(e.amount)}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text variant="titleSmall" style={{ fontWeight: 'bold', color: isCash ? '#E63946' : '#FFB74D' }}>
+                      {formatCOP(e.amount)}
+                    </Text>
+                    {isAdmin && (
+                      <IconButton
+                        icon="delete-outline"
+                        size={18}
+                        iconColor="#D32F2F"
+                        onPress={() => handleDeleteExpenseItem(e)}
+                        style={{ margin: 0 }}
+                      />
+                    )}
+                  </View>
                 </View>
               );
             })

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Alert } from 'react-native';
+import { View, StyleSheet, Alert, Platform } from 'react-native';
 import { TextInput, Button, Text, Card, Menu, Divider, Portal, Snackbar, useTheme, IconButton } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
@@ -75,26 +75,25 @@ export default function IngresosScreen() {
   }, [category, description, amount, paymentMethod, selectedStoreId, incomeRepo, loadIncomes, showSuccess, showError]);
 
   const handleDelete = useCallback((id: string, concept: string, val: number) => {
-    Alert.alert(
-      'Eliminar ingreso',
-      `¿Seguro que deseas eliminar el ingreso de ${concept} por ${formatCOP(val)}?`,
-      [
+    const confirmMsg = `¿Seguro que deseas eliminar el ingreso de ${concept} por ${formatCOP(val)}?`;
+    const doDelete = async () => {
+      try {
+        await incomeRepo.delete(id);
+        showSuccess('Ingreso eliminado');
+        loadIncomes();
+      } catch (err: any) {
+        showError(err.message || 'No se pudo eliminar el ingreso');
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(confirmMsg)) doDelete();
+    } else {
+      Alert.alert('Eliminar ingreso', confirmMsg, [
         { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await incomeRepo.delete(id);
-              showSuccess('Ingreso eliminado');
-              loadIncomes();
-            } catch (err: any) {
-              showError(err.message || 'No se pudo eliminar el ingreso');
-            }
-          },
-        },
-      ]
-    );
+        { text: 'Eliminar', style: 'destructive', onPress: doDelete },
+      ]);
+    }
   }, [incomeRepo, loadIncomes, showSuccess, showError]);
 
   return (
