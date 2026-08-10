@@ -1,10 +1,16 @@
 -- Migration 065: Ensure SELECT, INSERT and ALL operations on physical_counts, physical_count_items, and inventory are allowed for all authenticated users/roles
 BEGIN;
 
--- 1. Políticas RLS para SELECT e INSERT en physical_counts
+-- 1. Limpiar y recrear políticas RLS para physical_counts
 DROP POLICY IF EXISTS "Authenticated read physical_counts" ON public.physical_counts;
+DROP POLICY IF EXISTS "Authenticated insert physical_counts" ON public.physical_counts;
+DROP POLICY IF EXISTS "Admin manage physical_counts" ON public.physical_counts;
+DROP POLICY IF EXISTS "Admin delete physical_counts" ON public.physical_counts;
+DROP POLICY IF EXISTS "Count operators insert physical_counts" ON public.physical_counts;
 DROP POLICY IF EXISTS "physical_counts_select_policy" ON public.physical_counts;
 DROP POLICY IF EXISTS "physical_counts_insert_policy" ON public.physical_counts;
+DROP POLICY IF EXISTS "physical_counts_update_policy" ON public.physical_counts;
+DROP POLICY IF EXISTS "physical_counts_delete_policy" ON public.physical_counts;
 
 CREATE POLICY "physical_counts_select_policy" ON public.physical_counts
   FOR SELECT TO authenticated
@@ -14,10 +20,21 @@ CREATE POLICY "physical_counts_insert_policy" ON public.physical_counts
   FOR INSERT TO authenticated
   WITH CHECK (true);
 
--- 2. Políticas RLS para SELECT e INSERT en physical_count_items
+CREATE POLICY "physical_counts_update_policy" ON public.physical_counts
+  FOR UPDATE TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
+-- 2. Limpiar y recrear políticas RLS para physical_count_items
 DROP POLICY IF EXISTS "Authenticated read physical_count_items" ON public.physical_count_items;
+DROP POLICY IF EXISTS "Authenticated insert physical_count_items" ON public.physical_count_items;
+DROP POLICY IF EXISTS "Admin manage physical_count_items" ON public.physical_count_items;
+DROP POLICY IF EXISTS "Admin delete physical_count_items" ON public.physical_count_items;
+DROP POLICY IF EXISTS "Count operators insert physical_count_items" ON public.physical_count_items;
 DROP POLICY IF EXISTS "physical_count_items_select_policy" ON public.physical_count_items;
 DROP POLICY IF EXISTS "physical_count_items_insert_policy" ON public.physical_count_items;
+DROP POLICY IF EXISTS "physical_count_items_update_policy" ON public.physical_count_items;
+DROP POLICY IF EXISTS "physical_count_items_delete_policy" ON public.physical_count_items;
 
 CREATE POLICY "physical_count_items_select_policy" ON public.physical_count_items
   FOR SELECT TO authenticated
@@ -27,8 +44,15 @@ CREATE POLICY "physical_count_items_insert_policy" ON public.physical_count_item
   FOR INSERT TO authenticated
   WITH CHECK (true);
 
--- 3. Políticas RLS para SELECT y WRITE (INSERT/UPDATE) en inventory
+CREATE POLICY "physical_count_items_update_policy" ON public.physical_count_items
+  FOR UPDATE TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
+-- 3. Limpiar y recrear políticas RLS para inventory
 DROP POLICY IF EXISTS "Authenticated read inventory" ON public.inventory;
+DROP POLICY IF EXISTS "Admin manage inventory" ON public.inventory;
+DROP POLICY IF EXISTS "Inventory operators manage inventory" ON public.inventory;
 DROP POLICY IF EXISTS "inventory_select_policy" ON public.inventory;
 DROP POLICY IF EXISTS "inventory_write_policy" ON public.inventory;
 
