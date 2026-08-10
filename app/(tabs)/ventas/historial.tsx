@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { FlatList, View, StyleSheet } from 'react-native';
-import { Button, Card, Text, Chip, Divider, Snackbar, useTheme, Searchbar, Portal, Dialog, SegmentedButtons } from 'react-native-paper';
+import { FlatList, View, StyleSheet, Platform, Alert } from 'react-native';
+import { Button, Card, Text, Chip, Divider, Snackbar, useTheme, Searchbar, Portal, Dialog, SegmentedButtons, IconButton } from 'react-native-paper';
 import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { EmptyState } from '../../../src/components/common/EmptyState';
@@ -26,6 +26,7 @@ export default function HistorialScreen() {
   const { saleService } = useDI();
   const { selectedStoreId, userRole } = useAppStore();
   const isGlobalRole = userRole === UserRole.GERENTE || userRole === UserRole.RODY;
+  const canDeleteSale = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
   const { products } = useMasterDataStore();
   const { salesDate } = useSaleStore();
 
@@ -146,6 +147,36 @@ export default function HistorialScreen() {
       setSavingPaymentMethod(false);
     }
   };
+
+  const handleDeleteSale = useCallback((sale: Sale) => {
+    const confirmMsg = `¿Estás seguro de eliminar esta venta por ${formatCOP(sale.totalAmount)}?`;
+    const doDelete = async () => {
+      try {
+        await saleService.deleteSale(sale.id);
+        setSnackbar({
+          visible: true,
+          success: true,
+          message: 'Venta eliminada correctamente',
+        });
+        loadSales();
+      } catch (err: any) {
+        setSnackbar({
+          visible: true,
+          success: false,
+          message: err?.message || 'No se pudo eliminar la venta',
+        });
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(confirmMsg)) doDelete();
+    } else {
+      Alert.alert('Eliminar Venta', confirmMsg, [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: doDelete },
+      ]);
+    }
+  }, [saleService, loadSales]);
 
   const getProductName = (productId: string) =>
     products.find((p) => p.id === productId)?.name ?? productId;
@@ -393,6 +424,15 @@ export default function HistorialScreen() {
                 >
                   Despachar
                 </Button>
+              )}
+              {canDeleteSale && (
+                <IconButton
+                  icon="delete-outline"
+                  size={20}
+                  iconColor="#D32F2F"
+                  onPress={() => handleDeleteSale(item)}
+                  style={{ margin: 0 }}
+                />
               )}
             </View>
           </View>
