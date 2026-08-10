@@ -125,9 +125,17 @@ export class TransferService {
   }
 
   /**
+   * Gets all transfers across all stores.
+   */
+  async getAllTransfers(): Promise<Transfer[]> {
+    return this.transferRepo.getAll();
+  }
+
+  /**
    * Gets all transfers for a store (incoming or outgoing).
    */
-  async getTransfersByStore(storeId: string): Promise<Transfer[]> {
+  async getTransfersByStore(storeId?: string): Promise<Transfer[]> {
+    if (!storeId) return this.transferRepo.getAll();
     return this.transferRepo.getByStore(storeId);
   }
 

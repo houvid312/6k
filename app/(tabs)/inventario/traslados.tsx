@@ -58,7 +58,10 @@ export default function TrasladosScreen() {
   const theme = useTheme();
   const { transferService } = useDI();
   const { selectedStoreId, userRole } = useAppStore();
-  const isRody = userRole === UserRole.RODY;
+  const canSend = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL || userRole === UserRole.PREPARADOR || userRole === UserRole.RODY;
+  const canReceive = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
+  const canCancel = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
+  const isGlobalRole = userRole === UserRole.GERENTE || userRole === UserRole.RODY || userRole === UserRole.PREPARADOR;
   const { supplies } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
@@ -78,21 +81,25 @@ export default function TrasladosScreen() {
   const loadTransfers = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await transferService.getTransfersByStore(selectedStoreId);
+      const data = (!selectedStoreId && isGlobalRole)
+        ? await transferService.getAllTransfers()
+        : await transferService.getTransfersByStore(selectedStoreId);
       setTransfers([...data].sort(sortTransfers));
     } catch {
       setTransfers([]);
     } finally {
       setLoading(false);
     }
-  }, [selectedStoreId, transferService]);
+  }, [selectedStoreId, isGlobalRole, transferService]);
 
   useEffect(() => {
     loadTransfers();
   }, [loadTransfers]);
 
   const openConfirm = (transfer: Transfer, action: ConfirmAction) => {
-    if (isRody) return;
+    if (action === 'transit' && !canSend) return;
+    if (action === 'receive' && !canReceive) return;
+    if (action === 'cancel' && !canCancel) return;
     setSelectedTransfer(transfer);
     setConfirmAction(action);
   };
@@ -105,17 +112,17 @@ export default function TrasladosScreen() {
   const handleConfirmAction = useCallback(async () => {
     const transferId = selectedTransfer?.id;
     const action = confirmAction;
-    if (!transferId || !action || isRody) return;
+    if (!transferId || !action) return;
 
     setActionLoading(true);
     try {
-      if (action === 'transit') {
+      if (action === 'transit' && canSend) {
         await transferService.markInTransit(transferId);
         showSuccess('Traslado marcado en transito');
-      } else if (action === 'receive') {
+      } else if (action === 'receive' && canReceive) {
         await transferService.executeTransfer(transferId);
         showSuccess('Traslado recibido. Inventario actualizado.');
-      } else if (action === 'cancel') {
+      } else if (action === 'cancel' && canCancel) {
         await transferService.cancelTransfer(transferId);
         showSuccess('Traslado cancelado');
       }
@@ -127,7 +134,7 @@ export default function TrasladosScreen() {
       setSelectedTransfer(null);
       await loadTransfers();
     }
-  }, [selectedTransfer, confirmAction, transferService, loadTransfers, showSuccess, showError, isRody]);
+  }, [selectedTransfer, confirmAction, canSend, canReceive, canCancel, transferService, loadTransfers, showSuccess, showError]);
 
   const handleCreateTransfer = useCallback(async () => {
     router.push('/(tabs)/inventario/sugerencia-envio');
@@ -137,28 +144,26 @@ export default function TrasladosScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {!isRody && (
-        <View style={styles.header}>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <Button
-              mode="contained"
-              icon="plus"
-              onPress={handleCreateTransfer}
-              style={{ borderRadius: 8, flex: 1 }}
-            >
-              Nuevo Traslado
-            </Button>
-            <Button
-              mode="outlined"
-              icon="calculator"
-              onPress={() => router.push('/(tabs)/inventario/sugerencia-envio')}
-              style={{ borderRadius: 8, flex: 1 }}
-            >
-              Sugerencia
-            </Button>
-          </View>
+      <View style={styles.header}>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <Button
+            mode="contained"
+            icon="plus"
+            onPress={handleCreateTransfer}
+            style={{ borderRadius: 8, flex: 1 }}
+          >
+            Nuevo Traslado
+          </Button>
+          <Button
+            mode="outlined"
+            icon="calculator"
+            onPress={() => router.push('/(tabs)/inventario/sugerencia-envio')}
+            style={{ borderRadius: 8, flex: 1 }}
+          >
+            Sugerencia
+          </Button>
         </View>
-      )}
+      </View>
 
       {loading ? (
         <LoadingIndicator message="Cargando traslados..." />
@@ -171,9 +176,9 @@ export default function TrasladosScreen() {
             <TransferOrderCard
               transfer={item}
               supplyMap={supplyMap}
-              onMarkInTransit={isRody ? undefined : (t) => openConfirm(t, 'transit')}
-              onReceive={isRody ? undefined : (t) => openConfirm(t, 'receive')}
-              onCancel={isRody ? undefined : (t) => openConfirm(t, 'cancel')}
+              onMarkInTransit={canSend ? (t) => openConfirm(t, 'transit') : undefined}
+              onReceive={canReceive ? (t) => openConfirm(t, 'receive') : undefined}
+              onCancel={canCancel ? (t) => openConfirm(t, 'cancel') : undefined}
             />
           )}
           keyExtractor={(item) => item.id}
