@@ -81,7 +81,7 @@ export default function TrasladosScreen() {
   const loadTransfers = useCallback(async () => {
     setLoading(true);
     try {
-      const data = (!selectedStoreId && isGlobalRole)
+      const data = isGlobalRole
         ? await transferService.getAllTransfers()
         : await transferService.getTransfersByStore(selectedStoreId);
       setTransfers([...data].sort(sortTransfers));
