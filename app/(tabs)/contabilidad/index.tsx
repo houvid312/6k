@@ -691,8 +691,8 @@ export default function ContabilidadScreen() {
           } else {
             if (entry.store_id === appliedStoreId) {
               if (isCpCredit) {
-                // Outflow payment made to CP
-                cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
+                // El egreso del traslado en el local ya está incluido en ledgerExpenses (generalBankExp/generalCashExp).
+                // No se agrega a cpOutflowPaymentsByDate para evitar descontarlo dos veces del banco del local.
               } else {
                 // Inflow payment from customer
                 if (p.payment_method === PaymentMethod.EFECTIVO) {
