@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Card, Chip, Text, Button, Divider, useTheme } from 'react-native-paper';
+import { router } from 'expo-router';
 import { Transfer } from '../../domain/entities';
 import { TransferStatus } from '../../domain/enums';
 import { formatDate, formatDateTime } from '../../utils/dates';
@@ -207,6 +208,24 @@ export function TransferOrderCard({
                   Recibir
                 </Button>
               )}
+            </View>
+          </>
+        )}
+
+        {isReceived && (
+          <>
+            <Divider style={{ backgroundColor: '#333', marginVertical: 8 }} />
+            <View style={styles.actions}>
+              <Button
+                mode="outlined"
+                compact
+                icon="wallet-outline"
+                onPress={() => router.push('/(tabs)/cartera')}
+                textColor="#FFB74D"
+                style={styles.actionBtn}
+              >
+                Ver Cobro en Cartera
+              </Button>
             </View>
           </>
         )}

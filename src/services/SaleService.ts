@@ -291,4 +291,11 @@ export class SaleService {
   async markAsDispatched(saleId: string): Promise<void> {
     return this.saleRepo.markAsDispatched(saleId);
   }
+
+  /**
+   * Deletes a sale.
+   */
+  async deleteSale(saleId: string): Promise<void> {
+    return this.saleRepo.delete(saleId);
+  }
 }

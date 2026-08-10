@@ -135,24 +135,23 @@ export default function BancosScreen() {
 
         if (isProd) {
           if (isCpCredit) {
-            allMovements.push({
-              id: `pay-in-${p.id}`,
-              date: pDate,
-              type: 'Abono Recibido (Local)',
-              concept: `Abono de ${entry.debtor_name || 'Local'}`,
-              amount: p.amount,
-            });
+            // El ingreso por traslado al CP ya fue contabilizado en Ingreso Bancario (incomes con categoría 'Traslado').
+            // Solo se suma si el pago NO tiene un registro de income asociado para evitar la doble suma.
+            if (!p.income_id && !p.incomeId) {
+              allMovements.push({
+                id: `pay-in-${p.id}`,
+                date: pDate,
+                type: 'Abono Recibido (Local)',
+                concept: `Abono de ${entry.debtor_name || 'Local'}`,
+                amount: p.amount,
+              });
+            }
           }
         } else {
           if (entry.store_id === selectedStoreId) {
             if (isCpCredit) {
-              allMovements.push({
-                id: `pay-out-${p.id}`,
-                date: pDate,
-                type: 'Pago Franquicia (CP)',
-                concept: `Abono enviado al Centro de Producción`,
-                amount: -p.amount,
-              });
+              // El egreso de traslado ya fue contabilizado en Gasto Bancario (ledgerExpenses con categoría 'Traslado').
+              // No se resta por segunda vez aquí para evitar el doble cobro en bancos.
             } else {
               const isCash = p.notes?.toLowerCase().includes('efectivo') ?? false;
               if (!isCash) {
