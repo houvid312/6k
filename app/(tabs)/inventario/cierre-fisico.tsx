@@ -130,8 +130,9 @@ export default function CierreFisicoScreen() {
       const count = await physicalCountService.submitCount(selectedStoreId!, items, selectedWorkerId || undefined, targetLevel);
       showSuccess(`${count.items.length} insumos registrados. Inventario actualizado.`);
       resetForm();
-    } catch {
-      showError('No se pudo registrar el cierre fisico');
+    } catch (err: any) {
+      console.error('Error al registrar cierre físico:', err);
+      showError(err?.message || 'No se pudo registrar el cierre físico');
     } finally {
       setSubmitting(false);
       setConfirmVisible(false);
