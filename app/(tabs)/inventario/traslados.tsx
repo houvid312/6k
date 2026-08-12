@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { FlatList, View, StyleSheet } from 'react-native';
-import { Button, Text, Portal, Snackbar, useTheme } from 'react-native-paper';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { FlatList, View, StyleSheet, ScrollView } from 'react-native';
+import { Button, Text, Portal, Snackbar, useTheme, Chip } from 'react-native-paper';
 import { router } from 'expo-router';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { ConfirmDialog } from '../../../src/components/common/ConfirmDialog';
+import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { TransferOrderCard } from '../../../src/components/inventario/TransferOrderCard';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
@@ -14,6 +15,7 @@ import { Transfer } from '../../../src/domain/entities';
 import { TransferStatus, UserRole } from '../../../src/domain/enums';
 
 type ConfirmAction = 'receive' | 'cancel' | 'transit';
+type StatusFilter = 'ALL' | TransferStatus;
 
 const STATUS_SORT_ORDER: Record<TransferStatus, number> = {
   [TransferStatus.PENDING]: 0,
@@ -38,18 +40,18 @@ function sortTransfers(a: Transfer, b: Transfer): number {
 
 const CONFIRM_CONFIG: Record<ConfirmAction, { title: string; message: string; label: string }> = {
   transit: {
-    title: 'Marcar En Transito',
-    message: 'Se marcara el traslado como enviado. Continuar?',
+    title: 'Marcar En Tránsito',
+    message: '¿Deseas marcar el traslado como enviado en tránsito?',
     label: 'Enviar',
   },
   receive: {
     title: 'Recibir Traslado',
-    message: 'Se actualizara el inventario del local y se generara el cobro interno con los precios vigentes. Continuar?',
+    message: '¿Deseas recibir el traslado? Se actualizará el inventario y se generará el cobro interno.',
     label: 'Recibir',
   },
   cancel: {
     title: 'Cancelar Traslado',
-    message: 'Se cancelara el traslado. Esta accion no se puede deshacer. Continuar?',
+    message: '¿Deseas cancelar este traslado? Esta acción no se puede deshacer.',
     label: 'Cancelar traslado',
   },
 };
@@ -58,10 +60,12 @@ export default function TrasladosScreen() {
   const theme = useTheme();
   const { transferService } = useDI();
   const { selectedStoreId, userRole } = useAppStore();
+
   const canSend = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL || userRole === UserRole.PREPARADOR || userRole === UserRole.RODY;
   const canReceive = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
   const canCancel = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
   const isGlobalRole = userRole === UserRole.GERENTE || userRole === UserRole.RODY || userRole === UserRole.PREPARADOR;
+
   const { supplies } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
@@ -70,6 +74,7 @@ export default function TrasladosScreen() {
   const [actionLoading, setActionLoading] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
 
   const supplyMap = new Map(supplies.map((s) => [s.id, {
     name: s.name,
@@ -96,6 +101,32 @@ export default function TrasladosScreen() {
     loadTransfers();
   }, [loadTransfers]);
 
+  const storeFilteredTransfers = useMemo(() => {
+    if (!selectedStoreId) return transfers;
+    return transfers.filter(
+      (t) => t.fromStoreId === selectedStoreId || t.toStoreId === selectedStoreId
+    );
+  }, [transfers, selectedStoreId]);
+
+  const filteredTransfers = useMemo(() => {
+    if (statusFilter === 'ALL') return storeFilteredTransfers;
+    return storeFilteredTransfers.filter((t) => t.status === statusFilter);
+  }, [storeFilteredTransfers, statusFilter]);
+
+  const countsByStatus = useMemo(() => {
+    const pending = storeFilteredTransfers.filter((t) => t.status === TransferStatus.PENDING).length;
+    const inTransit = storeFilteredTransfers.filter((t) => t.status === TransferStatus.IN_TRANSIT).length;
+    const received = storeFilteredTransfers.filter((t) => t.status === TransferStatus.RECEIVED).length;
+    const cancelled = storeFilteredTransfers.filter((t) => t.status === TransferStatus.CANCELLED).length;
+    return {
+      all: storeFilteredTransfers.length,
+      pending,
+      inTransit,
+      received,
+      cancelled,
+    };
+  }, [storeFilteredTransfers]);
+
   const openConfirm = (transfer: Transfer, action: ConfirmAction) => {
     if (action === 'transit' && !canSend) return;
     if (action === 'receive' && !canReceive) return;
@@ -118,7 +149,7 @@ export default function TrasladosScreen() {
     try {
       if (action === 'transit' && canSend) {
         await transferService.markInTransit(transferId);
-        showSuccess('Traslado marcado en transito');
+        showSuccess('Traslado marcado en tránsito');
       } else if (action === 'receive' && canReceive) {
         await transferService.executeTransfer(transferId);
         showSuccess('Traslado recibido. Inventario actualizado.');
@@ -127,7 +158,7 @@ export default function TrasladosScreen() {
         showSuccess('Traslado cancelado');
       }
     } catch {
-      showError('No se pudo procesar la accion');
+      showError('No se pudo procesar la acción');
     } finally {
       setActionLoading(false);
       setConfirmAction(null);
@@ -144,8 +175,10 @@ export default function TrasladosScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <View style={styles.header}>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+      <View style={styles.topSection}>
+        <StoreSelector />
+
+        <View style={styles.headerButtons}>
           <Button
             mode="contained"
             icon="plus"
@@ -163,15 +196,64 @@ export default function TrasladosScreen() {
             Sugerencia
           </Button>
         </View>
+
+        {/* Filter chips bar by status */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ marginTop: 10, maxHeight: 38 }}
+          contentContainerStyle={{ paddingHorizontal: 4 }}
+        >
+          <Chip
+            selected={statusFilter === 'ALL'}
+            onPress={() => setStatusFilter('ALL')}
+            style={[styles.filterChip, statusFilter === 'ALL' && styles.activeFilterChip]}
+            textStyle={{ fontSize: 12, color: statusFilter === 'ALL' ? '#FFFFFF' : '#F5F0EB' }}
+          >
+            Todos ({countsByStatus.all})
+          </Chip>
+          <Chip
+            selected={statusFilter === TransferStatus.PENDING}
+            onPress={() => setStatusFilter(TransferStatus.PENDING)}
+            style={[styles.filterChip, statusFilter === TransferStatus.PENDING && styles.activeFilterChip]}
+            textStyle={{ fontSize: 12, color: statusFilter === TransferStatus.PENDING ? '#FFFFFF' : '#FFB74D' }}
+          >
+            Pendientes ({countsByStatus.pending})
+          </Chip>
+          <Chip
+            selected={statusFilter === TransferStatus.IN_TRANSIT}
+            onPress={() => setStatusFilter(TransferStatus.IN_TRANSIT)}
+            style={[styles.filterChip, statusFilter === TransferStatus.IN_TRANSIT && styles.activeFilterChip]}
+            textStyle={{ fontSize: 12, color: statusFilter === TransferStatus.IN_TRANSIT ? '#FFFFFF' : '#64B5F6' }}
+          >
+            En Tránsito ({countsByStatus.inTransit})
+          </Chip>
+          <Chip
+            selected={statusFilter === TransferStatus.RECEIVED}
+            onPress={() => setStatusFilter(TransferStatus.RECEIVED)}
+            style={[styles.filterChip, statusFilter === TransferStatus.RECEIVED && styles.activeFilterChip]}
+            textStyle={{ fontSize: 12, color: statusFilter === TransferStatus.RECEIVED ? '#FFFFFF' : '#81C784' }}
+          >
+            Recibidos ({countsByStatus.received})
+          </Chip>
+          <Chip
+            selected={statusFilter === TransferStatus.CANCELLED}
+            onPress={() => setStatusFilter(TransferStatus.CANCELLED)}
+            style={[styles.filterChip, statusFilter === TransferStatus.CANCELLED && styles.activeFilterChip]}
+            textStyle={{ fontSize: 12, color: statusFilter === TransferStatus.CANCELLED ? '#FFFFFF' : '#E57373' }}
+          >
+            Cancelados ({countsByStatus.cancelled})
+          </Chip>
+        </ScrollView>
       </View>
 
       {loading ? (
         <LoadingIndicator message="Cargando traslados..." />
-      ) : transfers.length === 0 ? (
-        <EmptyState icon="truck" title="Sin traslados" subtitle="No hay traslados registrados" />
+      ) : filteredTransfers.length === 0 ? (
+        <EmptyState icon="truck" title="Sin traslados" subtitle="No hay traslados para el filtro seleccionado" />
       ) : (
         <FlatList
-          data={transfers}
+          data={filteredTransfers}
           renderItem={({ item }) => (
             <TransferOrderCard
               transfer={item}
@@ -217,9 +299,22 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
+  topSection: {
     padding: 16,
     paddingBottom: 8,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  filterChip: {
+    marginRight: 6,
+    height: 32,
+    backgroundColor: '#2A2A2A',
+  },
+  activeFilterChip: {
+    backgroundColor: '#E63946',
   },
   list: {
     padding: 16,

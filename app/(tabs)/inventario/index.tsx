@@ -217,37 +217,6 @@ export default function InventarioScreen() {
     });
   }, [storeItems, workflowMinimums]);
 
-  if (userRole === UserRole.RODY) {
-    return (
-      <View style={[styles.container, { padding: 16, backgroundColor: theme.colors.background }]}>
-        <Card style={styles.workflowCard} mode="elevated">
-          <Card.Content>
-            <View style={styles.cardHeader}>
-              <MaterialCommunityIcons name="truck-delivery-outline" size={26} color="#D4A843" />
-              <Text variant="titleMedium" style={styles.cardTitle}>
-                Envíos a Locales (Traslados)
-              </Text>
-            </View>
-            <Text variant="bodySmall" style={styles.cardSubtitle}>
-              Consulta y seguimiento de traslados e insumos enviados entre sucursales.
-            </Text>
-            <View style={styles.cardActions}>
-              <Button
-                mode="contained"
-                onPress={() => router.push('/(tabs)/inventario/traslados')}
-                style={styles.actionBtnPrimary}
-                buttonColor="#2196F3"
-                icon="truck"
-              >
-                Ver Envíos / Traslados
-              </Button>
-            </View>
-          </Card.Content>
-        </Card>
-      </View>
-    );
-  }
-
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <View style={styles.topSection}>
