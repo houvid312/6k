@@ -243,8 +243,8 @@ export default function InventarioScreen() {
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={{ marginTop: 8, maxHeight: 38 }}
-          contentContainerStyle={{ paddingHorizontal: 4 }}
+          style={{ marginTop: 8, marginBottom: 4 }}
+          contentContainerStyle={{ paddingHorizontal: 4, gap: 6 }}
         >
           {canManageRecipesAndSupplies && (
             <Button
@@ -698,30 +698,31 @@ const styles = StyleSheet.create({
     borderColor: '#3A3A3A',
   },
   chipScroll: {
-    marginTop: 10,
-    marginBottom: 8,
+    marginVertical: 10,
+    paddingHorizontal: 16,
     flexGrow: 0,
   },
   chipRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
     paddingRight: 16,
   },
   chip: {
     backgroundColor: '#2A2A2A',
-    borderRadius: 16,
+    borderRadius: 20,
+    height: 36,
   },
   chipActive: {
     backgroundColor: '#E63946',
   },
   chipText: {
-    color: '#999',
+    color: '#CCCCCC',
     fontSize: 12,
   },
   chipTextActive: {
     color: '#FFFFFF',
-    fontWeight: '600',
+    fontWeight: '700',
   },
   searchInput: {
     marginBottom: 8,
