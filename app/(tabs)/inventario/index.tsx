@@ -240,91 +240,93 @@ export default function InventarioScreen() {
           style={styles.segmentedButtons}
         />
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={{ marginTop: 8, marginBottom: 4 }}
-          contentContainerStyle={{ paddingHorizontal: 4, gap: 6 }}
-        >
-          {canManageRecipesAndSupplies && (
+        {activeTab === 'workflow' && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ marginTop: 8, marginBottom: 4 }}
+            contentContainerStyle={{ paddingHorizontal: 4, gap: 6 }}
+          >
+            {canManageRecipesAndSupplies && (
+              <Button
+                mode="outlined"
+                compact
+                icon="silverware-fork-knife"
+                style={{ marginRight: 8, height: 32 }}
+                labelStyle={{ fontSize: 11, marginVertical: 4 }}
+                onPress={() => router.push('/(tabs)/inventario/recetas')}
+              >
+                Recetas Ventas
+              </Button>
+            )}
             <Button
               mode="outlined"
               compact
-              icon="silverware-fork-knife"
+              icon="pizza"
               style={{ marginRight: 8, height: 32 }}
               labelStyle={{ fontSize: 11, marginVertical: 4 }}
-              onPress={() => router.push('/(tabs)/inventario/recetas')}
+              onPress={() => router.push('/(tabs)/inventario/productos')}
             >
-              Recetas Ventas
+              Productos
             </Button>
-          )}
-          <Button
-            mode="outlined"
-            compact
-            icon="pizza"
-            style={{ marginRight: 8, height: 32 }}
-            labelStyle={{ fontSize: 11, marginVertical: 4 }}
-            onPress={() => router.push('/(tabs)/inventario/productos')}
-          >
-            Productos
-          </Button>
-          {canManageRecipesAndSupplies && (
+            {canManageRecipesAndSupplies && (
+              <Button
+                mode="outlined"
+                compact
+                icon="package-variant-closed"
+                style={{ marginRight: 8, height: 32 }}
+                labelStyle={{ fontSize: 11, marginVertical: 4 }}
+                onPress={() => router.push('/(tabs)/inventario/insumos')}
+              >
+                Insumos
+              </Button>
+            )}
             <Button
               mode="outlined"
               compact
-              icon="package-variant-closed"
+              icon="chart-areaspline"
               style={{ marginRight: 8, height: 32 }}
               labelStyle={{ fontSize: 11, marginVertical: 4 }}
-              onPress={() => router.push('/(tabs)/inventario/insumos')}
+              onPress={() => router.push('/(tabs)/inventario/demanda')}
             >
-              Insumos
+              Demanda
             </Button>
-          )}
-          <Button
-            mode="outlined"
-            compact
-            icon="chart-areaspline"
-            style={{ marginRight: 8, height: 32 }}
-            labelStyle={{ fontSize: 11, marginVertical: 4 }}
-            onPress={() => router.push('/(tabs)/inventario/demanda')}
-          >
-            Demanda
-          </Button>
-          <Button
-            mode="outlined"
-            compact
-            icon="minus-circle-outline"
-            style={{ marginRight: 8, height: 32 }}
-            labelStyle={{ fontSize: 11, marginVertical: 4 }}
-            onPress={() => router.push('/(tabs)/inventario/bajas')}
-          >
-            Bajas/Mermas
-          </Button>
-          {isAdmin && (
             <Button
               mode="outlined"
               compact
-              icon="pencil-box-multiple-outline"
-              style={{ marginRight: 8, height: 32, borderColor: '#FF9800' }}
-              labelStyle={{ fontSize: 11, marginVertical: 4, color: '#FF9800' }}
-              onPress={() => router.push('/(tabs)/inventario/ajustes' as any)}
+              icon="minus-circle-outline"
+              style={{ marginRight: 8, height: 32 }}
+              labelStyle={{ fontSize: 11, marginVertical: 4 }}
+              onPress={() => router.push('/(tabs)/inventario/bajas')}
             >
-              Ajustes / Auditoría
+              Bajas/Mermas
             </Button>
-          )}
-          {userRole === UserRole.GERENTE && (
-            <Button
-              mode="outlined"
-              compact
-              icon="store-cog"
-              style={{ marginRight: 8, height: 32, borderColor: '#E63946' }}
-              labelStyle={{ fontSize: 11, marginVertical: 4, color: '#E63946' }}
-              onPress={() => router.push('/(tabs)/inventario/sedes' as any)}
-            >
-              Gestión Sedes
-            </Button>
-          )}
-        </ScrollView>
+            {isAdmin && (
+              <Button
+                mode="outlined"
+                compact
+                icon="pencil-box-multiple-outline"
+                style={{ marginRight: 8, height: 32, borderColor: '#FF9800' }}
+                labelStyle={{ fontSize: 11, marginVertical: 4, color: '#FF9800' }}
+                onPress={() => router.push('/(tabs)/inventario/ajustes' as any)}
+              >
+                Ajustes / Auditoría
+              </Button>
+            )}
+            {userRole === UserRole.GERENTE && (
+              <Button
+                mode="outlined"
+                compact
+                icon="store-cog"
+                style={{ marginRight: 8, height: 32, borderColor: '#E63946' }}
+                labelStyle={{ fontSize: 11, marginVertical: 4, color: '#E63946' }}
+                onPress={() => router.push('/(tabs)/inventario/sedes' as any)}
+              >
+                Gestión Sedes
+              </Button>
+            )}
+          </ScrollView>
+        )}
       </View>
 
       {activeTab === 'workflow' ? (
