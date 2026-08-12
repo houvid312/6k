@@ -531,12 +531,7 @@ export default function InventarioScreen() {
         <View style={{ flex: 1 }}>
           {/* Nivel de stock selector */}
           {levelOptions.length > 1 && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.chipScroll}
-              contentContainerStyle={styles.chipRow}
-            >
+            <View style={styles.chipRowContainer}>
               {levelOptions.map((opt) => (
                 <Chip
                   key={opt.value}
@@ -558,7 +553,7 @@ export default function InventarioScreen() {
                   {opt.label}
                 </Chip>
               ))}
-            </ScrollView>
+            </View>
           )}
 
           <TextInput
@@ -699,16 +694,15 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderColor: '#3A3A3A',
   },
-  chipScroll: {
-    marginVertical: 10,
-    paddingHorizontal: 16,
-    flexGrow: 0,
-  },
-  chipRow: {
+  chipRowContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingRight: 16,
+    paddingHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 8,
+    flexShrink: 0,
+    minHeight: 40,
   },
   chip: {
     backgroundColor: '#2A2A2A',
@@ -729,6 +723,7 @@ const styles = StyleSheet.create({
   searchInput: {
     marginBottom: 8,
     marginHorizontal: 16,
+    flexShrink: 0,
   },
   list: {
     padding: 16,
