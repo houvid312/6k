@@ -102,11 +102,14 @@ export default function TrasladosScreen() {
   }, [loadTransfers]);
 
   const storeFilteredTransfers = useMemo(() => {
-    if (!selectedStoreId) return transfers;
+    // Rody y Preparadores deben ver los traslados de todas las sedes sin que el filtro de sede principal los oculte
+    if (userRole === UserRole.RODY || userRole === UserRole.PREPARADOR || !selectedStoreId) {
+      return transfers;
+    }
     return transfers.filter(
       (t) => t.fromStoreId === selectedStoreId || t.toStoreId === selectedStoreId
     );
-  }, [transfers, selectedStoreId]);
+  }, [transfers, selectedStoreId, userRole]);
 
   const filteredTransfers = useMemo(() => {
     if (statusFilter === 'ALL') return storeFilteredTransfers;
