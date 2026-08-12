@@ -58,8 +58,8 @@ const CONFIRM_CONFIG: Record<ConfirmAction, { title: string; message: string; la
 
 export default function TrasladosScreen() {
   const theme = useTheme();
-  const { transferService } = useDI();
-  const { selectedStoreId, userRole } = useAppStore();
+  const { transferService, creditService } = useDI();
+  const { selectedStoreId, userRole, stores } = useAppStore();
 
   const canSend = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL || userRole === UserRole.PREPARADOR || userRole === UserRole.RODY;
   const canReceive = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
@@ -70,6 +70,7 @@ export default function TrasladosScreen() {
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [transfers, setTransfers] = useState<Transfer[]>([]);
+  const [creditMap, setCreditMap] = useState<Map<string, any>>(new Map());
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null);
@@ -83,12 +84,24 @@ export default function TrasladosScreen() {
     isBillableToStore: s.isBillableToStore,
   }]));
 
+  const storeMap = useMemo(() => {
+    return new Map(stores.map((s) => [s.id, s.name]));
+  }, [stores]);
+
   const loadTransfers = useCallback(async () => {
     setLoading(true);
     try {
-      const data = isGlobalRole
-        ? await transferService.getAllTransfers()
-        : await transferService.getTransfersByStore(selectedStoreId);
+      const [data, credits] = await Promise.all([
+        isGlobalRole ? transferService.getAllTransfers() : transferService.getTransfersByStore(selectedStoreId),
+        creditService.getAllCredits().catch(() => []),
+      ]);
+
+      const cMap = new Map<string, any>();
+      for (const credit of credits) {
+        if (credit.transferId) cMap.set(credit.transferId, credit);
+        if (credit.id) cMap.set(credit.id, credit);
+      }
+      setCreditMap(cMap);
       setTransfers([...data].sort(sortTransfers));
     } catch (err: any) {
       console.error('Error loading transfers:', err);
@@ -97,7 +110,7 @@ export default function TrasladosScreen() {
     } finally {
       setLoading(false);
     }
-  }, [selectedStoreId, isGlobalRole, transferService, showError]);
+  }, [selectedStoreId, isGlobalRole, transferService, creditService, showError]);
 
   useEffect(() => {
     loadTransfers();
@@ -263,6 +276,8 @@ export default function TrasladosScreen() {
             <TransferOrderCard
               transfer={item}
               supplyMap={supplyMap}
+              storeMap={storeMap}
+              creditMap={creditMap}
               onMarkInTransit={canSend ? (t) => openConfirm(t, 'transit') : undefined}
               onReceive={canReceive ? (t) => openConfirm(t, 'receive') : undefined}
               onCancel={canCancel ? (t) => openConfirm(t, 'cancel') : undefined}

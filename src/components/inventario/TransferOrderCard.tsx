@@ -34,6 +34,8 @@ interface Props {
     commercialPriceCop: number;
     isBillableToStore: boolean;
   }>;
+  storeMap?: Map<string, string>;
+  creditMap?: Map<string, any>;
   onMarkInTransit?: (transfer: Transfer) => void;
   onReceive?: (transfer: Transfer) => void;
   onCancel?: (transfer: Transfer) => void;
@@ -43,6 +45,8 @@ interface Props {
 export function TransferOrderCard({
   transfer,
   supplyMap,
+  storeMap,
+  creditMap,
   onMarkInTransit,
   onReceive,
   onCancel,
@@ -57,6 +61,25 @@ export function TransferOrderCard({
   const isInTransit = transfer.status === TransferStatus.IN_TRANSIT;
   const isReceived = transfer.status === TransferStatus.RECEIVED;
   const isActive = isPending || isInTransit;
+
+  const fromStoreName = storeMap?.get(transfer.fromStoreId) || 'Origen';
+  const toStoreName = storeMap?.get(transfer.toStoreId) || 'Destino';
+
+  const creditEntry = creditMap?.get(transfer.id) || (transfer.creditEntryId ? creditMap?.get(transfer.creditEntryId) : undefined);
+
+  const paymentStatus = React.useMemo(() => {
+    if (!isReceived) {
+      return { label: 'Por Recibir', color: '#757575', icon: 'clock-outline' };
+    }
+    if (creditEntry) {
+      if (creditEntry.isPaid || creditEntry.balance <= 0) {
+        return { label: 'Pagado', color: '#2E7D32', icon: 'cash-check' };
+      }
+      return { label: `Pendiente de Pago (${formatCOP(creditEntry.balance)})`, color: '#E65100', icon: 'alert-circle-outline' };
+    }
+    return { label: 'Pagado', color: '#2E7D32', icon: 'cash-check' };
+  }, [isReceived, creditEntry]);
+
   const totalPrice = isReceived
     ? transfer.totalPriceCop ?? transfer.items.reduce((sum, i) => sum + (i.totalPriceCopSnapshot ?? 0), 0)
     : transfer.items.reduce((sum, item) => {
@@ -69,22 +92,49 @@ export function TransferOrderCard({
     <Card style={[styles.card, isActive && { borderLeftWidth: 3, borderLeftColor: config.color }]} mode="elevated">
       <Card.Content>
         <View style={styles.header}>
-          <View style={{ flex: 1 }}>
-            <Text variant="titleSmall" style={{ fontWeight: '600' }}>
-              Traslado {transfer.id.slice(-6)}
+          <View style={{ flex: 1, paddingRight: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <Text variant="titleSmall" style={{ fontWeight: '700' }}>
+                Traslado #{transfer.id.slice(-6).toUpperCase()}
+              </Text>
+              <Chip
+                compact
+                style={{ backgroundColor: '#2A2A2A', height: 24 }}
+                textStyle={{ fontSize: 11, color: '#FFB74D', fontWeight: '700' }}
+                icon="storefront-outline"
+              >
+                Destino: {toStoreName}
+              </Chip>
+            </View>
+
+            <Text variant="bodySmall" style={{ color: '#AAAAAA', marginTop: 3 }}>
+              {fromStoreName} ➔ <Text style={{ color: '#FFB74D', fontWeight: '600' }}>{toStoreName}</Text>
             </Text>
+
             <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
               {formatTransferCreatedAt(transfer)} - {transfer.items.length} insumos - {totalBags} bolsas
             </Text>
-            <Text variant="bodySmall" style={{ color: '#E63946', marginTop: 2, fontWeight: '700' }}>
-              Total local: {formatCOP(totalPrice)}
-            </Text>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+              <Text variant="bodySmall" style={{ color: '#E63946', fontWeight: '700' }}>
+                Total local: {formatCOP(totalPrice)}
+              </Text>
+              <Chip
+                compact
+                icon={paymentStatus.icon}
+                textStyle={{ fontSize: 10, color: '#FFFFFF', fontWeight: '700' }}
+                style={{ backgroundColor: paymentStatus.color, height: 22 }}
+              >
+                {paymentStatus.label}
+              </Chip>
+            </View>
           </View>
+
           <Chip
             compact
             icon={config.icon}
             textStyle={{ fontSize: 11, color: '#FFFFFF' }}
-            style={{ backgroundColor: config.color }}
+            style={{ backgroundColor: config.color, alignSelf: 'flex-start' }}
           >
             {config.label}
           </Chip>
