@@ -90,12 +90,14 @@ export default function TrasladosScreen() {
         ? await transferService.getAllTransfers()
         : await transferService.getTransfersByStore(selectedStoreId);
       setTransfers([...data].sort(sortTransfers));
-    } catch {
+    } catch (err: any) {
+      console.error('Error loading transfers:', err);
+      showError(err?.message ? `Error al cargar traslados: ${err.message}` : 'Error al cargar traslados');
       setTransfers([]);
     } finally {
       setLoading(false);
     }
-  }, [selectedStoreId, isGlobalRole, transferService]);
+  }, [selectedStoreId, isGlobalRole, transferService, showError]);
 
   useEffect(() => {
     loadTransfers();
