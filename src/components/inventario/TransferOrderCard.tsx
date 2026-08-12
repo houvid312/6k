@@ -1,17 +1,50 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Card, Chip, Text, Button, Divider, useTheme } from 'react-native-paper';
+import { Card, Text, Button, Divider, useTheme } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Transfer } from '../../domain/entities';
 import { TransferStatus } from '../../domain/enums';
 import { formatDate, formatDateTime } from '../../utils/dates';
 import { formatCOP } from '../../utils/currency';
 
-const STATUS_CONFIG: Record<TransferStatus, { label: string; color: string; icon: string }> = {
-  [TransferStatus.PENDING]: { label: 'Pendiente', color: '#F57C00', icon: 'clock-outline' },
-  [TransferStatus.IN_TRANSIT]: { label: 'En transito', color: '#1976D2', icon: 'truck-delivery' },
-  [TransferStatus.RECEIVED]: { label: 'Recibido', color: '#388E3C', icon: 'check-circle' },
-  [TransferStatus.CANCELLED]: { label: 'Cancelado', color: '#D32F2F', icon: 'close-circle' },
+interface StatusBadgeConfig {
+  label: string;
+  color: string;
+  bgColor: string;
+  borderColor: string;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+}
+
+const STATUS_CONFIG: Record<TransferStatus, StatusBadgeConfig> = {
+  [TransferStatus.PENDING]: {
+    label: 'Pendiente',
+    color: '#FFB74D',
+    bgColor: 'rgba(255, 183, 77, 0.15)',
+    borderColor: '#F57C00',
+    icon: 'clock-outline',
+  },
+  [TransferStatus.IN_TRANSIT]: {
+    label: 'En tránsito',
+    color: '#64B5F6',
+    bgColor: 'rgba(100, 181, 246, 0.15)',
+    borderColor: '#1976D2',
+    icon: 'truck-delivery-outline',
+  },
+  [TransferStatus.RECEIVED]: {
+    label: 'Recibido',
+    color: '#81C784',
+    bgColor: 'rgba(129, 199, 132, 0.15)',
+    borderColor: '#388E3C',
+    icon: 'check-circle-outline',
+  },
+  [TransferStatus.CANCELLED]: {
+    label: 'Cancelado',
+    color: '#E57373',
+    bgColor: 'rgba(229, 115, 115, 0.15)',
+    borderColor: '#D32F2F',
+    icon: 'close-circle-outline',
+  },
 };
 
 function formatTransferCreatedAt(transfer: Transfer): string {
@@ -67,17 +100,41 @@ export function TransferOrderCard({
 
   const creditEntry = creditMap?.get(transfer.id) || (transfer.creditEntryId ? creditMap?.get(transfer.creditEntryId) : undefined);
 
-  const paymentStatus = React.useMemo(() => {
+  const paymentStatus = useMemo(() => {
     if (!isReceived) {
-      return { label: 'Por Recibir', color: '#757575', icon: 'clock-outline' };
+      return {
+        label: 'Por Recibir',
+        textColor: '#B0BEC5',
+        bgColor: 'rgba(176, 190, 197, 0.15)',
+        borderColor: '#78909C',
+        icon: 'clock-outline' as const,
+      };
     }
     if (creditEntry) {
       if (creditEntry.isPaid || creditEntry.balance <= 0) {
-        return { label: 'Pagado', color: '#2E7D32', icon: 'cash-check' };
+        return {
+          label: 'Pagado',
+          textColor: '#81C784',
+          bgColor: 'rgba(129, 199, 132, 0.15)',
+          borderColor: '#388E3C',
+          icon: 'cash-check' as const,
+        };
       }
-      return { label: `Pendiente de Pago (${formatCOP(creditEntry.balance)})`, color: '#E65100', icon: 'alert-circle-outline' };
+      return {
+        label: `Pendiente (${formatCOP(creditEntry.balance)})`,
+        textColor: '#FFB74D',
+        bgColor: 'rgba(255, 183, 77, 0.15)',
+        borderColor: '#E65100',
+        icon: 'alert-circle-outline' as const,
+      };
     }
-    return { label: 'Pagado', color: '#2E7D32', icon: 'cash-check' };
+    return {
+      label: 'Pagado',
+      textColor: '#81C784',
+      bgColor: 'rgba(129, 199, 132, 0.15)',
+      borderColor: '#388E3C',
+      icon: 'cash-check' as const,
+    };
   }, [isReceived, creditEntry]);
 
   const totalPrice = isReceived
@@ -89,74 +146,83 @@ export function TransferOrderCard({
     }, 0);
 
   return (
-    <Card style={[styles.card, isActive && { borderLeftWidth: 3, borderLeftColor: config.color }]} mode="elevated">
-      <Card.Content>
-        <View style={styles.header}>
-          <View style={{ flex: 1, paddingRight: 8 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <Text variant="titleSmall" style={{ fontWeight: '700' }}>
+    <Card style={[styles.card, isActive && { borderLeftWidth: 4, borderLeftColor: config.color }]} mode="elevated">
+      <Card.Content style={{ paddingVertical: 12, paddingHorizontal: 14 }}>
+
+        {/* Top Header Row */}
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <Text variant="titleMedium" style={{ fontWeight: '800', color: '#F5F0EB' }}>
                 Traslado #{transfer.id.slice(-6).toUpperCase()}
               </Text>
-              <Chip
-                compact
-                style={{ backgroundColor: '#2A2A2A', height: 24 }}
-                textStyle={{ fontSize: 11, color: '#FFB74D', fontWeight: '700' }}
-                icon="storefront-outline"
-              >
-                Destino: {toStoreName}
-              </Chip>
+              {/* Destination badge */}
+              <View style={styles.destBadge}>
+                <MaterialCommunityIcons name="storefront-outline" size={13} color="#FFB74D" />
+                <Text style={styles.destBadgeText}>
+                  Destino: {toStoreName}
+                </Text>
+              </View>
             </View>
 
-            <Text variant="bodySmall" style={{ color: '#AAAAAA', marginTop: 3 }}>
-              {fromStoreName} ➔ <Text style={{ color: '#FFB74D', fontWeight: '600' }}>{toStoreName}</Text>
-            </Text>
-
-            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
-              {formatTransferCreatedAt(transfer)} - {transfer.items.length} insumos - {totalBags} bolsas
-            </Text>
-
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
-              <Text variant="bodySmall" style={{ color: '#E63946', fontWeight: '700' }}>
-                Total local: {formatCOP(totalPrice)}
+            {/* Route */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+              <MaterialCommunityIcons name="map-marker-path" size={14} color="#999" />
+              <Text variant="bodySmall" style={{ color: '#AAAAAA', fontWeight: '500' }}>
+                {fromStoreName} <Text style={{ color: '#FFB74D', fontWeight: '700' }}>➔ {toStoreName}</Text>
               </Text>
-              <Chip
-                compact
-                icon={paymentStatus.icon}
-                textStyle={{ fontSize: 10, color: '#FFFFFF', fontWeight: '700' }}
-                style={{ backgroundColor: paymentStatus.color, height: 22 }}
-              >
-                {paymentStatus.label}
-              </Chip>
+            </View>
+
+            {/* Date & Quantities */}
+            <Text variant="bodySmall" style={{ color: '#777777', marginTop: 2 }}>
+              {formatTransferCreatedAt(transfer)} • {transfer.items.length} insumos • {totalBags} bolsas
+            </Text>
+
+            {/* Price & Payment Status Row */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+                <Text variant="bodySmall" style={{ color: '#888888' }}>Total local:</Text>
+                <Text variant="titleSmall" style={{ color: '#E63946', fontWeight: '800' }}>
+                  {formatCOP(totalPrice)}
+                </Text>
+              </View>
+
+              {/* Custom Payment Status Badge */}
+              <View style={[styles.customBadge, { backgroundColor: paymentStatus.bgColor, borderColor: paymentStatus.borderColor }]}>
+                <MaterialCommunityIcons name={paymentStatus.icon} size={12} color={paymentStatus.textColor} />
+                <Text style={[styles.customBadgeText, { color: paymentStatus.textColor }]}>
+                  {paymentStatus.label}
+                </Text>
+              </View>
             </View>
           </View>
 
-          <Chip
-            compact
-            icon={config.icon}
-            textStyle={{ fontSize: 11, color: '#FFFFFF' }}
-            style={{ backgroundColor: config.color, alignSelf: 'flex-start' }}
-          >
-            {config.label}
-          </Chip>
+          {/* Transfer Status Badge */}
+          <View style={[styles.customBadge, { backgroundColor: config.bgColor, borderColor: config.borderColor, alignSelf: 'flex-start' }]}>
+            <MaterialCommunityIcons name={config.icon} size={13} color={config.color} />
+            <Text style={[styles.customBadgeText, { color: config.color }]}>
+              {config.label}
+            </Text>
+          </View>
         </View>
 
-        {/* Toggle detalle */}
+        {/* Toggle Details */}
         <Button
           mode="text"
           compact
           icon={expanded ? 'chevron-up' : 'chevron-down'}
           onPress={() => setExpanded(!expanded)}
           textColor="#999"
-          style={{ alignSelf: 'flex-start', marginTop: 4 }}
+          style={{ alignSelf: 'flex-start', marginTop: 4, marginLeft: -8 }}
         >
           {expanded ? 'Ocultar detalle' : 'Ver detalle'}
         </Button>
 
-        {/* Detalle expandido */}
+        {/* Expanded details */}
         {expanded && (
           <>
             <Divider style={{ backgroundColor: '#333', marginVertical: 8 }} />
-            <Text variant="bodySmall" style={{ color: '#999', marginBottom: 4 }}>
+            <Text variant="bodySmall" style={{ color: '#999', marginBottom: 6, fontWeight: '600' }}>
               Items del traslado:
             </Text>
             {transfer.items.map((item) => {
@@ -175,10 +241,10 @@ export function TransferOrderCard({
               return (
                 <View key={item.supplyId} style={styles.itemBlock}>
                   <View style={styles.itemRow}>
-                    <Text variant="bodySmall" style={{ color: '#F5F0EB', flex: 1 }}>
+                    <Text variant="bodySmall" style={{ color: '#F5F0EB', flex: 1, fontWeight: '500' }}>
                       {name}
                     </Text>
-                    <Text variant="bodySmall" style={{ color: '#999', marginRight: 12 }}>
+                    <Text variant="bodySmall" style={{ color: '#AAAAAA', marginRight: 12 }}>
                       {item.bagsToSend} bolsa{item.bagsToSend !== 1 ? 's' : ''}
                     </Text>
                     {totalGrams != null && (
@@ -188,7 +254,7 @@ export function TransferOrderCard({
                     )}
                   </View>
                   <View style={styles.priceRow}>
-                    <Text variant="labelSmall" style={{ color: '#999' }}>
+                    <Text variant="labelSmall" style={{ color: '#888888' }}>
                       {formatCOP(unitPrice)} c/u
                     </Text>
                     <Text variant="labelSmall" style={{ color: '#F5F0EB', fontWeight: '700' }}>
@@ -210,7 +276,7 @@ export function TransferOrderCard({
           </>
         )}
 
-        {/* Acciones según estado */}
+        {/* Actions according to status */}
         {isActive && (
           <>
             <Divider style={{ backgroundColor: '#333', marginVertical: 8 }} />
@@ -286,26 +352,56 @@ export function TransferOrderCard({
 
 const styles = StyleSheet.create({
   card: {
-    marginBottom: 8,
+    marginBottom: 10,
     borderRadius: 12,
+    backgroundColor: '#1E1E1E',
   },
-  header: {
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  destBadge: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255, 183, 77, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 183, 77, 0.3)',
+  },
+  destBadgeText: {
+    fontSize: 11,
+    color: '#FFB74D',
+    fontWeight: '700',
+  },
+  customBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  customBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 4,
+    paddingVertical: 3,
   },
   itemBlock: {
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
   priceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 2,
+    marginTop: 1,
   },
   totalRow: {
     flexDirection: 'row',
