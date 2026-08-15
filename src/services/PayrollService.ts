@@ -231,7 +231,7 @@ export class PayrollService {
       const amount = Math.min(remaining, credit.balance);
       
       const income = await this.incomeRepo.create({
-        storeId: period.storeId,
+        storeId: credit.storeId,
         date: paymentDate,
         category: 'Abono Cartera',
         description: `Descuento de nomina (${credit.concept}) - ${workerName(entry.workerId)}`,
@@ -243,7 +243,7 @@ export class PayrollService {
       await this.creditRepo.applyPayment({
         creditEntryId: credit.id,
         workerId: entry.workerId,
-        storeId: period.storeId,
+        storeId: credit.storeId,
         payrollPeriodId: period.id,
         payrollEntryId: entry.id,
         amount,
