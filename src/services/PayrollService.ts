@@ -147,10 +147,9 @@ export class PayrollService {
     }
 
     const closedPeriod = await this.saveReport(report, 'CERRADA');
-    const entries = await this.payrollRepo.getEntries(closedPeriod.id);
     const paymentDate = todayColombia();
 
-    for (const entry of entries) {
+    for (const entry of report.entries) {
       const workerPayMethod = entry.paymentMethod ?? PaymentMethod.EFECTIVO;
       const debtPayMethod = entry.debtPaymentMethod ?? workerPayMethod;
 
