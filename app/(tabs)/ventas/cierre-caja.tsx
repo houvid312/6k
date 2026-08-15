@@ -86,15 +86,16 @@ export default function CierreCajaScreen() {
         } catch { /* ignore */ }
 
         if (existing) {
-          const shouldRecalculateDraft = existing.status === ClosingStatus.DRAFT;
-
           for (const [key, count] of Object.entries(existing.denominations)) {
             setDenomination(key as keyof CashClosing['denominations'], count);
           }
-          const effectiveBank = (shouldRecalculateDraft || existing.bankTotal === 0) ? summary.totalBankAmount : existing.bankTotal;
+          // Preserve saved bankTotal if existing closing has it, fallback to summary.totalBankAmount only if null/undefined
+          const effectiveBank = (existing.bankTotal !== undefined && existing.bankTotal !== null)
+            ? existing.bankTotal
+            : summary.totalBankAmount;
           setBankTotal(effectiveBank);
           setExpenses(totalExpenses);
-          setExpectedTotal(shouldRecalculateDraft ? summary.totalAmount : existing.expectedTotal);
+          setExpectedTotal(existing.expectedTotal || summary.totalAmount);
         } else {
           setExpectedTotal(summary.totalAmount);
           setBankTotal(summary.totalBankAmount);
@@ -134,7 +135,7 @@ export default function CierreCajaScreen() {
         setExistingClosing(closing);
         showSuccess(`Cierre creado (${formatDate(activeDate)}) como borrador. Discrepancia: ${formatCOP(closing.discrepancy)}`);
       }
-    } catch (err) {
+    } catch (err: any) {
       showError(err instanceof Error ? err.message : 'No se pudo registrar el cierre');
     } finally {
       setSubmitting(false);
@@ -142,18 +143,41 @@ export default function CierreCajaScreen() {
   }, [selectedStoreId, activeDate, denominations, bankTotal, expenses, cashClosingService, existingClosing, isEditable, discrepancy, showSuccess, showError]);
 
   const handleConfirm = useCallback(async () => {
-    if (!existingClosing) return;
     setSubmitting(true);
     try {
-      const updated = await cashClosingService.confirmClosing(existingClosing.id, '');
-      setExistingClosing(updated);
-      showSuccess('Cierre confirmado y periodo bloqueado');
-    } catch {
-      showError('No se pudo confirmar el cierre');
+      let closingToConfirmId = existingClosing?.id;
+      if (existingClosing && isEditable) {
+        const saved = await cashClosingService.updateClosing(
+          existingClosing.id,
+          selectedStoreId,
+          activeDate,
+          denominations,
+          bankTotal,
+          expenses,
+        );
+        closingToConfirmId = saved.id;
+      } else if (!existingClosing) {
+        const created = await cashClosingService.createClosing(
+          selectedStoreId,
+          activeDate,
+          denominations,
+          bankTotal,
+          expenses,
+        );
+        closingToConfirmId = created.id;
+      }
+
+      if (closingToConfirmId) {
+        const updated = await cashClosingService.confirmClosing(closingToConfirmId, '');
+        setExistingClosing(updated);
+        showSuccess('Cierre confirmado y guardado correctamente');
+      }
+    } catch (err: any) {
+      showError(err?.message || 'No se pudo confirmar el cierre');
     } finally {
       setSubmitting(false);
     }
-  }, [existingClosing, cashClosingService, showSuccess, showError]);
+  }, [existingClosing, isEditable, selectedStoreId, activeDate, denominations, bankTotal, expenses, cashClosingService, showSuccess, showError]);
 
   const handleReturnToDraft = useCallback(async () => {
     if (!existingClosing) return;

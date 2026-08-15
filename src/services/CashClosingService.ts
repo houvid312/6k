@@ -59,7 +59,7 @@ export class CashClosingService {
     expenses: number,
   ): Promise<CashClosing> {
     const summary = await this.saleRepo.getDailySummary(storeId, date);
-    const effectiveBankTotal = (bankTotal === 0 && summary.totalBankAmount > 0) ? summary.totalBankAmount : bankTotal;
+    const effectiveBankTotal = (bankTotal !== undefined && bankTotal !== null) ? bankTotal : summary.totalBankAmount;
     const cashTotal = this.calculateDenominationTotal(denominations);
     const actualTotal = cashTotal + effectiveBankTotal;
     const openingBase = await this.getOpeningBase(storeId, date);
@@ -104,7 +104,7 @@ export class CashClosingService {
     }
 
     const summary = await this.saleRepo.getDailySummary(storeId, date);
-    const effectiveBankTotal = (bankTotal === 0 && summary.totalBankAmount > 0) ? summary.totalBankAmount : bankTotal;
+    const effectiveBankTotal = (bankTotal !== undefined && bankTotal !== null) ? bankTotal : summary.totalBankAmount;
     const cashTotal = this.calculateDenominationTotal(denominations);
     const actualTotal = cashTotal + effectiveBankTotal;
     const openingBase = await this.getOpeningBase(storeId, date);
