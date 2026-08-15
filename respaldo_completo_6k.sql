@@ -4280,14 +4280,6 @@ CREATE POLICY "Authenticated read demand_estimates" ON "public"."demand_estimate
 
 
 
-CREATE POLICY "Authenticated read physical_count_items" ON "public"."physical_count_items" FOR SELECT TO "authenticated" USING (true);
-
-
-
-CREATE POLICY "Authenticated read physical_counts" ON "public"."physical_counts" FOR SELECT TO "authenticated" USING (true);
-
-
-
 CREATE POLICY "Authenticated read product_formats" ON "public"."product_formats" FOR SELECT TO "authenticated" USING (true);
 
 
@@ -4410,10 +4402,6 @@ CREATE POLICY "Inventory operators delete daily_alerts" ON "public"."daily_alert
 
 
 CREATE POLICY "Inventory operators insert daily_alerts" ON "public"."daily_alerts" FOR INSERT TO "authenticated" WITH CHECK ("public"."is_inventory_operator"());
-
-
-
-CREATE POLICY "Inventory operators manage inventory" ON "public"."inventory" TO "authenticated" USING ("public"."is_inventory_operator"()) WITH CHECK ("public"."is_inventory_operator"());
 
 
 
@@ -4557,33 +4545,35 @@ CREATE POLICY "payroll_periods_policy" ON "public"."payroll_periods" TO "authent
 
 
 
-ALTER TABLE "public"."physical_count_items" ENABLE ROW LEVEL SECURITY;
-
-
-CREATE POLICY "physical_count_items_delete_policy" ON "public"."physical_count_items" FOR DELETE TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+CREATE POLICY "physical_count_items_delete_policy" ON "public"."physical_count_items" FOR DELETE USING (true);
 
 
 
-CREATE POLICY "physical_count_items_insert_policy" ON "public"."physical_count_items" FOR INSERT TO "authenticated" WITH CHECK ((("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'ADMIN_LOCAL'::"public"."user_role"])) OR ("public"."get_worker_role"() = ANY (ARRAY['CAJERO'::"public"."worker_role", 'ADMINISTRADOR'::"public"."worker_role", 'COORDINADOR'::"public"."worker_role"]))));
+CREATE POLICY "physical_count_items_insert_policy" ON "public"."physical_count_items" FOR INSERT WITH CHECK (true);
 
 
 
-CREATE POLICY "physical_count_items_update_policy" ON "public"."physical_count_items" FOR UPDATE TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+CREATE POLICY "physical_count_items_select_policy" ON "public"."physical_count_items" FOR SELECT USING (true);
 
 
 
-ALTER TABLE "public"."physical_counts" ENABLE ROW LEVEL SECURITY;
-
-
-CREATE POLICY "physical_counts_delete_policy" ON "public"."physical_counts" FOR DELETE TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+CREATE POLICY "physical_count_items_update_policy" ON "public"."physical_count_items" FOR UPDATE USING (true) WITH CHECK (true);
 
 
 
-CREATE POLICY "physical_counts_insert_policy" ON "public"."physical_counts" FOR INSERT TO "authenticated" WITH CHECK ((("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'ADMIN_LOCAL'::"public"."user_role"])) OR ("public"."get_worker_role"() = ANY (ARRAY['CAJERO'::"public"."worker_role", 'ADMINISTRADOR'::"public"."worker_role", 'COORDINADOR'::"public"."worker_role"]))));
+CREATE POLICY "physical_counts_delete_policy" ON "public"."physical_counts" FOR DELETE USING (true);
 
 
 
-CREATE POLICY "physical_counts_update_policy" ON "public"."physical_counts" FOR UPDATE TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
+CREATE POLICY "physical_counts_insert_policy" ON "public"."physical_counts" FOR INSERT WITH CHECK (true);
+
+
+
+CREATE POLICY "physical_counts_select_policy" ON "public"."physical_counts" FOR SELECT USING (true);
+
+
+
+CREATE POLICY "physical_counts_update_policy" ON "public"."physical_counts" FOR UPDATE USING (true) WITH CHECK (true);
 
 
 

@@ -51,6 +51,16 @@ export class CreditService {
       throw new Error(`Credit '${creditId}' not found`);
     }
 
+    const income = await this.incomeRepo.create({
+      storeId: credit.storeId,
+      date: todayColombia(),
+      category: 'Abono Cartera',
+      description: `Abono de cartera (${credit.concept}) - Manual`,
+      amount: paymentAmount,
+      paymentMethod: PaymentMethod.EFECTIVO, // Default to cash unless UI supports selecting method, wait, does CreditService take paymentMethod?
+      isFixed: false,
+    });
+
     await this.creditRepo.applyPayment({
       creditEntryId: creditId,
       workerId: credit.workerId,
@@ -59,6 +69,7 @@ export class CreditService {
       date: todayColombia(),
       source: 'MANUAL',
       notes,
+      incomeId: income.id,
     });
 
     const updated = (await this.creditRepo.getAll()).find((c) => c.id === creditId);

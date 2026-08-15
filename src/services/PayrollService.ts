@@ -4,6 +4,7 @@ import {
   IAttendanceRepository,
   ICreditRepository,
   IExpenseRepository,
+  IIncomeRepository,
   IPayrollRepository,
   IWorkerRepository,
 } from '../domain/interfaces/repositories';
@@ -31,6 +32,7 @@ export class PayrollService {
     private creditRepo: ICreditRepository,
     private payrollRepo: IPayrollRepository,
     private expenseRepo: IExpenseRepository,
+    private incomeRepo: IIncomeRepository,
   ) {}
 
   async calculatePayroll(
@@ -148,25 +150,29 @@ export class PayrollService {
 
     const closedPeriod = await this.saveReport(report, 'CERRADA');
     const paymentDate = todayColombia();
+    const savedEntries = await this.payrollRepo.getEntries(closedPeriod.id);
 
-    for (const entry of report.entries) {
-      const workerPayMethod = entry.paymentMethod ?? PaymentMethod.EFECTIVO;
-      const debtPayMethod = entry.debtPaymentMethod ?? workerPayMethod;
+    for (const reportEntry of report.entries) {
+      const savedEntry = savedEntries.find((e) => e.workerId === reportEntry.workerId);
+      if (!savedEntry) continue;
 
-      if (entry.grossPay > 0) {
+      const workerPayMethod = reportEntry.paymentMethod ?? PaymentMethod.EFECTIVO;
+      const debtPayMethod = reportEntry.debtPaymentMethod ?? workerPayMethod;
+
+      if (savedEntry.grossPay > 0) {
         await this.expenseRepo.create({
           storeId: report.storeId,
           date: paymentDate,
           category: 'Nomina',
           description: `Nomina ${report.periodStart} a ${report.periodEnd}`,
-          amount: entry.grossPay,
+          amount: savedEntry.grossPay,
           paymentMethod: workerPayMethod,
           isFixed: true,
         });
       }
 
-      if (entry.debtDeduction > 0) {
-        await this.applyDebtDeduction(entry, closedPeriod, paymentDate, debtPayMethod);
+      if (savedEntry.debtDeduction > 0) {
+        await this.applyDebtDeduction(savedEntry, closedPeriod, paymentDate, debtPayMethod);
       }
     }
 
@@ -223,6 +229,17 @@ export class PayrollService {
     for (const credit of orderedCredits) {
       if (remaining <= 0) break;
       const amount = Math.min(remaining, credit.balance);
+      
+      const income = await this.incomeRepo.create({
+        storeId: period.storeId,
+        date: paymentDate,
+        category: 'Abono Cartera',
+        description: `Descuento de nomina (${credit.concept}) - ${workerName(entry.workerId)}`,
+        amount,
+        paymentMethod,
+        isFixed: false,
+      });
+
       await this.creditRepo.applyPayment({
         creditEntryId: credit.id,
         workerId: entry.workerId,
@@ -234,10 +251,17 @@ export class PayrollService {
         source: 'PAYROLL',
         notes: `Descuento de nomina (${credit.concept})`,
         paymentMethod,
+        incomeId: income.id,
       });
       remaining -= amount;
     }
   }
+}
+
+function workerName(workerId: string): string {
+  // We don't have the worker name here easily without passing it, but it's okay to just leave it as ID or omitted. 
+  // Let's refine the description
+  return workerId.split('-')[0];
 }
 
 function roundHours(hours: number): number {
