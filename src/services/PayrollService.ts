@@ -150,25 +150,29 @@ export class PayrollService {
 
     const closedPeriod = await this.saveReport(report, 'CERRADA');
     const paymentDate = todayColombia();
+    const savedEntries = await this.payrollRepo.getEntries(closedPeriod.id);
 
-    for (const entry of report.entries) {
-      const workerPayMethod = entry.paymentMethod ?? PaymentMethod.EFECTIVO;
-      const debtPayMethod = entry.debtPaymentMethod ?? workerPayMethod;
+    for (const reportEntry of report.entries) {
+      const savedEntry = savedEntries.find((e) => e.workerId === reportEntry.workerId);
+      if (!savedEntry) continue;
 
-      if (entry.grossPay > 0) {
+      const workerPayMethod = reportEntry.paymentMethod ?? PaymentMethod.EFECTIVO;
+      const debtPayMethod = reportEntry.debtPaymentMethod ?? workerPayMethod;
+
+      if (savedEntry.grossPay > 0) {
         await this.expenseRepo.create({
           storeId: report.storeId,
           date: paymentDate,
           category: 'Nomina',
           description: `Nomina ${report.periodStart} a ${report.periodEnd}`,
-          amount: entry.grossPay,
+          amount: savedEntry.grossPay,
           paymentMethod: workerPayMethod,
           isFixed: true,
         });
       }
 
-      if (entry.debtDeduction > 0) {
-        await this.applyDebtDeduction(entry, closedPeriod, paymentDate, debtPayMethod);
+      if (savedEntry.debtDeduction > 0) {
+        await this.applyDebtDeduction(savedEntry, closedPeriod, paymentDate, debtPayMethod);
       }
     }
 
