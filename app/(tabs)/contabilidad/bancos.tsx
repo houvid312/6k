@@ -153,8 +153,8 @@ export default function BancosScreen() {
               // El egreso de traslado ya fue contabilizado en Gasto Bancario (ledgerExpenses con categoría 'Traslado').
               // No se resta por segunda vez aquí para evitar el doble cobro en bancos.
             } else {
-              const isCash = p.notes?.toLowerCase().includes('efectivo') ?? false;
-              if (!isCash) {
+              const isCash = p.payment_method === 'EFECTIVO' || (p.notes?.toLowerCase().includes('efectivo') ?? false);
+              if (!isCash && !p.income_id && !p.incomeId) {
                 allMovements.push({
                   id: `pay-in-${p.id}`,
                   date: pDate,
