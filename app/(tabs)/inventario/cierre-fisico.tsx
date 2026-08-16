@@ -50,6 +50,8 @@ export default function CierreFisicoScreen() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  const loadedStoreIdRef = React.useRef<string | null>(null);
+
   const selectedStore = stores.find((s) => s.id === selectedStoreId);
   const isProductionCenter = selectedStore?.isProductionCenter ?? false;
 
@@ -123,6 +125,7 @@ export default function CierreFisicoScreen() {
           });
         }
 
+        loadedStoreIdRef.current = selectedStoreId;
         setCounts(initialCounts);
       } catch (err) {
         console.error('Error initializing physical count', err);
@@ -137,6 +140,7 @@ export default function CierreFisicoScreen() {
   // Save draft whenever counts or selectedWorkerId changes
   useEffect(() => {
     if (loading || !selectedStoreId || counts.length === 0) return;
+    if (loadedStoreIdRef.current !== selectedStoreId) return; // Prevent overwriting when switching stores
     
     const draft = { workerId: selectedWorkerId, counts };
     AsyncStorage.setItem(`${DRAFT_KEY_PREFIX}${selectedStoreId}`, JSON.stringify(draft))
