@@ -6,4 +6,7 @@ export interface ProductFormat {
   price: number;
   isActive: boolean;
   sortOrder: number;
+  masaSupplyId?: string;
+  masaGrams?: number;
 }
+

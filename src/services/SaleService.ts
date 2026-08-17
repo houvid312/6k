@@ -1,6 +1,6 @@
-import { Recipe, Sale, SaleItem, Supply } from '../domain/entities';
+import { Recipe, Sale, SaleItem, Supply, ProductFormat } from '../domain/entities';
 import { PaymentMethod, PACKAGING_SUPPLY_IDS } from '../domain/enums';
-import { ISaleRepository, DailySummary, IInventoryRepository, IRecipeRepository, ISupplyRepository, IProductRepository } from '../domain/interfaces/repositories';
+import { ISaleRepository, DailySummary, IInventoryRepository, IRecipeRepository, ISupplyRepository, IProductRepository, IProductFormatRepository } from '../domain/interfaces/repositories';
 
 export interface CreateSaleItemAdditionInput {
   additionCatalogId: string;
@@ -32,6 +32,7 @@ export class SaleService {
     private recipeRepo: IRecipeRepository,
     private supplyRepo: ISupplyRepository,
     private productRepo?: IProductRepository,
+    private productFormatRepo?: IProductFormatRepository,
   ) {}
 
   private valueQuantityAtStorePrice(
@@ -71,14 +72,19 @@ export class SaleService {
     totalCostCop: number;
     grossMarginCop: number;
   }> {
-    const [recipes, supplies, products] = await Promise.all([
+    const productIds = Array.from(new Set(items.map((i) => i.productId)));
+    const [recipes, supplies, products, formats] = await Promise.all([
       this.recipeRepo.getAll(),
       this.supplyRepo.getAll(false),
       this.productRepo ? this.productRepo.getAll() : Promise.resolve([]),
+      this.productFormatRepo && productIds.length > 0
+        ? this.productFormatRepo.getByProductIds(productIds)
+        : Promise.resolve([]),
     ]);
     const recipeByProductId = new Map(recipes.map((recipe) => [recipe.productId, recipe]));
     const supplyById = new Map(supplies.map((supply) => [supply.id, supply]));
     const productById = new Map(products.map((p) => [p.id, p]));
+    const formatById = new Map((formats as ProductFormat[]).map((f) => [f.id, f]));
     const saleItems: SaleItem[] = [];
     let totalPortions = 0;
 
@@ -94,7 +100,11 @@ export class SaleService {
       const packagingUnitPrice = item.packagingUnitPrice ?? 0;
       const packagingTotal = packagingUnitPrice * packagingQuantity;
       const subtotal = item.unitPrice * item.quantity + additionsTotal + packagingTotal;
-      const recipeCostCop = this.getRecipeCost(recipeByProductId, supplyById, item.productId, portions);
+      const format = item.formatId ? formatById.get(item.formatId) : undefined;
+      const masaCostCop = (format?.masaSupplyId && format.masaGrams)
+        ? this.valueQuantityAtStorePrice(supplyById, format.masaSupplyId, format.masaGrams * item.quantity)
+        : 0;
+      const recipeCostCop = this.getRecipeCost(recipeByProductId, supplyById, item.productId, portions) + masaCostCop;
       const additionsCostCop = (item.additions ?? []).reduce(
         (sum, addition) => sum + this.valueQuantityAtStorePrice(
           supplyById,

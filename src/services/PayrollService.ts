@@ -230,14 +230,14 @@ export class PayrollService {
       if (remaining <= 0) break;
       const amount = Math.min(remaining, credit.balance);
       
+      const targetStoreId = credit.storeId || entry.storeId || '';
       const income = await this.incomeRepo.create({
-        storeId: credit.storeId,
+        storeId: targetStoreId,
         date: paymentDate,
         category: 'Abono Cartera',
         description: `Descuento de nomina (${credit.concept}) - ${workerName(entry.workerId)}`,
         amount,
         paymentMethod,
-        isFixed: false,
       });
 
       await this.creditRepo.applyPayment({

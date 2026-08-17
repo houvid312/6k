@@ -284,6 +284,7 @@ export default function ContabilidadScreen() {
 
   // States for verification and approval modal
   const [approvingClosing, setApprovingClosing] = useState<CashClosing | null>(null);
+  const [approvingLoading, setApprovingLoading] = useState(false);
   const [closingDenoms, setClosingDenoms] = useState<DenominationCount>({
     bills100k: 0,
     bills50k: 0,
@@ -653,12 +654,23 @@ export default function ContabilidadScreen() {
         // Segment incomes by date and payment method
         const cashIncomesByDate = new Map<string, number>();
         const bankIncomesByDate = new Map<string, number>();
+        const revenueCashIncomesByDate = new Map<string, number>();
+        const revenueBankIncomesByDate = new Map<string, number>();
+
         for (const inc of ledgerIncomes) {
           const incDate = getColombiaDateKey(inc.date);
+          const isAssetSwap = inc.category === 'Abono Cartera';
+
           if (inc.paymentMethod === PaymentMethod.EFECTIVO) {
             cashIncomesByDate.set(incDate, (cashIncomesByDate.get(incDate) ?? 0) + inc.amount);
+            if (!isAssetSwap) {
+              revenueCashIncomesByDate.set(incDate, (revenueCashIncomesByDate.get(incDate) ?? 0) + inc.amount);
+            }
           } else {
             bankIncomesByDate.set(incDate, (bankIncomesByDate.get(incDate) ?? 0) + inc.amount);
+            if (!isAssetSwap) {
+              revenueBankIncomesByDate.set(incDate, (revenueBankIncomesByDate.get(incDate) ?? 0) + inc.amount);
+            }
           }
         }
 
@@ -695,12 +707,14 @@ export default function ContabilidadScreen() {
                 // No se agrega a cpOutflowPaymentsByDate para evitar descontarlo dos veces del banco del local.
               } else {
                 // Inflow payment from customer
-                if (p.payment_method === PaymentMethod.EFECTIVO) {
-                  cashPaymentsByDate.set(pDate, (cashPaymentsByDate.get(pDate) ?? 0) + p.amount);
-                } else {
-                  bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
-                }
                 totalPaymentsByDate.set(pDate, (totalPaymentsByDate.get(pDate) ?? 0) + p.amount);
+                if (!p.income_id && !p.incomeId) {
+                  if (p.payment_method === PaymentMethod.EFECTIVO) {
+                    cashPaymentsByDate.set(pDate, (cashPaymentsByDate.get(pDate) ?? 0) + p.amount);
+                  } else {
+                    bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
+                  }
+                }
               }
             }
           }
@@ -761,15 +775,18 @@ export default function ContabilidadScreen() {
           const generalCashIncomeToday = cashIncomesByDate.get(date) ?? 0;
           const generalBankIncomeToday = bankIncomesByDate.get(date) ?? 0;
 
-          const grossInflowToday = (isApproved ? closing.expectedTotal : 0) + generalCashIncomeToday + generalBankIncomeToday;
-          const grossOutflowToday = (isApproved ? Math.max(0, closing.expenses - cashAdvancesToday) : 0) + generalCashExp + generalBankExp;
+          const revenueCashIncomeToday = revenueCashIncomesByDate.get(date) ?? 0;
+          const revenueBankIncomeToday = revenueBankIncomesByDate.get(date) ?? 0;
+
+          const grossInflowToday = (isApproved ? closing.expectedTotal : 0) + revenueCashIncomeToday + revenueBankIncomeToday;
+          const grossOutflowToday = (isApproved ? closing.expenses : 0) + generalCashExp + generalBankExp + cpOutflowPayToday;
 
           if (date >= startDate) {
             sumIngresosGral += grossInflowToday;
             sumEgresosGral += grossOutflowToday;
           }
 
-          const theoreticalCashToday = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday + baseAdjustmentToCash;
+          const theoreticalCashToday = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp - cashAdvancesToday + cashPayToday + baseAdjustmentToCash;
           const theoreticalBankToday = runningBank + salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
           const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
           const theoreticalToday = theoreticalCashToday + theoreticalBankToday + theoreticalCarteraToday + theoreticalBaseToday;
@@ -803,6 +820,8 @@ export default function ContabilidadScreen() {
               bankTotal: audit.bankTotal,
               cartera: audit.cartera,
             });
+            // AUTO-HEALING: Reset runningCash to match the physical count so tomorrow starts perfectly squared
+            runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - theoreticalBaseToday;
           } else if (date >= startDate) {
             calculatedAudits.push({
               date,
@@ -1229,11 +1248,13 @@ export default function ContabilidadScreen() {
               }
             } else {
               totalPaymentsByDate.set(pDate, (totalPaymentsByDate.get(pDate) ?? 0) + p.amount);
-              const isCash = p.notes && String(p.notes).toLowerCase().includes('efectivo');
-              if (isCash) {
-                cashPaymentsByDate.set(pDate, (cashPaymentsByDate.get(pDate) ?? 0) + p.amount);
-              } else {
-                bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
+              if (!p.income_id && !p.incomeId) {
+                const isCash = p.payment_method === 'EFECTIVO' || (p.notes && String(p.notes).toLowerCase().includes('efectivo'));
+                if (isCash) {
+                  cashPaymentsByDate.set(pDate, (cashPaymentsByDate.get(pDate) ?? 0) + p.amount);
+                } else {
+                  bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
+                }
               }
             }
           }
@@ -1302,14 +1323,21 @@ export default function ContabilidadScreen() {
         const baseAdjustmentToCash = (previousBase === 0) ? 0 : (previousBase - theoreticalBaseToday);
 
         const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
+        const cashAdvancesToday = cashAdvancesByDate.get(date) ?? 0;
         const generalCashIncomeToday = cashIncomesByDate.get(date) ?? 0;
         const generalBankIncomeToday = bankIncomesByDate.get(date) ?? 0;
 
-        runningCash = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp + cashPayToday + baseAdjustmentToCash;
+        runningCash = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp - cashAdvancesToday + cashPayToday + baseAdjustmentToCash;
         runningBank = runningBank + salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
         runningCartera = runningCartera + newCreditsToday - totalPayToday;
         runningBaseLocal = theoreticalBaseToday;
         previousBase = theoreticalBaseToday;
+
+        const audit = auditsByDate.get(date);
+        if (audit) {
+          // AUTO-HEALING: Reset runningCash to match the physical count
+          runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - theoreticalBaseToday;
+        }
       }
 
       return runningCash + runningBank + runningCartera + runningBaseLocal;
@@ -1465,6 +1493,7 @@ export default function ContabilidadScreen() {
 
   const handleSaveAndApproveClosing = useCallback(async () => {
     if (!approvingClosing) return;
+    setApprovingLoading(true);
     try {
       if (approvingClosing.status === ClosingStatus.CONFIRMED) {
         await cashClosingService.returnToDraft(approvingClosing.id);
@@ -1493,6 +1522,8 @@ export default function ContabilidadScreen() {
       } else {
         Alert.alert('Error', errMsg);
       }
+    } finally {
+      setApprovingLoading(false);
     }
   }, [approvingClosing, closingDate, closingDenoms, closingBankTotal, closingExpenses, cashClosingService, loadData]);
 
@@ -2855,6 +2886,8 @@ export default function ContabilidadScreen() {
               buttonColor="#388E3C"
               textColor="#FFFFFF"
               onPress={handleSaveAndApproveClosing}
+              loading={approvingLoading}
+              disabled={approvingLoading}
             >
               Aprobar Cierre
             </Button>

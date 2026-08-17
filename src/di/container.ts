@@ -85,10 +85,10 @@ const incomeRepo = new SupabaseIncomeRepository();
 const inventoryAdjustmentRepo = new SupabaseInventoryAdjustmentRepository();
 
 // Services
-const saleService = new SaleService(saleRepo, inventoryRepo, recipeRepo, supplyRepo, productRepo);
+const saleService = new SaleService(saleRepo, inventoryRepo, recipeRepo, supplyRepo, productRepo, productFormatRepo);
 const inventoryService = new InventoryService(inventoryRepo, supplyRepo);
 const transferService = new TransferService(transferRepo, inventoryRepo, supplyRepo);
-const validationService = new ValidationService(saleRepo, recipeRepo, inventoryRepo, writeoffRepo);
+const validationService = new ValidationService(saleRepo, recipeRepo, inventoryRepo, writeoffRepo, productFormatRepo);
 const creditService = new CreditService(creditRepo, expenseRepo, incomeRepo);
 const payrollService = new PayrollService(workerRepo, attendanceRepo, creditRepo, payrollRepo, expenseRepo, incomeRepo);
 const dashboardService = new DashboardService(saleRepo, inventoryRepo, supplyRepo, expenseRepo, purchaseRepo, recipeRepo, productRepo);

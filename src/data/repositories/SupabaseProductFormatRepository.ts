@@ -10,6 +10,8 @@ interface ProductFormatRow {
   price: number;
   is_active: boolean;
   sort_order: number;
+  masa_supply_id?: string | null;
+  masa_grams?: number | null;
 }
 
 function toEntity(row: ProductFormatRow): ProductFormat {
@@ -21,6 +23,8 @@ function toEntity(row: ProductFormatRow): ProductFormat {
     price: row.price,
     isActive: row.is_active,
     sortOrder: row.sort_order,
+    masaSupplyId: row.masa_supply_id ?? undefined,
+    masaGrams: row.masa_grams != null ? Number(row.masa_grams) : undefined,
   };
 }
 
@@ -56,6 +60,8 @@ export class SupabaseProductFormatRepository implements IProductFormatRepository
         price: data.price,
         is_active: data.isActive,
         sort_order: data.sortOrder,
+        masa_supply_id: data.masaSupplyId ?? null,
+        masa_grams: data.masaGrams ?? null,
       })
       .select()
       .single();
@@ -70,6 +76,8 @@ export class SupabaseProductFormatRepository implements IProductFormatRepository
     if (updates.price !== undefined) row.price = updates.price;
     if (updates.isActive !== undefined) row.is_active = updates.isActive;
     if (updates.sortOrder !== undefined) row.sort_order = updates.sortOrder;
+    if (updates.masaSupplyId !== undefined) row.masa_supply_id = updates.masaSupplyId ?? null;
+    if (updates.masaGrams !== undefined) row.masa_grams = updates.masaGrams ?? null;
 
     const { error } = await supabase.from('product_formats').update(row).eq('id', id);
     if (error) throw error;
