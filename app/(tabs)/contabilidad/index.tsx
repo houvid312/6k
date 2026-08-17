@@ -768,7 +768,7 @@ export default function ContabilidadScreen() {
           const bankPayToday = bankPaymentsByDate.get(date) ?? 0;
           const cpOutflowPayToday = cpOutflowPaymentsByDate.get(date) ?? 0;
 
-          const effectiveClosingBank = (isApproved && closing && closing.bankTotal > 0) ? closing.bankTotal : (bankSalesByDate.get(date) ?? 0);
+          const effectiveClosingBank = (isApproved && closing && closing.bankTotal > 0) ? closing.bankTotal : 0;
           const salesTransferBank = effectiveClosingBank;
 
           const registeredOpening = openingsByDate.get(date);
