@@ -778,8 +778,9 @@ export default function ContabilidadScreen() {
           const generalBankIncomeToday = bankIncomesByDate.get(date) ?? 0;
           const revenueCashIncomeToday = revenueCashIncomesByDate.get(date) ?? 0;
           const revenueBankIncomeToday = revenueBankIncomesByDate.get(date) ?? 0;
+          const cpTransferInflowToday = isProd ? (bankPaymentsByDate.get(date) ?? 0) : 0;
 
-          const grossInflowToday = (isApproved ? closing.expectedTotal : 0) + revenueCashIncomeToday + revenueBankIncomeToday;
+          const grossInflowToday = (isApproved ? closing.expectedTotal : 0) + revenueCashIncomeToday + revenueBankIncomeToday + cpTransferInflowToday;
           const grossOutflowToday = (isApproved ? closing.expenses : 0) + generalCashExp + generalBankExp + cpOutflowPayToday;
 
           cumInflow += grossInflowToday;
@@ -1144,7 +1145,7 @@ export default function ContabilidadScreen() {
     try {
       const anchorDate = '2020-01-01';
 
-      const [closings, ledgerExpenses, ledgerPurchases, ledgerIncomes, openingsRes] = await Promise.all([
+      const [closings, ledgerExpenses, ledgerPurchases, ledgerIncomes, openingsRes, creditPaymentsRes] = await Promise.all([
         cashClosingService.getClosingsByDateRange(storeId, anchorDate, targetDate),
         expenseRepo.getByDateRange(storeId, anchorDate, targetDate),
         purchaseRepo.getByDateRange(anchorDate, targetDate, storeId),
@@ -1155,7 +1156,14 @@ export default function ContabilidadScreen() {
           .eq('store_id', storeId)
           .eq('date', targetDate)
           .maybeSingle(),
+        supabase
+          .from('credit_payments')
+          .select('*, credit_entries(debtor_type, store_id)')
+          .gte('date', anchorDate)
+          .lte('date', targetDate),
       ]);
+
+      const isProd = stores.find((s) => s.id === storeId)?.isProductionCenter ?? false;
 
       const approvedClosings = closings.filter(c => c.status === ClosingStatus.APPROVED || c.status === ClosingStatus.CONFIRMED);
       const salesInflow = approvedClosings.reduce((sum, c) => sum + c.expectedTotal, 0);
@@ -1163,7 +1171,16 @@ export default function ContabilidadScreen() {
         .filter(inc => inc.category !== 'Abono Cartera')
         .reduce((sum, inc) => sum + inc.amount, 0);
 
-      const totalInflow = salesInflow + nonAssetSwapIncomes;
+      let cpTransferPaymentsInflow = 0;
+      if (isProd) {
+        for (const p of (creditPaymentsRes.data || [])) {
+          if (p.status === 'CONFIRMED' && p.credit_entries?.debtor_type === 'LOCAL') {
+            cpTransferPaymentsInflow += p.amount;
+          }
+        }
+      }
+
+      const totalInflow = salesInflow + nonAssetSwapIncomes + cpTransferPaymentsInflow;
 
       const closingExpenses = approvedClosings.reduce((sum, c) => sum + c.expenses, 0);
       const filteredExpenses = ledgerExpenses
@@ -1172,7 +1189,7 @@ export default function ContabilidadScreen() {
       const directPurchases = ledgerPurchases.reduce((sum, p) => sum + p.priceCOP, 0);
 
       const totalOutflow = closingExpenses + filteredExpenses + directPurchases;
-      const baseValue = openingsRes.data?.total ?? (latestTheoreticalBase > 0 ? latestTheoreticalBase : 100000);
+      const baseValue = openingsRes.data?.total ?? (latestTheoreticalBase > 0 ? latestTheoreticalBase : 0);
 
       return (totalInflow - totalOutflow) + baseValue;
     } catch (err) {
