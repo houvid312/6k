@@ -1,6 +1,6 @@
-import { Validation, AlertType } from '../domain/entities';
+import { Validation, AlertType, ProductFormat } from '../domain/entities';
 import { InventoryLevel } from '../domain/enums';
-import { ISaleRepository, IRecipeRepository, IInventoryRepository, IWriteoffRepository } from '../domain/interfaces/repositories';
+import { ISaleRepository, IRecipeRepository, IInventoryRepository, IWriteoffRepository, IProductFormatRepository } from '../domain/interfaces/repositories';
 
 export interface TheoreticalConsumption {
   supplyId: string;
@@ -23,6 +23,7 @@ export class ValidationService {
     private recipeRepo: IRecipeRepository,
     private inventoryRepo: IInventoryRepository,
     private writeoffRepo?: IWriteoffRepository,
+    private productFormatRepo?: IProductFormatRepository,
   ) {}
 
   /**
@@ -36,6 +37,13 @@ export class ValidationService {
     const sales = await this.saleRepo.getByDateRange(storeId, startDate, endDate);
     const consumptionMap = new Map<string, number>();
 
+    const allProductIds = Array.from(new Set(sales.flatMap((s) => s.items.map((i) => i.productId))));
+    let formatById = new Map<string, ProductFormat>();
+    if (this.productFormatRepo && allProductIds.length > 0) {
+      const formats = await this.productFormatRepo.getByProductIds(allProductIds);
+      formatById = new Map(formats.map((f) => [f.id, f]));
+    }
+
     for (const sale of sales) {
       for (const item of sale.items) {
         const recipe = await this.recipeRepo.getByProductId(item.productId);
@@ -46,6 +54,15 @@ export class ValidationService {
             const grams = ingredient.gramsPerPortion * portions;
             const current = consumptionMap.get(ingredient.supplyId) ?? 0;
             consumptionMap.set(ingredient.supplyId, current + grams);
+          }
+        }
+
+        if (item.formatId) {
+          const format = formatById.get(item.formatId);
+          if (format?.masaSupplyId && format.masaGrams) {
+            const masaGrams = format.masaGrams * item.quantity;
+            const current = consumptionMap.get(format.masaSupplyId) ?? 0;
+            consumptionMap.set(format.masaSupplyId, current + masaGrams);
           }
         }
 

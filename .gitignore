@@ -43,3 +43,8 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Archivos temporales y de credenciales
+scratch/
+datos_6k.sql
+estructura_6k.sql

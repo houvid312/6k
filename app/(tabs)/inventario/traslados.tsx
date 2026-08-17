@@ -62,7 +62,7 @@ export default function TrasladosScreen() {
   const { selectedStoreId, userRole, stores } = useAppStore();
 
   const canSend = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL || userRole === UserRole.PREPARADOR || userRole === UserRole.RODY;
-  const canReceive = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
+  const canReceive = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL || userRole === UserRole.VENDEDOR;
   const canCancel = userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL;
   const isGlobalRole = userRole === UserRole.GERENTE || userRole === UserRole.RODY || userRole === UserRole.PREPARADOR;
 

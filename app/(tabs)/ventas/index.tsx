@@ -1229,6 +1229,14 @@ export default function VentasScreen() {
             </Button>
             <Button
               mode="outlined"
+              icon="truck-check"
+              compact
+              onPress={() => router.push('/(tabs)/inventario/traslados')}
+            >
+              Traslados
+            </Button>
+            <Button
+              mode="outlined"
               icon="package-variant-remove"
               compact
               onPress={() => {

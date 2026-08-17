@@ -4365,10 +4365,6 @@ CREATE POLICY "Authenticated update addition_catalog" ON "public"."addition_cata
 
 
 
-CREATE POLICY "Authenticated update cash_closings" ON "public"."cash_closings" FOR UPDATE TO "authenticated" USING (true) WITH CHECK (true);
-
-
-
 CREATE POLICY "Authenticated update sales" ON "public"."sales" FOR UPDATE TO "authenticated" USING (true) WITH CHECK (true);
 
 
@@ -4409,10 +4405,6 @@ CREATE POLICY "Transfer operators manage transfer_items" ON "public"."transfer_i
 
 
 
-CREATE POLICY "Transfer operators manage transfers" ON "public"."transfers" TO "authenticated" USING ("public"."is_transfer_operator"()) WITH CHECK ("public"."is_transfer_operator"());
-
-
-
 CREATE POLICY "accounting_locks_policy" ON "public"."accounting_period_locks" TO "authenticated" USING (("public"."get_user_role"() = 'GERENTE'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'GERENTE'::"public"."user_role"));
 
 
@@ -4433,10 +4425,11 @@ CREATE POLICY "attendance_policy" ON "public"."attendance" TO "authenticated" US
 ALTER TABLE "public"."cash_audit_entries" ENABLE ROW LEVEL SECURITY;
 
 
-ALTER TABLE "public"."cash_closings" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "cash_closings_select_policy" ON "public"."cash_closings" FOR SELECT USING (true);
 
 
-CREATE POLICY "cash_closings_policy" ON "public"."cash_closings" TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
+
+CREATE POLICY "cash_closings_write_policy" ON "public"."cash_closings" USING (true) WITH CHECK (true);
 
 
 
@@ -4740,21 +4733,19 @@ CREATE POLICY "supplies_policy" ON "public"."supplies" TO "authenticated" USING 
 
 
 
-ALTER TABLE "public"."transfer_items" ENABLE ROW LEVEL SECURITY;
-
-
-CREATE POLICY "transfer_items_policy" ON "public"."transfer_items" TO "authenticated" USING ((EXISTS ( SELECT 1
-   FROM "public"."transfers" "t"
-  WHERE (("t"."id" = "transfer_items"."transfer_id") AND "public"."can_access_transfer"("t"."from_store_id", "t"."to_store_id"))))) WITH CHECK ((EXISTS ( SELECT 1
-   FROM "public"."transfers" "t"
-  WHERE (("t"."id" = "transfer_items"."transfer_id") AND "public"."can_access_transfer"("t"."from_store_id", "t"."to_store_id")))));
+CREATE POLICY "transfer_items_select_policy" ON "public"."transfer_items" FOR SELECT USING (true);
 
 
 
-ALTER TABLE "public"."transfers" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "transfer_items_write_policy" ON "public"."transfer_items" USING (true) WITH CHECK (true);
 
 
-CREATE POLICY "transfers_policy" ON "public"."transfers" TO "authenticated" USING ("public"."can_access_transfer"("from_store_id", "to_store_id")) WITH CHECK ("public"."can_access_transfer"("from_store_id", "to_store_id"));
+
+CREATE POLICY "transfers_select_policy" ON "public"."transfers" FOR SELECT USING (true);
+
+
+
+CREATE POLICY "transfers_write_policy" ON "public"."transfers" USING (true) WITH CHECK (true);
 
 
 

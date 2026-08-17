@@ -11,6 +11,14 @@ export const PACKAGING_SUPPLY_IDS = {
   EMPAQUE_DIAMANTE_INDIVIDUAL: '00000000-0000-0000-0002-000000000103',
 } as const;
 
+// IDs de insumos de masas estiradas (deben coincidir con la migración 069)
+export const MASA_SUPPLY_IDS = {
+  MASA_GENERICA: '00000000-0000-0000-0002-000000000001',
+  MASA_FAMILIAR: '00000000-0000-0000-0002-000000000201',
+  MASA_MEDIANA: '00000000-0000-0000-0002-000000000202',
+  MASA_DIAMANTE: '00000000-0000-0000-0002-000000000203',
+} as const;
+
 // Opciones de empaque para seleccionar a nivel de carrito/venta
 export const PACKAGING_OPTIONS = [
   { id: PACKAGING_SUPPLY_IDS.CAJA_FAMILIAR, label: 'Caja Familiar', shortLabel: 'Caja Fam.', icon: 'package-variant' },

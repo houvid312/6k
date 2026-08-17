@@ -51,14 +51,17 @@ export class CreditService {
       throw new Error(`Credit '${creditId}' not found`);
     }
 
+    if (!credit.storeId) {
+      throw new Error(`Credit '${creditId}' does not have an associated storeId`);
+    }
+
     const income = await this.incomeRepo.create({
       storeId: credit.storeId,
       date: todayColombia(),
       category: 'Abono Cartera',
       description: `Abono de cartera (${credit.concept}) - Manual`,
       amount: paymentAmount,
-      paymentMethod: PaymentMethod.EFECTIVO, // Default to cash unless UI supports selecting method, wait, does CreditService take paymentMethod?
-      isFixed: false,
+      paymentMethod: PaymentMethod.EFECTIVO,
     });
 
     await this.creditRepo.applyPayment({

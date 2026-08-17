@@ -29,4 +29,8 @@ export class PhysicalCountService {
   async getLatest(storeId: string): Promise<PhysicalCount | null> {
     return this.physicalCountRepo.getLatest(storeId);
   }
+
+  async getByStore(storeId: string): Promise<PhysicalCount[]> {
+    return this.physicalCountRepo.getByStore(storeId);
+  }
 }

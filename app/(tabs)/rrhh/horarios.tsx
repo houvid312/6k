@@ -10,13 +10,14 @@ import { useWorkerStore } from '../../../src/stores/useWorkerStore';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useDI } from '../../../src/di/providers';
 import { Schedule, Worker } from '../../../src/domain/entities';
+import { UserRole } from '../../../src/domain/enums';
 import { DAYS_OF_WEEK } from '../../../src/utils/constants';
 import { calculateHoursBetween, isValidTime } from '../../../src/utils/time';
 
 export default function HorariosScreen() {
   const theme = useTheme();
   const { workers, schedules, loading, loadWorkers, loadSchedules } = useWorkerStore();
-  const { selectedStoreId } = useAppStore();
+  const { selectedStoreId, userRole: currentUserRole } = useAppStore();
   const { scheduleRepo } = useDI();
 
   const [editVisible, setEditVisible] = useState(false);
@@ -205,7 +206,26 @@ export default function HorariosScreen() {
     return <LoadingIndicator message="Cargando horarios..." />;
   }
 
-  const activeWorkers = workers.filter((w) => w.isActive);
+  const activeWorkers = workers.filter((w) => {
+    if (!w.isActive) return false;
+    
+    // Non-GERENTE users must never see GERENTE workers
+    if (currentUserRole !== UserRole.GERENTE && w.userRole === UserRole.GERENTE) {
+      return false;
+    }
+    
+    if (!selectedStoreId) return true;
+    
+    // GERENTE sees other gerentes and unassigned workers across all stores
+    if (currentUserRole === UserRole.GERENTE) {
+      if (w.userRole === UserRole.GERENTE || !w.storeIds || w.storeIds.length === 0) return true;
+    }
+    
+    const isAssigned = w.storeIds?.includes(selectedStoreId) ?? false;
+    const hasSchedule = schedules.some((s) => s.workerId === w.id);
+    
+    return isAssigned || hasSchedule;
+  });
 
   return (
     <ScreenContainer>
