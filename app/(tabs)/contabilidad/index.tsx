@@ -562,7 +562,7 @@ export default function ContabilidadScreen() {
       if (appliedStoreId !== 'consolidado') {
         const anchorDate = '2020-01-01';
 
-        const [credits, closings, audits, openingsRes, ledgerExpenses, ledgerPurchases, creditPaymentsRes, ledgerIncomes] = await Promise.all([
+        const [credits, closings, audits, openingsRes, ledgerExpenses, ledgerPurchases, creditPaymentsRes, ledgerIncomes, ledgerSales] = await Promise.all([
           creditRepo.getAll(),
           cashClosingService.getClosingsByDateRange(appliedStoreId, anchorDate, endDate),
           cashAuditRepo.getByDateRange(appliedStoreId, anchorDate, endDate),
@@ -580,6 +580,7 @@ export default function ContabilidadScreen() {
             .gte('date', anchorDate)
             .lte('date', endDate),
           incomeRepo.getByDateRange(appliedStoreId, anchorDate, endDate),
+          saleService.getSalesByDateRange(appliedStoreId, anchorDate, endDateTime),
         ]);
 
         const openingsObj = Object.fromEntries(
@@ -616,11 +617,20 @@ export default function ContabilidadScreen() {
         const closingsByDate = new Map(closings.map(c => [c.date, c]));
         const auditsByDate = new Map(audits.map(a => [a.date, a]));
 
-        // Segment expenses and purchases by date and payment method
         const cashExpensesByDate = new Map<string, number>();
         const bankExpensesByDate = new Map<string, number>();
         const cashAdvancesByDate = new Map<string, number>();
         const bankAdvancesByDate = new Map<string, number>();
+        const bankSalesByDate = new Map<string, number>();
+
+        for (const s of ledgerSales) {
+          const sDate = getColombiaDateKey(s.timestamp);
+          const amt = (s.bankAmount ?? 0) > 0 ? s.bankAmount! : (s.paymentMethod === PaymentMethod.TRANSFERENCIA ? s.totalAmount : 0);
+          if (amt > 0) {
+            bankSalesByDate.set(sDate, (bankSalesByDate.get(sDate) ?? 0) + amt);
+          }
+        }
+
         for (const exp of ledgerExpenses) {
           const expDate = getColombiaDateKey(exp.date);
           if (exp.category === 'Adelanto') {
@@ -758,8 +768,8 @@ export default function ContabilidadScreen() {
           const bankPayToday = bankPaymentsByDate.get(date) ?? 0;
           const cpOutflowPayToday = cpOutflowPaymentsByDate.get(date) ?? 0;
 
-          const effectiveClosingBank = (closing && closing.bankTotal > 0) ? closing.bankTotal : 0;
-          const salesTransferBank = isApproved ? effectiveClosingBank : 0;
+          const effectiveClosingBank = (isApproved && closing && closing.bankTotal > 0) ? closing.bankTotal : (bankSalesByDate.get(date) ?? 0);
+          const salesTransferBank = effectiveClosingBank;
 
           const registeredOpening = openingsByDate.get(date);
           const openingBaseVal = openingsByDate.get(date) ?? 100000;
@@ -833,13 +843,10 @@ export default function ContabilidadScreen() {
 
           if (date === dates[dates.length - 1]) {
             const finalTheoretical = (cumInflow - cumOutflow) + runningBaseLocal;
-            const latestAudit = auditsByDate.get(date);
-            const bankVal = latestAudit ? latestAudit.bankTotal : cumBank;
+            const bankVal = cumBank;
             const carteraVal = totalCartera;
             const baseVal = runningBaseLocal;
-            const cashVal = latestAudit
-              ? (latestAudit.bills100k * 100000 + latestAudit.bills50k * 50000 + latestAudit.bills20k * 20000 + latestAudit.bills10k * 10000 + latestAudit.bills5k * 5000 + latestAudit.bills2k * 2000 + latestAudit.coins)
-              : Math.max(0, finalTheoretical - bankVal - carteraVal - baseVal);
+            const cashVal = Math.max(0, finalTheoretical - bankVal - carteraVal - baseVal);
 
             setLatestTheoreticalCash(cashVal);
             setLatestTheoreticalBank(bankVal);
