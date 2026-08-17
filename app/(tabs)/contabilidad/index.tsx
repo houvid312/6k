@@ -742,6 +742,9 @@ export default function ContabilidadScreen() {
         const calculatedAudits: CashAuditRow[] = [];
         let sumIngresosGral = 0;
         let sumEgresosGral = 0;
+        let cumInflow = 0;
+        let cumOutflow = 0;
+        let cumBank = 0;
 
         for (const date of dates) {
           const closing = closingsByDate.get(date);
@@ -752,51 +755,35 @@ export default function ContabilidadScreen() {
           const generalCashExp = (cashExpensesByDate.get(date) ?? 0) + (cashPurchasesByDate.get(date) ?? 0);
           const generalBankExp = (bankExpensesByDate.get(date) ?? 0) + (bankPurchasesByDate.get(date) ?? 0);
 
-          const cashPayToday = cashPaymentsByDate.get(date) ?? 0;
           const bankPayToday = bankPaymentsByDate.get(date) ?? 0;
-          const totalPayToday = totalPaymentsByDate.get(date) ?? 0;
           const cpOutflowPayToday = cpOutflowPaymentsByDate.get(date) ?? 0;
-          const newCreditsToday = creditsByDate.get(date) ?? 0;
-          const creditSalesToday = creditSalesByDate.get(date) ?? 0;
 
-          const dayBankSales = (isApproved ? closing.bankTotal : 0);
           const effectiveClosingBank = (closing && closing.bankTotal > 0) ? closing.bankTotal : 0;
-
-          const salesTransferCash = isApproved ? (closing.expectedTotal - effectiveClosingBank - creditSalesToday - closing.expenses) : 0;
           const salesTransferBank = isApproved ? effectiveClosingBank : 0;
 
           const registeredOpening = openingsByDate.get(date);
           const openingBaseVal = openingsByDate.get(date) ?? 100000;
           const theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
-          const baseAdjustmentToCash = (previousBase === 0) ? 0 : (previousBase - theoreticalBaseToday);
 
-          const cashAdvancesToday = cashAdvancesByDate.get(date) ?? 0;
-          const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
-          const generalCashIncomeToday = cashIncomesByDate.get(date) ?? 0;
           const generalBankIncomeToday = bankIncomesByDate.get(date) ?? 0;
-
           const revenueCashIncomeToday = revenueCashIncomesByDate.get(date) ?? 0;
           const revenueBankIncomeToday = revenueBankIncomesByDate.get(date) ?? 0;
 
           const grossInflowToday = (isApproved ? closing.expectedTotal : 0) + revenueCashIncomeToday + revenueBankIncomeToday;
           const grossOutflowToday = (isApproved ? closing.expenses : 0) + generalCashExp + generalBankExp + cpOutflowPayToday;
 
+          cumInflow += grossInflowToday;
+          cumOutflow += grossOutflowToday;
+          cumBank += salesTransferBank + generalBankIncomeToday - generalBankExp + bankPayToday - cpOutflowPayToday;
+
           if (date >= startDate) {
             sumIngresosGral += grossInflowToday;
             sumEgresosGral += grossOutflowToday;
           }
 
-          const theoreticalCashToday = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp - cashAdvancesToday + cashPayToday + baseAdjustmentToCash;
-          const theoreticalBankToday = runningBank + salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
-          const theoreticalCarteraToday = runningCartera + newCreditsToday - totalPayToday;
-          const theoreticalToday = theoreticalCashToday + theoreticalBankToday + theoreticalCarteraToday + theoreticalBaseToday;
-
-          // Pure cumulative math update with base conservation
-          runningCash = theoreticalCashToday;
-          runningBank = theoreticalBankToday;
-          runningCartera = theoreticalCarteraToday;
+          // Formula transparente y exacta: Debe Haber = (Ingresos acumulados - Egresos acumulados) + Base
+          const theoreticalToday = (cumInflow - cumOutflow) + theoreticalBaseToday;
           runningBaseLocal = theoreticalBaseToday;
-          previousBase = theoreticalBaseToday;
 
           if (audit && date >= startDate) {
             calculatedAudits.push({
@@ -820,8 +807,6 @@ export default function ContabilidadScreen() {
               bankTotal: audit.bankTotal,
               cartera: audit.cartera,
             });
-            // AUTO-HEALING: Reset runningCash to match the physical count so tomorrow starts perfectly squared
-            runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - theoreticalBaseToday;
           } else if (date >= startDate) {
             calculatedAudits.push({
               date,
@@ -841,16 +826,25 @@ export default function ContabilidadScreen() {
               bills5k: 0,
               bills2k: 0,
               coins: 0,
-              bankTotal: runningBank,
-              cartera: runningCartera,
+              bankTotal: cumBank,
+              cartera: totalCartera,
             });
           }
 
           if (date === dates[dates.length - 1]) {
-            setLatestTheoreticalCash(runningCash);
-            setLatestTheoreticalBank(runningBank);
-            setLatestTheoreticalCartera(runningCartera);
-            setLatestTheoreticalBase(runningBaseLocal);
+            const finalTheoretical = (cumInflow - cumOutflow) + runningBaseLocal;
+            const latestAudit = auditsByDate.get(date);
+            const bankVal = latestAudit ? latestAudit.bankTotal : cumBank;
+            const carteraVal = totalCartera;
+            const baseVal = runningBaseLocal;
+            const cashVal = latestAudit
+              ? (latestAudit.bills100k * 100000 + latestAudit.bills50k * 50000 + latestAudit.bills20k * 20000 + latestAudit.bills10k * 10000 + latestAudit.bills5k * 5000 + latestAudit.bills2k * 2000 + latestAudit.coins)
+              : Math.max(0, finalTheoretical - bankVal - carteraVal - baseVal);
+
+            setLatestTheoreticalCash(cashVal);
+            setLatestTheoreticalBank(bankVal);
+            setLatestTheoreticalCartera(carteraVal);
+            setLatestTheoreticalBase(baseVal);
           }
         }
 
@@ -972,9 +966,11 @@ export default function ContabilidadScreen() {
   // Margen operativo / Resultado neto de operacion: margen bruto menos bajas/mermas menos gastos fijos/variables
   const resultadoOperativo = margenBruto - writeoffInventoryCost - fixedExpenses - variableExpenses;
   const latestCashAudit = cashAuditRows[0];
-  const latestCashAuditTheoretical = latestCashAudit?.theoreticalTotal ?? 0;
-  const latestCashAuditActual = latestCashAudit?.actualTotal ?? 0;
-  const latestCashAuditDiscrepancy = latestCashAudit?.discrepancy ?? 0;
+  const latestCashAuditTheoretical = (generalIngresos - generalEgresos) + latestTheoreticalBase;
+  const latestCashAuditActual = latestCashAudit?.actualTotal ?? latestCashAuditTheoretical;
+  const latestCashAuditDiscrepancy = latestCashAudit
+    ? latestCashAuditActual - latestCashAuditTheoretical
+    : 0;
   const maxCashAuditDiscrepancy = cashAuditRows.reduce(
     (max, row) => Math.max(max, Math.abs(row.discrepancy)),
     0,
@@ -1141,211 +1137,42 @@ export default function ContabilidadScreen() {
     try {
       const anchorDate = '2020-01-01';
 
-      const [credits, closings, audits, openingsRes, ledgerExpenses, ledgerPurchases, creditPaymentsRes, ledgerIncomes, salesRes] = await Promise.all([
-        creditRepo.getAll(),
+      const [closings, ledgerExpenses, ledgerPurchases, ledgerIncomes, openingsRes] = await Promise.all([
         cashClosingService.getClosingsByDateRange(storeId, anchorDate, targetDate),
-        cashAuditRepo.getByDateRange(storeId, anchorDate, targetDate),
-        supabase
-          .from('cash_openings')
-          .select('date,total')
-          .eq('store_id', storeId)
-          .gte('date', anchorDate)
-          .lte('date', (() => { const p = targetDate.split('-'); const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2])); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })()),
         expenseRepo.getByDateRange(storeId, anchorDate, targetDate),
         purchaseRepo.getByDateRange(anchorDate, targetDate, storeId),
-        supabase
-          .from('credit_payments')
-          .select('*, credit_entries(debtor_type, store_id)')
-          .gte('date', anchorDate)
-          .lte('date', targetDate),
         incomeRepo.getByDateRange(storeId, anchorDate, targetDate),
-        saleService.getSalesByDateRange(storeId, anchorDate, targetDate + 'T23:59:59'),
+        supabase
+          .from('cash_openings')
+          .select('total')
+          .eq('store_id', storeId)
+          .eq('date', targetDate)
+          .maybeSingle(),
       ]);
 
-      const openingsByDate = new Map<string, number>(
-        (openingsRes.data || []).map((o: any) => [o.date, o.total])
-      );
+      const approvedClosings = closings.filter(c => c.status === ClosingStatus.APPROVED || c.status === ClosingStatus.CONFIRMED);
+      const salesInflow = approvedClosings.reduce((sum, c) => sum + c.expectedTotal, 0);
+      const nonAssetSwapIncomes = ledgerIncomes
+        .filter(inc => inc.category !== 'Abono Cartera')
+        .reduce((sum, inc) => sum + inc.amount, 0);
 
-      const closingsByDate = new Map(closings.map(c => [c.date, c]));
-      const auditsByDate = new Map(audits.map(a => [a.date, a]));
+      const totalInflow = salesInflow + nonAssetSwapIncomes;
 
-      const cashExpensesByDate = new Map<string, number>();
-      const bankExpensesByDate = new Map<string, number>();
-      const cashAdvancesByDate = new Map<string, number>();
-      const bankAdvancesByDate = new Map<string, number>();
-      for (const exp of ledgerExpenses) {
-        const expDate = exp.date.split('T')[0];
-        if (exp.category === 'Compra Turno' || exp.category === 'Adelanto') {
-          if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
-            cashAdvancesByDate.set(expDate, (cashAdvancesByDate.get(expDate) ?? 0) + exp.amount);
-          } else {
-            bankAdvancesByDate.set(expDate, (bankAdvancesByDate.get(expDate) ?? 0) + exp.amount);
-          }
-        } else {
-          if (exp.paymentMethod === PaymentMethod.EFECTIVO) {
-            cashExpensesByDate.set(expDate, (cashExpensesByDate.get(expDate) ?? 0) + exp.amount);
-          } else {
-            bankExpensesByDate.set(expDate, (bankExpensesByDate.get(expDate) ?? 0) + exp.amount);
-          }
-        }
-      }
+      const closingExpenses = approvedClosings.reduce((sum, c) => sum + c.expenses, 0);
+      const filteredExpenses = ledgerExpenses
+        .filter(exp => exp.category !== 'Adelanto' && exp.category !== 'Compra Turno')
+        .reduce((sum, exp) => sum + exp.amount, 0);
+      const directPurchases = ledgerPurchases.reduce((sum, p) => sum + p.priceCOP, 0);
 
-      const cashPurchasesByDate = new Map<string, number>();
-      const bankPurchasesByDate = new Map<string, number>();
-      for (const pur of ledgerPurchases) {
-        const purDate = pur.timestamp.split('T')[0];
-        if (pur.paymentMethod === PaymentMethod.EFECTIVO) {
-          cashPurchasesByDate.set(purDate, (cashPurchasesByDate.get(purDate) ?? 0) + pur.priceCOP);
-        } else {
-          bankPurchasesByDate.set(purDate, (bankPurchasesByDate.get(purDate) ?? 0) + pur.priceCOP);
-        }
-      }
+      const totalOutflow = closingExpenses + filteredExpenses + directPurchases;
+      const baseValue = openingsRes.data?.total ?? (latestTheoreticalBase > 0 ? latestTheoreticalBase : 100000);
 
-      // Segment incomes by date and payment method
-      const cashIncomesByDate = new Map<string, number>();
-      const bankIncomesByDate = new Map<string, number>();
-      for (const inc of ledgerIncomes) {
-        const incDate = inc.date.split('T')[0];
-        if (inc.paymentMethod === PaymentMethod.EFECTIVO) {
-          cashIncomesByDate.set(incDate, (cashIncomesByDate.get(incDate) ?? 0) + inc.amount);
-        } else {
-          bankIncomesByDate.set(incDate, (bankIncomesByDate.get(incDate) ?? 0) + inc.amount);
-        }
-      }
-
-      const cashPaymentsByDate = new Map<string, number>();
-      const bankPaymentsByDate = new Map<string, number>();
-      const totalPaymentsByDate = new Map<string, number>();
-      const cpOutflowPaymentsByDate = new Map<string, number>();
-
-      const isProd = stores.find((s) => s.id === storeId)?.isProductionCenter ?? false;
-
-      for (const p of (creditPaymentsRes.data || [])) {
-        const pDate = p.date.split('T')[0];
-        const entryStoreId = p.credit_entries?.store_id;
-        const debtorType = p.credit_entries?.debtor_type;
-        const isCpCredit = debtorType === 'LOCAL';
-
-        // Skip non-confirmed payments (pending/rejected)
-        const isConfirmed = p.status === 'CONFIRMED';
-        if (!isConfirmed) continue;
-
-        if (isProd) {
-          if (isCpCredit) {
-            // ONLY add to bank/total payments if this payment does NOT have an associated income record
-            if (!p.income_id) {
-              bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
-            }
-            totalPaymentsByDate.set(pDate, (totalPaymentsByDate.get(pDate) ?? 0) + p.amount);
-          }
-        } else {
-          if (entryStoreId === storeId) {
-            if (isCpCredit) {
-              // Outflow payment made to CP
-              // ONLY subtract from outflow if this payment does NOT have an associated expense record
-              if (!p.expense_id) {
-                cpOutflowPaymentsByDate.set(pDate, (cpOutflowPaymentsByDate.get(pDate) ?? 0) + p.amount);
-              }
-            } else {
-              totalPaymentsByDate.set(pDate, (totalPaymentsByDate.get(pDate) ?? 0) + p.amount);
-              if (!p.income_id && !p.incomeId) {
-                const isCash = p.payment_method === 'EFECTIVO' || (p.notes && String(p.notes).toLowerCase().includes('efectivo'));
-                if (isCash) {
-                  cashPaymentsByDate.set(pDate, (cashPaymentsByDate.get(pDate) ?? 0) + p.amount);
-                } else {
-                  bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
-                }
-              }
-            }
-          }
-        }
-      }
-
-      const creditsByDate = new Map<string, number>();
-      const creditSalesByDate = new Map<string, number>();
-      const bankSalesByDate = new Map<string, number>();
-      for (const s of salesRes) {
-        const sDate = getColombiaDateKey(s.timestamp);
-        if (s.paymentMethod === PaymentMethod.TRANSFERENCIA || (s.bankAmount ?? 0) > 0) {
-          const amt = (s.bankAmount ?? 0) > 0 ? s.bankAmount! : s.totalAmount;
-          bankSalesByDate.set(sDate, (bankSalesByDate.get(sDate) ?? 0) + amt);
-        }
-      }
-      for (const c of credits) {
-        const isCpCredit = c.debtorType === 'LOCAL';
-        if (isProd) {
-          if (isCpCredit) {
-            const cDate = c.date.split('T')[0];
-            creditsByDate.set(cDate, (creditsByDate.get(cDate) ?? 0) + c.amount);
-          }
-        } else {
-          if (c.storeId === storeId && !isCpCredit) {
-            const cDate = c.date.split('T')[0];
-            creditsByDate.set(cDate, (creditsByDate.get(cDate) ?? 0) + c.amount);
-            if (c.saleId) {
-              creditSalesByDate.set(cDate, (creditSalesByDate.get(cDate) ?? 0) + c.amount);
-            }
-          }
-        }
-      }
-
-      let runningCash = 0;
-      let runningBank = 0;
-      let runningCartera = 0;
-      let runningBaseLocal = 0;
-      let previousBase = 0;
-
-      const dates = getDatesInRange(anchorDate, targetDate);
-
-      for (const date of dates) {
-        const closing = closingsByDate.get(date);
-        const openingBaseVal = openingsByDate.get(date) ?? 100000;
-        const isApproved = closing && (closing.status === ClosingStatus.APPROVED || closing.status === ClosingStatus.CONFIRMED);
-
-        const generalCashExp = (cashExpensesByDate.get(date) ?? 0) + (cashPurchasesByDate.get(date) ?? 0);
-        const generalBankExp = (bankExpensesByDate.get(date) ?? 0) + (bankPurchasesByDate.get(date) ?? 0);
-
-        const cashPayToday = cashPaymentsByDate.get(date) ?? 0;
-        const bankPayToday = bankPaymentsByDate.get(date) ?? 0;
-        const totalPayToday = totalPaymentsByDate.get(date) ?? 0;
-        const cpOutflowPayToday = cpOutflowPaymentsByDate.get(date) ?? 0;
-        const newCreditsToday = creditsByDate.get(date) ?? 0;
-        const creditSalesToday = creditSalesByDate.get(date) ?? 0;
-
-        const dayBankSales = bankSalesByDate.get(date) ?? 0;
-        const effectiveClosingBank = (closing && closing.bankTotal > 0) ? closing.bankTotal : dayBankSales;
-
-        const salesTransferCash = isApproved ? (closing.expectedTotal - effectiveClosingBank - creditSalesToday - closing.expenses) : 0;
-        const salesTransferBank = isApproved ? effectiveClosingBank : 0;
-
-        const registeredOpening = openingsByDate.get(date);
-        const theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
-        const baseAdjustmentToCash = (previousBase === 0) ? 0 : (previousBase - theoreticalBaseToday);
-
-        const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
-        const cashAdvancesToday = cashAdvancesByDate.get(date) ?? 0;
-        const generalCashIncomeToday = cashIncomesByDate.get(date) ?? 0;
-        const generalBankIncomeToday = bankIncomesByDate.get(date) ?? 0;
-
-        runningCash = runningCash + salesTransferCash + generalCashIncomeToday - generalCashExp - cashAdvancesToday + cashPayToday + baseAdjustmentToCash;
-        runningBank = runningBank + salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
-        runningCartera = runningCartera + newCreditsToday - totalPayToday;
-        runningBaseLocal = theoreticalBaseToday;
-        previousBase = theoreticalBaseToday;
-
-        const audit = auditsByDate.get(date);
-        if (audit) {
-          // AUTO-HEALING: Reset runningCash to match the physical count
-          runningCash = audit.actualTotal - audit.bankTotal - audit.cartera - theoreticalBaseToday;
-        }
-      }
-
-      return runningCash + runningBank + runningCartera + runningBaseLocal;
+      return (totalInflow - totalOutflow) + baseValue;
     } catch (err) {
-      console.error('Error calculating live theoretical total:', err);
+      console.error('Error calculating theoretical total:', err);
       return 0;
     }
-  }, [creditRepo, cashClosingService, cashAuditRepo, expenseRepo, purchaseRepo]);
+  }, [cashClosingService, expenseRepo, purchaseRepo, incomeRepo, latestTheoreticalBase]);
 
   const handleSaveCashAudit = useCallback(async () => {
     if (!appliedStoreId) return;
