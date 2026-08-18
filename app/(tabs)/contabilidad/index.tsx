@@ -870,14 +870,17 @@ export default function ContabilidadScreen() {
         setGeneralEgresos(periodExpenses);
       }
 
-      const fixed = allExpenses.filter(e => e.isFixed).reduce((sum, e) => sum + e.amount, 0);
-      const variable = allExpenses.filter(e => !e.isFixed).reduce((sum, e) => sum + e.amount, 0);
+      const operationalExpensesList = allExpenses.filter(
+        (e) => e.category !== 'Adelanto' && e.category !== 'Traslado' && e.category !== 'Compra Turno',
+      );
+      const fixed = operationalExpensesList.filter((e) => e.isFixed).reduce((sum, e) => sum + e.amount, 0);
+      const variable = operationalExpensesList.filter((e) => !e.isFixed).reduce((sum, e) => sum + e.amount, 0);
       setFixedExpenses(fixed);
       setVariableExpenses(variable);
 
       setSalesIncome(totalRevenue);
       setInternalTransferIncome(totalOutgoingTransfers);
-      setOperatingExpenses(totalExpenses);
+      setOperatingExpenses(fixed + variable);
       setPurchaseExpenses(totalPurchases);
       setInternalTransferExpenses(totalIncomingTransfers);
       setInventoryAssetValue(Math.round(currentInventoryValue));
@@ -968,11 +971,22 @@ export default function ContabilidadScreen() {
   const utilidad = ingresos - egresos;
   const flujoConInventario = utilidad + inventoryAssetValue;
   
-  // Margen bruto: Ventas externas + Ventas internas (traslados del centro) - Consumo Recetas - Compras Directas locales
-  const margenBruto = salesIncome + internalTransferIncome - soldInventoryCost - purchaseExpenses;
-  
-  // Margen operativo / Resultado neto de operacion: margen bruto menos bajas/mermas menos gastos fijos/variables
-  const resultadoOperativo = margenBruto - writeoffInventoryCost - fixedExpenses - variableExpenses;
+  const totalIncomeForMargin = salesIncome + (isProductionCenter ? internalTransferIncome : 0);
+
+  // Margen bruto: Ventas a clientes - Costo de recetas, masas y empaques consumidos
+  const margenBruto = totalIncomeForMargin - soldInventoryCost;
+  const margenBrutoPct = totalIncomeForMargin > 0
+    ? Math.round((margenBruto / totalIncomeForMargin) * 100)
+    : 0;
+
+  // Total Gastos Operacionales (OPEX): Fijos + Variables + Mermas
+  const totalOpex = fixedExpenses + variableExpenses + writeoffInventoryCost;
+
+  // Margen operativo / Resultado neto de operacion: Margen Bruto - Gastos Fijos - Gastos Variables - Mermas
+  const resultadoOperativo = margenBruto - totalOpex;
+  const margenOperativoPct = totalIncomeForMargin > 0
+    ? Math.round((resultadoOperativo / totalIncomeForMargin) * 100)
+    : 0;
   const latestCashAudit = cashAuditRows[0];
   const latestCashAuditTheoretical = (generalIngresos - generalEgresos) + latestTheoreticalBase;
   const latestCashAuditActual = latestCashAudit?.actualTotal ?? latestCashAuditTheoretical;
@@ -2055,228 +2069,152 @@ export default function ContabilidadScreen() {
             </>
           ) : (
             <>
-          {/* KPI Cards */}
+          {/* KPI Cards de Rentabilidad P&L */}
           <Text variant="titleSmall" style={styles.kpiSectionTitle}>
-            Flujo de caja
+            Indicadores de Rentabilidad (P&L)
           </Text>
           <View style={styles.kpiRow}>
-            <KpiCard icon="arrow-down-circle" label="Ingresos" value={formatCOP(ingresos)} color="#388E3C" />
-            <KpiCard icon="arrow-up-circle" label="Egresos" value={formatCOP(egresos)} color="#D32F2F" />
+            <KpiCard
+              icon="currency-usd"
+              label="Ventas Netas"
+              value={formatCOP(totalIncomeForMargin)}
+              color="#388E3C"
+            />
+            <KpiCard
+              icon="food-variant"
+              label="Costo Insumos (COGS)"
+              value={formatCOP(soldInventoryCost)}
+              color="#D32F2F"
+            />
           </View>
           <View style={styles.kpiRow}>
             <KpiCard
               icon="chart-line"
-              label="Flujo neto"
-              value={formatCOP(utilidad)}
-              color={utilidad >= 0 ? '#388E3C' : '#D32F2F'}
+              label="Margen Bruto"
+              value={`${formatCOP(margenBruto)} (${margenBrutoPct}%)`}
+              color={margenBruto >= 0 ? '#388E3C' : '#D32F2F'}
             />
             <KpiCard
-              icon="package-variant-closed"
-              label="Inventario"
-              value={formatCOP(inventoryAssetValue)}
-              color="#1976D2"
+              icon="briefcase-outline"
+              label="Gastos Operación (OPEX)"
+              value={formatCOP(totalOpex)}
+              color="#D32F2F"
             />
           </View>
           <View style={styles.kpiRow}>
             <KpiCard
               icon="scale-balance"
-              label="Flujo + inventario"
-              value={formatCOP(flujoConInventario)}
-              color={flujoConInventario >= 0 ? '#388E3C' : '#D32F2F'}
-            />
-          </View>
-          <Text variant="bodySmall" style={[styles.txInfoText, styles.kpiHelperText]}>
-            Estos indicadores explican caja: ingresos menos salidas y el inventario actual como activo del local.
-          </Text>
-
-          <Text variant="titleSmall" style={styles.kpiSectionTitle}>
-            Rentabilidad de ventas
-          </Text>
-          <View style={styles.kpiRow}>
-            <KpiCard
-              icon="cash-register"
-              label="Margen bruto"
-              value={formatCOP(margenBruto)}
-              color={margenBruto >= 0 ? '#388E3C' : '#D32F2F'}
-            />
-            <KpiCard
-              icon="chart-timeline-variant"
-              label="Margen operativo"
-              value={formatCOP(resultadoOperativo)}
+              label="Utilidad Operacional Neta"
+              value={`${formatCOP(resultadoOperativo)} (${margenOperativoPct}%)`}
               color={resultadoOperativo >= 0 ? '#388E3C' : '#D32F2F'}
             />
           </View>
           <Text variant="bodySmall" style={[styles.txInfoText, styles.kpiHelperText]}>
-            Esta lectura no se suma al flujo de caja: parte de las ventas a clientes y descuenta costo vendido, mermas y gastos operativos.
+            Mide la rentabilidad real del negocio: ventas menos materia prima consumida, mermas y gastos de funcionamiento.
           </Text>
 
-      <Card style={styles.txCard} mode="elevated">
-        <Card.Content>
-          <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 8 }}>
-            Desglose por centro de costo
-          </Text>
-          <View style={styles.txRow}>
-            <Text variant="bodySmall">Ventas a clientes</Text>
-            <Text variant="bodySmall" style={{ fontWeight: '600', color: '#388E3C' }}>
-              +{formatCOP(salesIncome)}
-            </Text>
-          </View>
-          {(isProductionCenter || internalTransferIncome > 0) && (
-            <View style={styles.txRow}>
-              <Text variant="bodySmall">Facturacion interna por traslados</Text>
-              <Text variant="bodySmall" style={{ fontWeight: '600', color: '#388E3C' }}>
-                +{formatCOP(internalTransferIncome)}
+          {/* Estado de Resultados en Cascada */}
+          <Card style={styles.txCard} mode="elevated">
+            <Card.Content>
+              <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 4 }}>
+                Estado de Resultados (P&L)
               </Text>
-            </View>
-          )}
-          <Divider style={{ marginVertical: 8 }} />
-          <View style={styles.txRow}>
-            <Text variant="bodySmall">Gastos operativos</Text>
-            <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
-              -{formatCOP(operatingExpenses)}
-            </Text>
-          </View>
-          {(isProductionCenter || purchaseExpenses > 0) && (
-            <View style={styles.txRow}>
-              <Text variant="bodySmall">Compras de insumos</Text>
-              <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
-                -{formatCOP(purchaseExpenses)}
+              <Text variant="bodySmall" style={styles.txInfoText}>
+                Informe económico del periodo. Descuenta insumos consumidos por recetas/formatos y gastos de funcionamiento.
               </Text>
-            </View>
-          )}
-          {(!isProductionCenter || internalTransferExpenses > 0) && (
-            <View style={styles.txRow}>
-              <Text variant="bodySmall">Cargos internos por traslados</Text>
-              <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
-                -{formatCOP(internalTransferExpenses)}
-              </Text>
-            </View>
-          )}
-          <Divider style={{ marginVertical: 8 }} />
-          <View style={styles.txRow}>
-            <Text variant="bodySmall">Inventario valorizado</Text>
-            <Text variant="bodySmall" style={{ fontWeight: '600', color: '#1976D2' }}>
-              +{formatCOP(inventoryAssetValue)}
-            </Text>
-          </View>
-          <View style={styles.txRow}>
-            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-              Base de valorizacion
-            </Text>
-            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-              Precio de traslado
-            </Text>
-          </View>
-          <View style={styles.txRow}>
-            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Resultado con inventario</Text>
-            <Text
-              variant="bodyMedium"
-              style={{ fontWeight: 'bold', color: flujoConInventario >= 0 ? '#388E3C' : '#D32F2F' }}
-            >
-              {formatCOP(flujoConInventario)}
-            </Text>
-          </View>
-        </Card.Content>
-      </Card>
 
-      <Card style={styles.txCard} mode="elevated">
-        <Card.Content>
-          <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 8 }}>
-            Informe de margen
-          </Text>
-          <Text variant="bodySmall" style={styles.txInfoText}>
-            Vista de rentabilidad separada del flujo de caja. Parte de ventas a clientes y descuenta costo vendido, mermas y gastos operativos.
-          </Text>
-          <View style={styles.txRow}>
-            <Text variant="bodySmall">Ventas a clientes</Text>
-            <Text variant="bodySmall" style={{ fontWeight: '600', color: '#388E3C' }}>
-              +{formatCOP(salesIncome)}
-            </Text>
-          </View>
-          <Text variant="bodySmall" style={styles.txInfoText}>
-            Total vendido a clientes en el periodo seleccionado. Es ingreso comercial del local.
-          </Text>
-          <View style={styles.txRow}>
-            <Text variant="bodySmall">Costo vendido por recetas</Text>
-            <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
-              -{formatCOP(soldInventoryCost)}
-            </Text>
-          </View>
-          <Text variant="bodySmall" style={styles.txInfoText}>
-            Inventario consumido por las ventas, calculado con recetas, adiciones y empaques a precio de traslado.
-          </Text>
-          <View style={[styles.txRow, styles.txSubtotalRow]}>
-            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Margen bruto</Text>
-            <Text
-              variant="bodyMedium"
-              style={{ fontWeight: 'bold', color: margenBruto >= 0 ? '#388E3C' : '#D32F2F' }}
-            >
-              {formatCOP(margenBruto)}
-            </Text>
-          </View>
-          <Text variant="bodySmall" style={styles.txInfoText}>
-            Ventas menos costo vendido. Muestra si lo vendido cubre el producto consumido.
-          </Text>
-          <Divider style={{ marginVertical: 8 }} />
-          <View style={styles.txRow}>
-            <Text variant="bodySmall">Bajas y mermas aprobadas</Text>
-            <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
-              -{formatCOP(writeoffInventoryCost)}
-            </Text>
-          </View>
-          <Text variant="bodySmall" style={styles.txInfoText}>
-            Inventario descontado por bajas aprobadas, como dano, vencimiento, derrame o contaminacion.
-          </Text>
-          <View style={styles.txRow}>
-            <Text variant="bodySmall">Gastos variables operacionales</Text>
-            <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
-              -{formatCOP(variableExpenses)}
-            </Text>
-          </View>
-          <Text variant="bodySmall" style={styles.txInfoText}>
-            Egresos generales variables del periodo (clasificados al registrar).
-          </Text>
-          <View style={styles.txRow}>
-            <Text variant="bodySmall">Gastos fijos operacionales</Text>
-            <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
-              -{formatCOP(fixedExpenses)}
-            </Text>
-          </View>
-          <Text variant="bodySmall" style={styles.txInfoText}>
-            Arriendos, nominas fijas y servicios basicos del centro de costos.
-          </Text>
-          <View style={[styles.txRow, styles.txSubtotalRow]}>
-            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Margen operativo</Text>
-            <Text
-              variant="bodyMedium"
-              style={{ fontWeight: 'bold', color: resultadoOperativo >= 0 ? '#388E3C' : '#D32F2F' }}
-            >
-              {formatCOP(resultadoOperativo)}
-            </Text>
-          </View>
-          <Text variant="bodySmall" style={styles.txInfoText}>
-            Margen bruto menos mermas y gastos operativos. No se suma al flujo: responde si las ventas del periodo cubrieron producto consumido y gastos.
-          </Text>
-          <Divider style={{ marginVertical: 8 }} />
-          <View style={styles.txRow}>
-            <Text variant="bodySmall">Inventario actual como activo</Text>
-            <Text variant="bodySmall" style={{ fontWeight: '600', color: '#1976D2' }}>
-              +{formatCOP(inventoryAssetValue)}
-            </Text>
-          </View>
-          <Text variant="bodySmall" style={styles.txInfoText}>
-            Stock que todavia queda en el local, valorizado al precio de compra al centro de produccion.
-          </Text>
-          <View style={styles.txRow}>
-            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-              Valorizado a precio de traslado
-            </Text>
-            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-              No usa costo interno
-            </Text>
-          </View>
-        </Card.Content>
-      </Card>
+              <View style={[styles.txRow, { marginTop: 8 }]}>
+                <Text variant="bodySmall">Ventas a clientes</Text>
+                <Text variant="bodySmall" style={{ fontWeight: '600', color: '#388E3C' }}>
+                  +{formatCOP(salesIncome)}
+                </Text>
+              </View>
+              {(isProductionCenter || internalTransferIncome > 0) && (
+                <View style={styles.txRow}>
+                  <Text variant="bodySmall">Facturación interna por traslados</Text>
+                  <Text variant="bodySmall" style={{ fontWeight: '600', color: '#388E3C' }}>
+                    +{formatCOP(internalTransferIncome)}
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.txRow}>
+                <Text variant="bodySmall">Costo de insumos consumidos (Recetas + Masas + Empaques)</Text>
+                <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
+                  -{formatCOP(soldInventoryCost)}
+                </Text>
+              </View>
+
+              <Divider style={{ marginVertical: 8 }} />
+
+              <View style={[styles.txRow, styles.txSubtotalRow]}>
+                <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>
+                  Margen Bruto ({margenBrutoPct}%)
+                </Text>
+                <Text
+                  variant="bodyMedium"
+                  style={{ fontWeight: 'bold', color: margenBruto >= 0 ? '#388E3C' : '#D32F2F' }}
+                >
+                  {formatCOP(margenBruto)}
+                </Text>
+              </View>
+
+              <Divider style={{ marginVertical: 8 }} />
+
+              <View style={styles.txRow}>
+                <Text variant="bodySmall">Bajas y mermas aprobadas</Text>
+                <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
+                  -{formatCOP(writeoffInventoryCost)}
+                </Text>
+              </View>
+
+              <View style={styles.txRow}>
+                <Text variant="bodySmall">Gastos fijos de operación (Arriendos, nómina, servicios)</Text>
+                <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
+                  -{formatCOP(fixedExpenses)}
+                </Text>
+              </View>
+
+              <View style={styles.txRow}>
+                <Text variant="bodySmall">Gastos variables de operación (Aseo, transporte, mantenimiento)</Text>
+                <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
+                  -{formatCOP(variableExpenses)}
+                </Text>
+              </View>
+
+              <Divider style={{ marginVertical: 8 }} />
+
+              <View style={[styles.txRow, styles.txSubtotalRow]}>
+                <Text variant="titleSmall" style={{ fontWeight: 'bold' }}>
+                  UTILIDAD OPERACIONAL NETA ({margenOperativoPct}%)
+                </Text>
+                <Text
+                  variant="titleSmall"
+                  style={{ fontWeight: 'bold', color: resultadoOperativo >= 0 ? '#388E3C' : '#D32F2F' }}
+                >
+                  {formatCOP(resultadoOperativo)}
+                </Text>
+              </View>
+            </Card.Content>
+          </Card>
+
+          {/* Inventario como Activo Patrimonial */}
+          <Card style={styles.txCard} mode="outlined">
+            <Card.Content>
+              <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 4 }}>
+                📦 Inventario Disponible en Sede (Activo)
+              </Text>
+              <Text variant="bodySmall" style={styles.txInfoText}>
+                Materia prima disponible en bodega para generar ventas futuras. No se deduce como gasto en el P&L actual.
+              </Text>
+              <View style={[styles.txRow, { marginTop: 8 }]}>
+                <Text variant="bodyMedium" style={{ fontWeight: '600' }}>Stock físico valorizado</Text>
+                <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#1976D2' }}>
+                  +{formatCOP(inventoryAssetValue)}
+                </Text>
+              </View>
+            </Card.Content>
+          </Card>
 
       {/* Nav buttons */}
       <View style={styles.navRow}>
