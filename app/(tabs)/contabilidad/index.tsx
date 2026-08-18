@@ -870,9 +870,19 @@ export default function ContabilidadScreen() {
         setGeneralEgresos(periodExpenses);
       }
 
-      const operationalExpensesList = allExpenses.filter(
-        (e) => e.category !== 'Adelanto' && e.category !== 'Traslado' && e.category !== 'Compra Turno',
-      );
+      const isStockOrSupplyExpense = (category: string) => {
+        const cat = (category || '').trim().toLowerCase();
+        return (
+          cat === 'insumos' ||
+          cat === 'insumo' ||
+          cat === 'compra insumo' ||
+          cat === 'compra turno' ||
+          cat === 'traslado' ||
+          cat === 'adelanto'
+        );
+      };
+
+      const operationalExpensesList = allExpenses.filter((e) => !isStockOrSupplyExpense(e.category));
       const fixed = operationalExpensesList.filter((e) => e.isFixed).reduce((sum, e) => sum + e.amount, 0);
       const variable = operationalExpensesList.filter((e) => !e.isFixed).reduce((sum, e) => sum + e.amount, 0);
       setFixedExpenses(fixed);
