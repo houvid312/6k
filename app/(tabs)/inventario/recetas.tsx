@@ -11,6 +11,7 @@ import { useAppStore } from '../../../src/stores/useAppStore';
 import { useSnackbar } from '../../../src/hooks';
 import { Product } from '../../../src/domain/entities/Product';
 import { Recipe } from '../../../src/domain/entities/Recipe';
+import { ProductFormat } from '../../../src/domain/entities/ProductFormat';
 import { InventoryLevel, UserRole } from '../../../src/domain/enums';
 
 interface EditableIngredient {
@@ -22,11 +23,12 @@ interface RecipeCardState {
   recipe: Recipe;
   product: Product;
   ingredients: EditableIngredient[];
+  formats: ProductFormat[];
 }
 
 export default function RecetasScreen() {
   const theme = useTheme();
-  const { recipeRepo, inventoryService } = useDI();
+  const { recipeRepo, inventoryService, productFormatRepo } = useDI();
   const { products: cachedProducts, supplies, refreshMasterData } = useMasterDataStore();
   const { selectedStoreId, userRole } = useAppStore();
   const isCanEditRecipe = userRole === UserRole.GERENTE || userRole === UserRole.RODY;
@@ -64,10 +66,19 @@ export default function RecetasScreen() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const allRecipes = await recipeRepo.getAll();
-
       const pizzaProducts = cachedProducts.filter((p) => p.hasRecipe && p.isActive);
+      const [allRecipes, allFormats] = await Promise.all([
+        recipeRepo.getAll(),
+        productFormatRepo.getByProductIds(pizzaProducts.map((p) => p.id)),
+      ]);
+
       const recipeByProductId = new Map(allRecipes.map((r) => [r.productId, r]));
+      const formatsByProductId = new Map<string, ProductFormat[]>();
+      for (const f of allFormats) {
+        const list = formatsByProductId.get(f.productId) ?? [];
+        list.push(f);
+        formatsByProductId.set(f.productId, list);
+      }
 
       const cardStates: RecipeCardState[] = pizzaProducts
         .filter((p) => recipeByProductId.has(p.id))
@@ -77,7 +88,12 @@ export default function RecetasScreen() {
             supplyId: ing.supplyId,
             gramsPerPortion: String(ing.gramsPerPortion),
           }));
-          return { recipe, product, ingredients: ings };
+          return {
+            recipe,
+            product,
+            ingredients: ings,
+            formats: formatsByProductId.get(product.id) ?? [],
+          };
         });
 
       setCards(cardStates);
@@ -86,7 +102,7 @@ export default function RecetasScreen() {
     } finally {
       setLoading(false);
     }
-  }, [recipeRepo, cachedProducts]);
+  }, [recipeRepo, productFormatRepo, cachedProducts]);
 
   useEffect(() => {
     loadData();
@@ -186,8 +202,25 @@ export default function RecetasScreen() {
         </View>
 
         <Divider style={{ backgroundColor: '#333', marginVertical: 8 }} />
-        <Text variant="bodySmall" style={{ color: '#999', marginBottom: 4 }}>
-          Consume por porción:
+
+        {card.formats.length > 0 && (
+          <View style={{ marginBottom: 10, padding: 10, backgroundColor: '#252525', borderRadius: 8 }}>
+            <Text variant="labelMedium" style={{ color: '#D4A843', fontWeight: 'bold', marginBottom: 4 }}>
+              🍞 Masas por Formato:
+            </Text>
+            {card.formats.map((fmt) => {
+              const masaName = fmt.masaSupplyId ? (supplyMap.get(fmt.masaSupplyId)?.name ?? 'Masa') : 'Sin masa';
+              return (
+                <Text key={fmt.id} variant="bodySmall" style={{ color: '#CCCCCC', marginVertical: 2 }}>
+                  • <Text style={{ fontWeight: '600', color: '#F5F0EB' }}>{fmt.name}</Text> ({fmt.portions} porc.): {fmt.masaGrams ?? 0}g ({masaName})
+                </Text>
+              );
+            })}
+          </View>
+        )}
+
+        <Text variant="bodySmall" style={{ color: '#999', marginBottom: 4, fontWeight: '600' }}>
+          Ingredientes por porción (Salsas, Quesos, Carnes):
         </Text>
         {card.ingredients.map((ing) => {
           const supply = supplyMap.get(ing.supplyId);

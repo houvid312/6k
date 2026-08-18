@@ -10,6 +10,7 @@ import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useSnackbar } from '../../../src/hooks';
 import { todayColombia } from '../../../src/utils/dates';
+import { ProductFormat } from '../../../src/domain/entities/ProductFormat';
 
 interface SupplyConsumption {
   supplyId: string;
@@ -20,7 +21,7 @@ interface SupplyConsumption {
 
 export default function ConsumoVentasScreen() {
   const theme = useTheme();
-  const { saleRepo, recipeRepo } = useDI();
+  const { saleRepo, recipeRepo, productFormatRepo } = useDI();
   const { selectedStoreId } = useAppStore();
   const { supplies, products: cachedProducts } = useMasterDataStore();
   const { snackbar, showError, hideSnackbar } = useSnackbar();
@@ -46,12 +47,20 @@ export default function ConsumoVentasScreen() {
       const dayStart = `${date}T00:00:00`;
       const dayEnd = `${date}T23:59:59`;
 
-      const [sales, recipes] = await Promise.all([
+      const [sales, recipes, formats] = await Promise.all([
         saleRepo.getByDateRange(selectedStoreId, dayStart, dayEnd),
         recipeRepo.getAll(),
+        productFormatRepo.getByProductIds(cachedProducts.map((p) => p.id)),
       ]);
 
       const recipeByProductId = new Map(recipes.map((r) => [r.productId, r]));
+      const formatById = new Map(formats.map((f) => [f.id, f]));
+      const formatsByProductId = new Map<string, ProductFormat[]>();
+      for (const f of formats) {
+        const list = formatsByProductId.get(f.productId) ?? [];
+        list.push(f);
+        formatsByProductId.set(f.productId, list);
+      }
 
       // Accumulate consumption per supply
       const consumptionMap = new Map<string, { totalGrams: number; breakdown: SupplyConsumption['breakdown'] }>();
@@ -60,31 +69,85 @@ export default function ConsumoVentasScreen() {
 
       for (const sale of sales) {
         for (const item of sale.items) {
-          const recipe = recipeByProductId.get(item.productId);
-          if (!recipe) continue;
-
           portionsTotal += item.portions;
+          const prodName = productMap.get(item.productId)?.name ?? item.productId;
 
-          for (const ing of recipe.ingredients) {
-            const gramsConsumed = ing.gramsPerPortion * item.portions;
-            const existing = consumptionMap.get(ing.supplyId) ?? { totalGrams: 0, breakdown: [] };
-            existing.totalGrams += gramsConsumed;
+          // 1. Ingredientes de receta base por porcion
+          const recipe = recipeByProductId.get(item.productId);
+          if (recipe) {
+            for (const ing of recipe.ingredients) {
+              const gramsConsumed = ing.gramsPerPortion * item.portions;
+              const existing = consumptionMap.get(ing.supplyId) ?? { totalGrams: 0, breakdown: [] };
+              existing.totalGrams += gramsConsumed;
 
-            // Accumulate per product in breakdown
-            const existingBreakdown = existing.breakdown.find((b) => b.productName === (productMap.get(item.productId)?.name ?? item.productId));
+              const existingBreakdown = existing.breakdown.find((b) => b.productName === prodName);
+              if (existingBreakdown) {
+                existingBreakdown.portions += item.portions;
+                existingBreakdown.subtotalGrams += gramsConsumed;
+              } else {
+                existing.breakdown.push({
+                  productName: prodName,
+                  portions: item.portions,
+                  gramsPerPortion: ing.gramsPerPortion,
+                  subtotalGrams: gramsConsumed,
+                });
+              }
+
+              consumptionMap.set(ing.supplyId, existing);
+            }
+          }
+
+          // 2. Masa asociada al Formato de pizza
+          let format = item.formatId ? formatById.get(item.formatId) : undefined;
+          if (!format && item.formatName) {
+            const prodFormats = formatsByProductId.get(item.productId) ?? [];
+            format = prodFormats.find((f) => f.name.toLowerCase() === item.formatName?.toLowerCase());
+          }
+
+          if (format && format.masaSupplyId && (format.masaGrams ?? 0) > 0) {
+            const masaGramsConsumed = (format.masaGrams ?? 0) * (item.quantity ?? 1);
+            const existing = consumptionMap.get(format.masaSupplyId) ?? { totalGrams: 0, breakdown: [] };
+            existing.totalGrams += masaGramsConsumed;
+
+            const existingBreakdown = existing.breakdown.find((b) => b.productName === prodName);
             if (existingBreakdown) {
               existingBreakdown.portions += item.portions;
-              existingBreakdown.subtotalGrams += gramsConsumed;
+              existingBreakdown.subtotalGrams += masaGramsConsumed;
             } else {
               existing.breakdown.push({
-                productName: productMap.get(item.productId)?.name ?? item.productId,
+                productName: prodName,
                 portions: item.portions,
-                gramsPerPortion: ing.gramsPerPortion,
-                subtotalGrams: gramsConsumed,
+                gramsPerPortion: format.masaGrams ?? 0,
+                subtotalGrams: masaGramsConsumed,
               });
             }
 
-            consumptionMap.set(ing.supplyId, existing);
+            consumptionMap.set(format.masaSupplyId, existing);
+          }
+
+          // 3. Adiciones
+          for (const add of item.additions ?? []) {
+            if (add.supplyId && (add.grams ?? 0) > 0) {
+              const addGramsConsumed = (add.grams ?? 0) * (add.quantity ?? 1);
+              const existing = consumptionMap.get(add.supplyId) ?? { totalGrams: 0, breakdown: [] };
+              existing.totalGrams += addGramsConsumed;
+
+              const addProdName = `${prodName} (Adición: ${add.name})`;
+              const existingBreakdown = existing.breakdown.find((b) => b.productName === addProdName);
+              if (existingBreakdown) {
+                existingBreakdown.portions += 1;
+                existingBreakdown.subtotalGrams += addGramsConsumed;
+              } else {
+                existing.breakdown.push({
+                  productName: addProdName,
+                  portions: 1,
+                  gramsPerPortion: add.grams ?? 0,
+                  subtotalGrams: addGramsConsumed,
+                });
+              }
+
+              consumptionMap.set(add.supplyId, existing);
+            }
           }
         }
       }
@@ -107,7 +170,7 @@ export default function ConsumoVentasScreen() {
     } finally {
       setLoading(false);
     }
-  }, [selectedStoreId, date, saleRepo, recipeRepo, supplyMap, productMap, showError]);
+  }, [selectedStoreId, date, saleRepo, recipeRepo, productFormatRepo, cachedProducts, supplyMap, productMap, showError]);
 
   const handleDateChange = (offset: number) => {
     const d = new Date(date + 'T12:00:00');

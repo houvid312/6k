@@ -78,11 +78,13 @@ export default function ProductosScreen() {
   const [formatsByProduct, setFormatsByProduct] = useState<Record<string, ProductFormat[]>>({});
   // Store assignments per product: productId → Set of storeIds where active
   const [assignmentsByProduct, setAssignmentsByProduct] = useState<Record<string, Set<string>>>({});
-  // Edición inline de formato: formatId → { name, portions, price }
+  // Edición inline de formato: formatId → { name, portions, price, masaSupplyId, masaGrams }
   const [editingFormatId, setEditingFormatId] = useState<string | null>(null);
   const [editFormatName, setEditFormatName] = useState('');
   const [editFormatPortions, setEditFormatPortions] = useState('');
   const [editFormatPrice, setEditFormatPrice] = useState('');
+  const [editFormatMasaSupplyId, setEditFormatMasaSupplyId] = useState<string | null>(null);
+  const [editFormatMasaGrams, setEditFormatMasaGrams] = useState('');
   const [savingFormatEdit, setSavingFormatEdit] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{ productId: string; formatId: string; name: string } | null>(null);
 
@@ -98,6 +100,8 @@ export default function ProductosScreen() {
   const [newFormatName, setNewFormatName] = useState('');
   const [newFormatPortions, setNewFormatPortions] = useState('1');
   const [newFormatPrice, setNewFormatPrice] = useState('');
+  const [newFormatMasaSupplyId, setNewFormatMasaSupplyId] = useState<string | null>(null);
+  const [newFormatMasaGrams, setNewFormatMasaGrams] = useState('');
   const [savingFormat, setSavingFormat] = useState(false);
 
   // Edit product modal
@@ -405,15 +409,20 @@ export default function ProductosScreen() {
     setEditFormatName(fmt.name);
     setEditFormatPortions(String(fmt.portions));
     setEditFormatPrice(String(fmt.price));
+    setEditFormatMasaSupplyId(fmt.masaSupplyId ?? null);
+    setEditFormatMasaGrams(fmt.masaGrams != null ? String(fmt.masaGrams) : '');
   };
 
   const handleCancelEditFormat = () => {
     setEditingFormatId(null);
+    setEditFormatMasaSupplyId(null);
+    setEditFormatMasaGrams('');
   };
 
   const handleSaveFormat = async (productId: string, formatId: string) => {
     const portions = parseInt(editFormatPortions, 10);
     const price = parseInt(editFormatPrice.replace(/\D/g, ''), 10);
+    const masaGrams = editFormatMasaGrams ? parseFloat(editFormatMasaGrams) : undefined;
     if (!editFormatName.trim()) { showError('El nombre no puede estar vacío'); return; }
     if (isNaN(portions) || portions <= 0) { showError('Porciones debe ser un número positivo'); return; }
     if (isNaN(price) || price < 0) { showError('Precio inválido'); return; }
@@ -424,11 +433,20 @@ export default function ProductosScreen() {
         name: editFormatName.trim(),
         portions,
         price,
+        masaSupplyId: editFormatMasaSupplyId || undefined,
+        masaGrams: !isNaN(masaGrams as number) ? masaGrams : undefined,
       });
       setFormatsByProduct((prev) => ({
         ...prev,
         [productId]: (prev[productId] ?? []).map((f) =>
-          f.id === formatId ? { ...f, name: editFormatName.trim(), portions, price } : f,
+          f.id === formatId ? {
+            ...f,
+            name: editFormatName.trim(),
+            portions,
+            price,
+            masaSupplyId: editFormatMasaSupplyId || undefined,
+            masaGrams: !isNaN(masaGrams as number) ? masaGrams : undefined,
+          } : f,
         ),
       }));
       handleCancelEditFormat();
@@ -508,6 +526,7 @@ export default function ProductosScreen() {
     if (!newFormatName.trim()) { showError('Ingresa un nombre para el formato'); return; }
     const portions = parseInt(newFormatPortions, 10);
     const price = parseInt(newFormatPrice.replace(/\D/g, ''), 10);
+    const masaGrams = newFormatMasaGrams ? parseFloat(newFormatMasaGrams) : undefined;
     if (isNaN(portions) || portions <= 0) { showError('Porciones debe ser un número positivo'); return; }
     if (isNaN(price) || price < 0) { showError('Precio inválido'); return; }
 
@@ -520,6 +539,8 @@ export default function ProductosScreen() {
         price,
         isActive: true,
         sortOrder: existing.length,
+        masaSupplyId: newFormatMasaSupplyId || undefined,
+        masaGrams: !isNaN(masaGrams as number) ? masaGrams : undefined,
       });
       setFormatsByProduct((prev) => ({
         ...prev,
@@ -529,6 +550,8 @@ export default function ProductosScreen() {
       setNewFormatName('');
       setNewFormatPortions('1');
       setNewFormatPrice('');
+      setNewFormatMasaSupplyId(null);
+      setNewFormatMasaGrams('');
       showSuccess('Formato creado');
     } catch {
       showError('Error creando formato');
@@ -539,6 +562,12 @@ export default function ProductosScreen() {
 
   const supplyMap = new Map(supplies.map((s) => [s.id, s]));
   const supplyOptions: SelectOption[] = supplies.map((s) => ({ value: s.id, label: s.name }));
+  const masaSupplyOptions: SelectOption[] = [
+    { value: '', label: 'Sin masa asignada' },
+    ...supplies
+      .filter((s) => s.isActive !== false && (s.category === 'PROCESSED' || s.category === 'RAW' || s.name.toLowerCase().includes('masa')))
+      .map((s) => ({ value: s.id, label: s.name })),
+  ];
 
   const handleStartEditRecipe = (productId: string) => {
     const recipe = recipesByProduct[productId];
@@ -851,7 +880,31 @@ export default function ProductosScreen() {
                               style={[styles.modalInput, { flex: 1, marginBottom: 0 }]}
                             />
                           </View>
-                          <View style={{ flexDirection: 'row', gap: 8 }}>
+                          {product.category === 'PIZZA' && (
+                            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 6 }}>
+                              <View style={{ flex: 1 }}>
+                                <SearchableSelect
+                                  placeholder="Tipo de Masa"
+                                  options={masaSupplyOptions}
+                                  selectedValue={editFormatMasaSupplyId ?? ''}
+                                  onSelect={(v: string) => setEditFormatMasaSupplyId(v || null)}
+                                />
+                              </View>
+                              <TextInput
+                                label="Gramos masa (g)"
+                                value={editFormatMasaGrams}
+                                onChangeText={setEditFormatMasaGrams}
+                                keyboardType="numeric"
+                                mode="outlined"
+                                dense
+                                outlineColor="#333"
+                                activeOutlineColor="#E63946"
+                                textColor="#F5F0EB"
+                                style={[styles.modalInput, { width: 130, marginBottom: 0 }]}
+                              />
+                            </View>
+                          )}
+                          <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
                             <Button mode="outlined" compact onPress={handleCancelEditFormat} style={{ flex: 1 }}>
                               Cancelar
                             </Button>
@@ -878,6 +931,7 @@ export default function ProductosScreen() {
                           </Text>
                           <Text variant="labelSmall" style={{ color: '#999' }}>
                             {fmt.portions} porc. · ${fmt.price.toLocaleString('es-CO')}
+                            {fmt.masaSupplyId ? ` · ${supplyMap.get(fmt.masaSupplyId)?.name ?? 'Masa'}: ${fmt.masaGrams ?? 0}g` : ''}
                           </Text>
                         </View>
                         <Switch
@@ -1230,6 +1284,30 @@ export default function ProductosScreen() {
             label="Precio (COP)"
             value={newFormatPrice}
             onChangeText={setNewFormatPrice}
+            keyboardType="numeric"
+            mode="outlined"
+            outlineColor="#333"
+            activeOutlineColor="#E63946"
+            textColor="#F5F0EB"
+            style={styles.modalInput}
+          />
+
+          <View style={{ marginBottom: 12 }}>
+            <Text variant="labelSmall" style={{ color: '#999', marginBottom: 4 }}>
+              Insumo de Masa (Opcional)
+            </Text>
+            <SearchableSelect
+              placeholder="Tipo de Masa"
+              options={masaSupplyOptions}
+              selectedValue={newFormatMasaSupplyId ?? ''}
+              onSelect={(v: string) => setNewFormatMasaSupplyId(v || null)}
+            />
+          </View>
+
+          <TextInput
+            label="Gramos de Masa (g)"
+            value={newFormatMasaGrams}
+            onChangeText={setNewFormatMasaGrams}
             keyboardType="numeric"
             mode="outlined"
             outlineColor="#333"
