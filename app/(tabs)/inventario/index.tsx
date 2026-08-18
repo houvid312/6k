@@ -172,15 +172,20 @@ export default function InventarioScreen() {
   const filteredItems = useMemo(() => {
     let sorted = [...items].sort((a, b) => a.supplyName.localeCompare(b.supplyName));
 
-    // Si la sede NO es Centro de Producción, excluir insumos de categoría 'RAW' (Materia Prima)
-    if (!isProductionCenter) {
+    if (isProductionCenter) {
+      if (level === InventoryLevel.RAW) {
+        sorted = sorted.filter((item) => supplyCategoryMap.get(item.supplyId) === 'RAW');
+      } else if (level === InventoryLevel.PROCESSED) {
+        sorted = sorted.filter((item) => supplyCategoryMap.get(item.supplyId) !== 'RAW');
+      }
+    } else {
       sorted = sorted.filter((item) => supplyCategoryMap.get(item.supplyId) !== 'RAW');
     }
 
     if (!searchQuery.trim()) return sorted;
     const q = searchQuery.toLowerCase().trim();
     return sorted.filter((item) => item.supplyName.toLowerCase().includes(q));
-  }, [items, searchQuery, isProductionCenter, supplyCategoryMap]);
+  }, [items, searchQuery, isProductionCenter, level, supplyCategoryMap]);
 
   const handleSetMinimum = useCallback(async (supplyId: string, grams: number) => {
     if (!selectedStoreId) return;
