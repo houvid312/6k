@@ -1,4 +1,4 @@
--- Migration 078: Restaurar receive_transfer_with_billing exacta con Cartera y smart levels
+-- Migration 078: Restaurar receive_transfer_with_billing exacta con Cartera, smart levels y casting de inventory_level
 BEGIN;
 
 DROP FUNCTION IF EXISTS receive_transfer_with_billing(UUID);
@@ -26,7 +26,7 @@ DECLARE
   v_today DATE := (now() AT TIME ZONE 'America/Bogota')::DATE;
   v_is_cp BOOLEAN;
   v_supply_category TEXT;
-  v_from_level TEXT;
+  v_from_level inventory_level;
 BEGIN
   SELECT *
   INTO v_transfer
@@ -84,12 +84,12 @@ BEGIN
 
     IF COALESCE(v_is_cp, false) THEN
       IF v_supply_category = 'RAW' THEN
-        v_from_level := 'RAW';
+        v_from_level := 'RAW'::inventory_level;
       ELSE
-        v_from_level := 'PROCESSED';
+        v_from_level := 'PROCESSED'::inventory_level;
       END IF;
     ELSE
-      v_from_level := 'STORE';
+      v_from_level := 'STORE'::inventory_level;
     END IF;
 
     SELECT quantity_grams
@@ -97,10 +97,11 @@ BEGIN
     FROM inventory
     WHERE store_id = v_transfer.to_store_id
       AND supply_id = v_item.supply_id
-      AND level = 'STORE';
+      AND level = 'STORE'::inventory_level;
 
     v_current_destination_grams := COALESCE(v_current_destination_grams, 0);
 
+    -- Descontar en origen
     INSERT INTO inventory (store_id, supply_id, level, quantity_grams, last_updated)
     VALUES (v_transfer.from_store_id, v_item.supply_id, v_from_level, -v_grams_to_transfer, now())
     ON CONFLICT (supply_id, store_id, level)
@@ -108,8 +109,9 @@ BEGIN
       quantity_grams = inventory.quantity_grams + EXCLUDED.quantity_grams,
       last_updated = now();
 
+    -- Sumar en destino
     INSERT INTO inventory (store_id, supply_id, level, quantity_grams, last_updated)
-    VALUES (v_transfer.to_store_id, v_item.supply_id, 'STORE', v_grams_to_transfer, now())
+    VALUES (v_transfer.to_store_id, v_item.supply_id, 'STORE'::inventory_level, v_grams_to_transfer, now())
     ON CONFLICT (supply_id, store_id, level)
     DO UPDATE SET
       quantity_grams = inventory.quantity_grams + EXCLUDED.quantity_grams,
