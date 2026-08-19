@@ -179,13 +179,24 @@ export default function InventarioScreen() {
         sorted = sorted.filter((item) => supplyCategoryMap.get(item.supplyId) !== 'RAW');
       }
     } else {
-      sorted = sorted.filter((item) => supplyCategoryMap.get(item.supplyId) !== 'RAW');
+      // En tiendas locales: mostrar todos los PROCESSED/OPERATIVE, y cualquier RAW que tenga saldo, minimo configurado, o coincida con la busqueda
+      sorted = sorted.filter((item) => {
+        const cat = supplyCategoryMap.get(item.supplyId);
+        if (cat !== 'RAW') return true;
+        const hasStock = item.quantityGrams !== 0;
+        const hasMin = (minimums[item.supplyId] ?? 0) > 0;
+        if (hasStock || hasMin) return true;
+        if (searchQuery.trim()) {
+          return item.supplyName.toLowerCase().includes(searchQuery.toLowerCase().trim());
+        }
+        return false;
+      });
     }
 
     if (!searchQuery.trim()) return sorted;
     const q = searchQuery.toLowerCase().trim();
     return sorted.filter((item) => item.supplyName.toLowerCase().includes(q));
-  }, [items, searchQuery, isProductionCenter, level, supplyCategoryMap]);
+  }, [items, searchQuery, isProductionCenter, level, supplyCategoryMap, minimums]);
 
   const handleSetMinimum = useCallback(async (supplyId: string, grams: number) => {
     if (!selectedStoreId) return;

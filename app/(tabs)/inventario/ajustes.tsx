@@ -112,9 +112,9 @@ export default function AjustesInventarioScreen() {
       }
       return active;
     }
-    // Local store: show PROCESSED and OPERATIVE (empaques y consumibles)
-    return active.filter((s) => s.category !== 'RAW');
-  }, [cachedSupplies, isProductionCenter, level]);
+    // Local store: show PROCESSED, OPERATIVE, and any supply with stock != 0 or when searching
+    return active.filter((s) => s.category !== 'RAW' || (currentQuantities[s.id] ?? 0) !== 0 || (searchQuery.trim() !== '' && s.name.toLowerCase().includes(searchQuery.toLowerCase().trim())));
+  }, [cachedSupplies, isProductionCenter, level, currentQuantities, searchQuery]);
 
   const filteredSupplies = useMemo(() => {
     let list = [...availableSupplies].sort((a, b) => a.name.localeCompare(b.name));

@@ -97,10 +97,8 @@ export default function CierreFisicoScreen() {
             minimums.filter((m) => m.minimumGrams > 0).map((m) => m.supplyId),
           );
 
-          const nonRawSupplies = activeSupplies.filter((s) => s.category !== 'RAW');
-
-          initialCounts = nonRawSupplies
-            .filter((s) => recipeSupplyIds.has(s.id) || s.category === 'OPERATIVE' || minSupplyIds.has(s.id))
+          initialCounts = activeSupplies
+            .filter((s) => s.category !== 'RAW' || recipeSupplyIds.has(s.id) || minSupplyIds.has(s.id))
             .map((s) => ({
               supplyId: s.id,
               supplyName: s.name,
