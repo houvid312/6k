@@ -214,18 +214,34 @@ export class SupabaseTransferRepository implements ITransferRepository {
     return (data as TransferItemRow[]).map(transferItemRowToEntity);
   }
 
+  private chunkArray<T>(array: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
+  }
+
   private async hydrateTransfers(rows: TransferRow[]): Promise<Transfer[]> {
     if (rows.length === 0) return [];
 
     const ids = rows.map((r) => r.id);
-    const { data: itemData, error: itemError } = await supabase
-      .from('transfer_items')
-      .select('*')
-      .in('transfer_id', ids);
-    if (itemError) throw itemError;
+    const idChunks = this.chunkArray(ids, 40);
 
+    const chunkResults = await Promise.all(
+      idChunks.map(async (chunk) => {
+        const { data, error } = await supabase
+          .from('transfer_items')
+          .select('*')
+          .in('transfer_id', chunk);
+        if (error) throw error;
+        return (data as TransferItemRow[]) ?? [];
+      })
+    );
+
+    const itemData = chunkResults.flat();
     const itemsByTransfer = new Map<string, TransferItem[]>();
-    for (const row of itemData as TransferItemRow[]) {
+    for (const row of itemData) {
       const list = itemsByTransfer.get(row.transfer_id) ?? [];
       list.push(transferItemRowToEntity(row));
       itemsByTransfer.set(row.transfer_id, list);

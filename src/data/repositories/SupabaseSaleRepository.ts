@@ -478,17 +478,32 @@ export class SupabaseSaleRepository implements ISaleRepository {
     );
   }
 
+  private chunkArray<T>(array: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
+  }
+
   private async fetchAdditionsForItems(itemIds: string[]): Promise<Map<string, SaleItemAddition[]>> {
     const result = new Map<string, SaleItemAddition[]>();
     if (itemIds.length === 0) return result;
 
-    const { data, error } = await supabase
-      .from('sale_item_additions')
-      .select('*')
-      .in('sale_item_id', itemIds);
-    if (error) return result; // No bloquear si falla
+    const itemIdChunks = this.chunkArray(itemIds, 40);
+    const chunkResults = await Promise.all(
+      itemIdChunks.map(async (chunk) => {
+        const { data, error } = await supabase
+          .from('sale_item_additions')
+          .select('*')
+          .in('sale_item_id', chunk);
+        if (error) return [];
+        return (data as SaleItemAdditionRow[]) ?? [];
+      })
+    );
 
-    for (const row of data as SaleItemAdditionRow[]) {
+    const allData = chunkResults.flat();
+    for (const row of allData) {
       const additions = result.get(row.sale_item_id) ?? [];
       additions.push(saleItemAdditionRowToEntity(row));
       result.set(row.sale_item_id, additions);
@@ -500,17 +515,25 @@ export class SupabaseSaleRepository implements ISaleRepository {
     if (rows.length === 0) return [];
 
     const saleIds = rows.map((r) => r.id);
-    const { data: itemData, error: itemError } = await supabase
-      .from('sale_items')
-      .select('*')
-      .in('sale_id', saleIds);
-    if (itemError) throw itemError;
+    const saleIdChunks = this.chunkArray(saleIds, 40);
 
-    const allItemIds = (itemData as SaleItemRow[]).map((r) => r.id);
+    const chunkResults = await Promise.all(
+      saleIdChunks.map(async (chunk) => {
+        const { data, error } = await supabase
+          .from('sale_items')
+          .select('*')
+          .in('sale_id', chunk);
+        if (error) throw error;
+        return (data as SaleItemRow[]) ?? [];
+      })
+    );
+
+    const itemData = chunkResults.flat();
+    const allItemIds = itemData.map((r) => r.id);
     const additionsByItem = await this.fetchAdditionsForItems(allItemIds);
 
     const itemsBySale = new Map<string, SaleItem[]>();
-    for (const row of itemData as SaleItemRow[]) {
+    for (const row of itemData) {
       const items = itemsBySale.get(row.sale_id) ?? [];
       items.push(saleItemRowToEntity(row, additionsByItem.get(row.id)));
       itemsBySale.set(row.sale_id, items);
