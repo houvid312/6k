@@ -53,11 +53,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const assignedIds = get().storeIds;
 
     // Filtrado de tiendas asignadas si el rol es local
-    if ([UserRole.ADMIN_LOCAL, UserRole.VENDEDOR, UserRole.RODY].includes(role) && assignedIds.length > 0) {
+    if ([UserRole.ADMIN_LOCAL, UserRole.VENDEDOR].includes(role) && assignedIds.length > 0) {
       storesList = storesList.filter((s) => assignedIds.includes(s.id));
     }
 
-    const isGlobalRole = [UserRole.GERENTE, UserRole.PREPARADOR].includes(role);
+    const isGlobalRole = [UserRole.GERENTE, UserRole.PREPARADOR, UserRole.RODY].includes(role);
     const defaultStore = isGlobalRole
       ? (storesList.find((s) => s.isProductionCenter) ?? storesList[0])
       : (storesList.find((s) => !s.isProductionCenter) ?? storesList[0]);
