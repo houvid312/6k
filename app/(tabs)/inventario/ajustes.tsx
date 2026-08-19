@@ -106,7 +106,7 @@ export default function AjustesInventarioScreen() {
     const active = cachedSupplies.filter((s) => s.isActive !== false);
     if (isProductionCenter) {
       if (level === InventoryLevel.RAW) {
-        return active.filter((s) => s.category === 'RAW' || s.category === 'OPERATIVE');
+        return active.filter((s) => s.category === 'RAW');
       } else if (level === InventoryLevel.PROCESSED) {
         return active.filter((s) => s.category === 'PROCESSED' || s.category === 'OPERATIVE');
       }
