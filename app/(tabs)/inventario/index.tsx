@@ -165,8 +165,8 @@ export default function InventarioScreen() {
     loadInventory();
   }, [loadInventory]);
 
-  const supplyCategoryMap = useMemo(() => {
-    return new Map(supplies.map((s) => [s.id, s.category || 'PROCESSED']));
+  const supplyMap = useMemo(() => {
+    return new Map(supplies.map((s) => [s.id, s]));
   }, [supplies]);
 
   const filteredItems = useMemo(() => {
@@ -174,15 +174,23 @@ export default function InventarioScreen() {
 
     if (isProductionCenter) {
       if (level === InventoryLevel.RAW) {
-        sorted = sorted.filter((item) => supplyCategoryMap.get(item.supplyId) === 'RAW');
+        sorted = sorted.filter((item) => (supplyMap.get(item.supplyId)?.category || 'PROCESSED') === 'RAW');
       } else if (level === InventoryLevel.PROCESSED) {
-        sorted = sorted.filter((item) => supplyCategoryMap.get(item.supplyId) !== 'RAW');
+        sorted = sorted.filter((item) => (supplyMap.get(item.supplyId)?.category || 'PROCESSED') !== 'RAW');
       }
     } else {
-      // En tiendas locales: mostrar todos los PROCESSED/OPERATIVE, y cualquier RAW que tenga saldo, minimo configurado, o coincida con la busqueda
+      // En tiendas locales:
+      // Insumos PROCESSED u OPERATIVE siempre son visibles.
+      // Insumos RAW SOLO si Gerencia los autorizó (isBillableToStore o allowLocalPurchase).
+      // Si un insumo RAW es exclusivo de planta (isBillableToStore=false y allowLocalPurchase=false), queda completamente bloqueado.
       sorted = sorted.filter((item) => {
-        const cat = supplyCategoryMap.get(item.supplyId);
+        const supply = supplyMap.get(item.supplyId);
+        const cat = supply?.category || 'PROCESSED';
         if (cat !== 'RAW') return true;
+
+        const isAllowedForStore = supply?.isBillableToStore || supply?.allowLocalPurchase;
+        if (!isAllowedForStore) return false;
+
         const hasStock = item.quantityGrams !== 0;
         const hasMin = (minimums[item.supplyId] ?? 0) > 0;
         if (hasStock || hasMin) return true;
@@ -196,7 +204,7 @@ export default function InventarioScreen() {
     if (!searchQuery.trim()) return sorted;
     const q = searchQuery.toLowerCase().trim();
     return sorted.filter((item) => item.supplyName.toLowerCase().includes(q));
-  }, [items, searchQuery, isProductionCenter, level, supplyCategoryMap, minimums]);
+  }, [items, searchQuery, isProductionCenter, level, supplyMap, minimums]);
 
   const handleSetMinimum = useCallback(async (supplyId: string, grams: number) => {
     if (!selectedStoreId) return;

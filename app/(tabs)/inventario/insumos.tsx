@@ -546,10 +546,10 @@ export default function InsumosScreen() {
               <View style={styles.switchRow}>
                 <View style={{ flex: 1 }}>
                   <Text variant="bodyMedium" style={{ color: '#F5F0EB', fontWeight: '600' }}>
-                    Cobrable al local
+                    Habilitado para Tiendas / Cobrable
                   </Text>
                   <Text variant="bodySmall" style={{ color: '#999' }}>
-                    Si esta apagado, el traslado factura este insumo en $0.
+                    Si esta activo, las tiendas pueden recibirlo, buscarlo y ver su stock. Si esta apagado, es exclusivo de planta.
                   </Text>
                 </View>
                 <Switch

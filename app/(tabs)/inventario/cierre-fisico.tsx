@@ -98,7 +98,7 @@ export default function CierreFisicoScreen() {
           );
 
           initialCounts = activeSupplies
-            .filter((s) => s.category !== 'RAW' || recipeSupplyIds.has(s.id) || minSupplyIds.has(s.id))
+            .filter((s) => s.category !== 'RAW' || ((s.isBillableToStore || s.allowLocalPurchase) && (recipeSupplyIds.has(s.id) || minSupplyIds.has(s.id))))
             .map((s) => ({
               supplyId: s.id,
               supplyName: s.name,

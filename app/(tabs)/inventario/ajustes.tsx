@@ -112,8 +112,13 @@ export default function AjustesInventarioScreen() {
       }
       return active;
     }
-    // Local store: show PROCESSED, OPERATIVE, and any supply with stock != 0 or when searching
-    return active.filter((s) => s.category !== 'RAW' || (currentQuantities[s.id] ?? 0) !== 0 || (searchQuery.trim() !== '' && s.name.toLowerCase().includes(searchQuery.toLowerCase().trim())));
+    // Local store: show PROCESSED, OPERATIVE, and only store-authorized RAW supplies (isBillableToStore or allowLocalPurchase)
+    return active.filter((s) => {
+      if (s.category !== 'RAW') return true;
+      const isAllowed = s.isBillableToStore || s.allowLocalPurchase;
+      if (!isAllowed) return false;
+      return (currentQuantities[s.id] ?? 0) !== 0 || (searchQuery.trim() !== '' && s.name.toLowerCase().includes(searchQuery.toLowerCase().trim()));
+    });
   }, [cachedSupplies, isProductionCenter, level, currentQuantities, searchQuery]);
 
   const filteredSupplies = useMemo(() => {
