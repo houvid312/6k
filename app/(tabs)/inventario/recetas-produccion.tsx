@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Card, Text, TextInput, Button, Divider, IconButton, Portal, Snackbar, useTheme } from 'react-native-paper';
+import { Card, Text, TextInput, Button, Divider, IconButton, Portal, Snackbar, Searchbar, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { EmptyState } from '../../../src/components/common/EmptyState';
@@ -45,6 +45,7 @@ export default function RecetasProduccionScreen() {
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [recipes, setRecipes] = useState<ProductionRecipe[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<NewRecipeForm>(EMPTY_FORM);
@@ -77,7 +78,22 @@ export default function RecetasProduccionScreen() {
     loadData();
   }, [loadData]);
 
-  const supplyMap = new Map(supplies.map((s) => [s.id, s]));
+  const supplyMap = useMemo(() => new Map(supplies.map((s) => [s.id, s])), [supplies]);
+
+  const filteredRecipes = useMemo(() => {
+    if (!searchQuery.trim()) return recipes;
+    const q = searchQuery.toLowerCase().trim();
+    return recipes.filter((r) => {
+      const matchName = r.name.toLowerCase().includes(q);
+      const outputSupplyName = (supplyMap.get(r.supplyId)?.name ?? '').toLowerCase();
+      const matchOutput = outputSupplyName.includes(q);
+      const matchInputs = r.inputs.some((i) => {
+        const inputName = (supplyMap.get(i.supplyId)?.name ?? '').toLowerCase();
+        return inputName.includes(q);
+      });
+      return matchName || matchOutput || matchInputs;
+    });
+  }, [recipes, searchQuery, supplyMap]);
 
   // --- Create handlers ---
   const handleAddInput = () => {
@@ -392,15 +408,27 @@ export default function RecetasProduccionScreen() {
       </Text>
 
       {!showForm && !editingId && (
-        <Button
-          mode="contained"
-          icon="plus"
-          onPress={() => setShowForm(true)}
-          style={styles.addBtn}
-          buttonColor="#E63946"
-        >
-          Nueva Receta
-        </Button>
+        <>
+          <Button
+            mode="contained"
+            icon="plus"
+            onPress={() => setShowForm(true)}
+            style={styles.addBtn}
+            buttonColor="#E63946"
+          >
+            Nueva Receta
+          </Button>
+
+          <Searchbar
+            placeholder="Buscar por receta o insumo..."
+            onChangeText={setSearchQuery}
+            value={searchQuery}
+            style={styles.searchbar}
+            inputStyle={{ color: '#F5F0EB', fontSize: 14 }}
+            iconColor="#999"
+            placeholderTextColor="#666"
+          />
+        </>
       )}
 
       {showForm && (
@@ -533,14 +561,14 @@ export default function RecetasProduccionScreen() {
         </Card>
       )}
 
-      {recipes.length === 0 && !showForm ? (
+      {filteredRecipes.length === 0 && !showForm ? (
         <EmptyState
           icon="book-open-variant"
-          title="Sin recetas"
-          subtitle="Crea tu primera receta de produccion"
+          title={recipes.length === 0 ? "Sin recetas" : "No se encontraron recetas"}
+          subtitle={recipes.length === 0 ? "Crea tu primera receta de produccion" : "Intenta con otro termino de busqueda"}
         />
       ) : (
-        recipes.map((recipe) =>
+        filteredRecipes.map((recipe) =>
           editingId === recipe.id && editState
             ? renderEditCard(recipe)
             : renderViewCard(recipe),
@@ -571,7 +599,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   addBtn: {
+    marginBottom: 12,
+    borderRadius: 8,
+  },
+  searchbar: {
     marginBottom: 16,
+    backgroundColor: '#1E1E1E',
     borderRadius: 8,
   },
   card: {
