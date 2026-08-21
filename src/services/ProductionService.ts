@@ -45,10 +45,10 @@ export class ProductionService {
       throw new Error(`Receta de produccion '${recipeId}' no encontrada`);
     }
 
-    // 1. Deduct raw inputs
+    // 1. Deduct raw inputs proporcionalmente
     const consumedItems = [];
     for (const input of recipe.inputs) {
-      const gramsToConsume = input.gramsRequired * batches;
+      const gramsToConsume = Math.round(input.gramsRequired * batches * 100) / 100;
       await this.inventoryRepo.deductGrams(storeId, input.supplyId, gramsToConsume);
       consumedItems.push({
         supplyId: input.supplyId,
@@ -57,7 +57,7 @@ export class ProductionService {
     }
 
     // 2. Add to PROCESSED level
-    const totalProduced = recipe.outputGrams * batches;
+    const totalProduced = Math.round(recipe.outputGrams * batches * 100) / 100;
     await this.inventoryRepo.addGrams(
       storeId,
       recipe.supplyId,
@@ -70,7 +70,7 @@ export class ProductionService {
       storeId,
       workerId,
       productionRecipeId: recipeId,
-      batches,
+      batches: Math.round(batches * 1000) / 1000,
       totalGramsProduced: totalProduced,
       notes,
       items: consumedItems,

@@ -128,7 +128,8 @@ export class DemandEstimationService {
 
     for (const [supplyId, requiredGrams] of requiredMap.entries()) {
       const supply = supplyMap.get(supplyId);
-      if (!supply || supply.isActive === false || supply.category === 'RAW') continue;
+      if (!supply || supply.isActive === false) continue;
+      if (supply.category === 'RAW' && !supply.isBillableToStore && !supply.allowLocalPurchase) continue;
 
       const currentItem = await this.inventoryRepo.getBySupply(
         supplyId,

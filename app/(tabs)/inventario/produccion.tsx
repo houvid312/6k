@@ -15,6 +15,7 @@ import { ProductionRecipe } from '../../../src/domain/entities';
 interface RecipeEntry {
   recipe: ProductionRecipe;
   batches: string;
+  bags: string;
 }
 
 export default function ProduccionScreen() {
@@ -36,7 +37,7 @@ export default function ProduccionScreen() {
       setLoading(true);
       try {
         const recipes = await productionService.getRecipes();
-        setEntries(recipes.map((r) => ({ recipe: r, batches: '0' })));
+        setEntries(recipes.map((r) => ({ recipe: r, batches: '0', bags: '0' })));
       } catch {
         showError('Error al cargar datos');
       } finally {
@@ -47,7 +48,25 @@ export default function ProduccionScreen() {
 
   const handleBatchChange = useCallback((recipeId: string, value: string) => {
     setEntries((prev) =>
-      prev.map((e) => (e.recipe.id === recipeId ? { ...e, batches: value } : e)),
+      prev.map((e) => {
+        if (e.recipe.id !== recipeId) return e;
+        const b = parseFloat(value.replace(',', '.'));
+        const outputBags = e.recipe.outputBags || 1;
+        const calcBags = !isNaN(b) && b > 0 ? String(Math.round(b * outputBags * 10) / 10) : (value === '' ? '' : '0');
+        return { ...e, batches: value, bags: calcBags };
+      }),
+    );
+  }, []);
+
+  const handleBagsChange = useCallback((recipeId: string, value: string) => {
+    setEntries((prev) =>
+      prev.map((e) => {
+        if (e.recipe.id !== recipeId) return e;
+        const bagsNum = parseFloat(value.replace(',', '.'));
+        const outputBags = e.recipe.outputBags || 1;
+        const calcBatches = !isNaN(bagsNum) && bagsNum > 0 ? String(Math.round((bagsNum / outputBags) * 1000) / 1000) : (value === '' ? '' : '0');
+        return { ...e, bags: value, batches: calcBatches };
+      }),
     );
   }, []);
 
@@ -80,12 +99,12 @@ export default function ProduccionScreen() {
     }
 
     const toProcess = entries.filter((e) => {
-      const b = parseInt(e.batches, 10);
+      const b = parseFloat(e.batches.replace(',', '.'));
       return !isNaN(b) && b > 0;
     });
 
     if (toProcess.length === 0) {
-      showError('Ingresa al menos 1 lote en alguna receta');
+      showError('Ingresa al menos 1 lote o bolsa en alguna receta');
       return;
     }
 
@@ -93,18 +112,21 @@ export default function ProduccionScreen() {
     try {
       let totalProduced = 0;
       for (const entry of toProcess) {
-        const batches = parseInt(entry.batches, 10);
+        const batches = parseFloat(entry.batches.replace(',', '.'));
+        const bags = parseFloat(entry.bags.replace(',', '.'));
+        const note = !isNaN(bags) && bags > 0 ? `Producción: ${bags} bolsas (${batches} lotes)` : `${batches} lotes`;
         await productionService.registerProduction(
           selectedStoreId,
           selectedWorkerId,
           entry.recipe.id,
           batches,
+          note,
         );
         totalProduced += entry.recipe.outputGrams * batches;
       }
 
       showSuccess(`Produccion registrada: ${Math.round(totalProduced)}g en ${toProcess.length} receta(s)`);
-      setEntries((prev) => prev.map((e) => ({ ...e, batches: '0' })));
+      setEntries((prev) => prev.map((e) => ({ ...e, batches: '0', bags: '0' })));
     } catch (err) {
       showError(err instanceof Error ? err.message : 'Error al registrar produccion');
     } finally {
@@ -124,7 +146,7 @@ export default function ProduccionScreen() {
         Registro de Produccion
       </Text>
       <Text variant="bodySmall" style={[styles.subtitle, { color: theme.colors.onSurfaceVariant }]}>
-        Selecciona las recetas y numero de lotes producidos
+        Ingresa los lotes o la cantidad de bolsas producidas
       </Text>
 
       <SearchableSelect
@@ -166,40 +188,71 @@ export default function ProduccionScreen() {
           subtitle="Prueba con otro nombre de receta"
         />
       ) : (
-        filteredEntries.map((entry) => (
-          <Card key={entry.recipe.id} style={[styles.card, { backgroundColor: '#1E1E1E' }]}>
-            <Card.Content>
-              <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: '600' }}>
-                {entry.recipe.name}
-              </Text>
-              <Text variant="bodySmall" style={{ color: '#999', marginTop: 4 }}>
-                Produce: {entry.recipe.outputBags} bolsa(s) de{' '}
-                {Math.round(entry.recipe.outputGrams / entry.recipe.outputBags)}g por lote
-              </Text>
-              <View style={styles.batchRow}>
-                <Text variant="bodyMedium" style={{ color: '#F5F0EB', flex: 1 }}>
-                  Lotes:
+        filteredEntries.map((entry) => {
+          const bNum = parseFloat(entry.batches.replace(',', '.'));
+          const hasBatches = !isNaN(bNum) && bNum > 0;
+          const gramsPerBag = Math.round(entry.recipe.outputGrams / (entry.recipe.outputBags || 1));
+          const totalGrams = hasBatches ? Math.round(entry.recipe.outputGrams * bNum) : 0;
+
+          return (
+            <Card key={entry.recipe.id} style={[styles.card, { backgroundColor: '#1E1E1E' }]}>
+              <Card.Content>
+                <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: '600' }}>
+                  {entry.recipe.name}
                 </Text>
-                <TextInput
-                  mode="outlined"
-                  dense
-                  keyboardType="numeric"
-                  value={entry.batches}
-                  onChangeText={(v) => handleBatchChange(entry.recipe.id, v)}
-                  style={styles.batchInput}
-                  outlineColor="#333"
-                  activeOutlineColor="#E63946"
-                  textColor="#F5F0EB"
-                />
-              </View>
-              {parseInt(entry.batches, 10) > 0 && (
-                <Text variant="bodySmall" style={{ color: '#4CAF50', marginTop: 4 }}>
-                  = {Math.round(entry.recipe.outputGrams * parseInt(entry.batches, 10))}g producidos
+                <Text variant="bodySmall" style={{ color: '#999', marginTop: 4 }}>
+                  Estándar por lote: {entry.recipe.outputBags} bolsa(s) de {gramsPerBag}g ({entry.recipe.outputGrams}g total)
                 </Text>
-              )}
-            </Card.Content>
-          </Card>
-        ))
+
+                <View style={styles.inputsRow}>
+                  {/* Campo Lotes */}
+                  <View style={styles.inputCol}>
+                    <Text variant="bodySmall" style={styles.inputLabel}>
+                      Lotes:
+                    </Text>
+                    <TextInput
+                      mode="outlined"
+                      dense
+                      keyboardType="numeric"
+                      value={entry.batches}
+                      onChangeText={(v) => handleBatchChange(entry.recipe.id, v)}
+                      style={styles.unitInput}
+                      outlineColor="#333"
+                      activeOutlineColor="#E63946"
+                      textColor="#F5F0EB"
+                    />
+                  </View>
+
+                  {/* Campo Bolsas / Unidades */}
+                  <View style={styles.inputCol}>
+                    <Text variant="bodySmall" style={styles.inputLabel}>
+                      Bolsas / Unid:
+                    </Text>
+                    <TextInput
+                      mode="outlined"
+                      dense
+                      keyboardType="numeric"
+                      value={entry.bags}
+                      onChangeText={(v) => handleBagsChange(entry.recipe.id, v)}
+                      style={styles.unitInput}
+                      outlineColor="#333"
+                      activeOutlineColor="#4CAF50"
+                      textColor="#F5F0EB"
+                    />
+                  </View>
+                </View>
+
+                {hasBatches && (
+                  <View style={styles.producedSummary}>
+                    <Text variant="bodySmall" style={{ color: '#4CAF50', fontWeight: 'bold' }}>
+                      = {totalGrams.toLocaleString()}g producidos ({entry.bags} bolsas de {gramsPerBag}g)
+                    </Text>
+                  </View>
+                )}
+              </Card.Content>
+            </Card>
+          );
+        })
       )}
 
       <Button
@@ -248,21 +301,32 @@ const styles = StyleSheet.create({
   resultCount: {
     marginBottom: 12,
   },
-  menu: {
-    width: 300,
-  },
   card: {
     marginBottom: 12,
     borderRadius: 12,
   },
-  batchRow: {
+  inputsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 12,
+    gap: 12,
   },
-  batchInput: {
-    width: 80,
+  inputCol: {
+    flex: 1,
+  },
+  inputLabel: {
+    color: '#CCC',
+    marginBottom: 4,
+    fontWeight: '600',
+  },
+  unitInput: {
     backgroundColor: '#111111',
+  },
+  producedSummary: {
+    marginTop: 8,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#2A2A2A',
   },
   submitBtn: {
     marginTop: 24,

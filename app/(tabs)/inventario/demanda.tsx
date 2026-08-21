@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Card, Text, TextInput, Button, Portal, Snackbar, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
@@ -87,6 +87,18 @@ export default function DemandaScreen() {
     }
   }, [selectedStoreId, products, estimates, demandEstimationService, showSuccess, showError]);
 
+  const getDayTotal = (day: number) => {
+    return products.reduce((sum, p) => {
+      const key = `${day}-${p.id}`;
+      const val = parseInt(estimates[key] ?? '0', 10);
+      return sum + (isNaN(val) ? 0 : Math.max(0, val));
+    }, 0);
+  };
+
+  const weeklyTotal = useMemo(() => {
+    return DAY_ORDER.reduce((total, day) => total + getDayTotal(day), 0);
+  }, [estimates, products]);
+
   if (loading) {
     return <LoadingIndicator message="Cargando estimaciones..." />;
   }
@@ -102,40 +114,72 @@ export default function DemandaScreen() {
 
       <StoreSelector />
 
-      {DAY_ORDER.map((day) => (
-        <Card key={day} style={[styles.card, { backgroundColor: '#1E1E1E' }]}>
-          <Card.Content>
-            <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: '600', marginBottom: 8 }}>
-              {DAY_NAMES[day]}
+      {/* Resumen Semanal */}
+      <Card style={[styles.card, { backgroundColor: '#1A2E1A', borderColor: '#4CAF50', borderWidth: 1, marginTop: 8 }]}>
+        <Card.Content style={styles.weeklySummaryContent}>
+          <View>
+            <Text variant="titleSmall" style={{ color: '#4CAF50', fontWeight: 'bold' }}>
+              PROYECCIÓN SEMANAL TOTAL
             </Text>
-            {products.map((product) => {
-              const key = `${day}-${product.id}`;
-              return (
-                <View key={product.id} style={styles.estimateRow}>
-                  <Text
-                    variant="bodyMedium"
-                    style={{ color: '#F5F0EB', flex: 1 }}
-                    numberOfLines={1}
-                  >
-                    {product.name}
+            <Text variant="bodySmall" style={{ color: '#C8E6C9' }}>
+              Suma de todas las porciones estimadas en la semana
+            </Text>
+          </View>
+          <View style={styles.weeklyBadge}>
+            <Text variant="headlineSmall" style={{ color: '#FFF', fontWeight: 'bold' }}>
+              {weeklyTotal}
+            </Text>
+            <Text variant="bodySmall" style={{ color: '#C8E6C9', fontSize: 11 }}>
+              porciones
+            </Text>
+          </View>
+        </Card.Content>
+      </Card>
+
+      {DAY_ORDER.map((day) => {
+        const dayTotal = getDayTotal(day);
+        return (
+          <Card key={day} style={[styles.card, { backgroundColor: '#1E1E1E' }]}>
+            <Card.Content>
+              <View style={styles.dayHeader}>
+                <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
+                  {DAY_NAMES[day]}
+                </Text>
+                <View style={[styles.dayBadge, { backgroundColor: dayTotal > 0 ? '#E63946' : '#333' }]}>
+                  <Text variant="bodySmall" style={{ color: '#FFF', fontWeight: '600' }}>
+                    {dayTotal} porciones
                   </Text>
-                  <TextInput
-                    mode="outlined"
-                    dense
-                    keyboardType="numeric"
-                    value={estimates[key] ?? '0'}
-                    onChangeText={(v) => handleChange(day, product.id, v)}
-                    style={styles.portionInput}
-                    outlineColor="#333"
-                    activeOutlineColor="#E63946"
-                    textColor="#F5F0EB"
-                  />
                 </View>
-              );
-            })}
-          </Card.Content>
-        </Card>
-      ))}
+              </View>
+              {products.map((product) => {
+                const key = `${day}-${product.id}`;
+                return (
+                  <View key={product.id} style={styles.estimateRow}>
+                    <Text
+                      variant="bodyMedium"
+                      style={{ color: '#F5F0EB', flex: 1 }}
+                      numberOfLines={1}
+                    >
+                      {product.name}
+                    </Text>
+                    <TextInput
+                      mode="outlined"
+                      dense
+                      keyboardType="numeric"
+                      value={estimates[key] ?? '0'}
+                      onChangeText={(v) => handleChange(day, product.id, v)}
+                      style={styles.portionInput}
+                      outlineColor="#333"
+                      activeOutlineColor="#E63946"
+                      textColor="#F5F0EB"
+                    />
+                  </View>
+                );
+              })}
+            </Card.Content>
+          </Card>
+        );
+      })}
 
       <Button
         mode="contained"
@@ -146,7 +190,7 @@ export default function DemandaScreen() {
         style={styles.saveBtn}
         buttonColor="#E63946"
       >
-        Guardar Todo
+        Guardar Todo ({weeklyTotal} porciones)
       </Button>
 
       <View style={{ height: 100 }} />
@@ -175,6 +219,34 @@ const styles = StyleSheet.create({
   },
   card: {
     marginBottom: 12,
+    borderRadius: 12,
+  },
+  weeklySummaryContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+  },
+  weeklyBadge: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2E7D32',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  dayHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2A2A2A',
+  },
+  dayBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
     borderRadius: 12,
   },
   estimateRow: {
