@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { FlatList, View, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { Chip, Text, TextInput, useTheme, SegmentedButtons, Card, Button, Divider, Snackbar } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { EmptyState } from '../../../src/components/common/EmptyState';
@@ -13,6 +13,7 @@ import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
 import { InventoryLevel, UserRole } from '../../../src/domain/enums';
 import { InventorySummaryItem } from '../../../src/services/InventoryService';
+import { supabase } from '../../../src/lib/supabase';
 
 interface NavItem {
   icon: string;
@@ -161,8 +162,28 @@ export default function InventarioScreen() {
     setLevel(isProductionCenter ? InventoryLevel.RAW : InventoryLevel.STORE);
   }, [isProductionCenter]);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadInventory();
+    }, [loadInventory])
+  );
+
+  // Suscripción Realtime a cambios en la tabla inventory (producción, traslados, ventas, compras, etc.)
   useEffect(() => {
-    loadInventory();
+    const channel = supabase
+      .channel('public_inventory_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'inventory' },
+        () => {
+          loadInventory();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [loadInventory]);
 
   const supplyMap = useMemo(() => {

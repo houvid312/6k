@@ -13,7 +13,7 @@ import {
   useTheme,
   Searchbar,
 } from 'react-native-paper';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
@@ -93,13 +93,15 @@ export default function AjustesInventarioScreen() {
     }
   }, [selectedStoreId, inventoryAdjustmentRepo]);
 
-  useEffect(() => {
-    if (activeTab === 'adjust') {
-      loadStock();
-    } else {
-      loadHistory();
-    }
-  }, [activeTab, loadStock, loadHistory]);
+  useFocusEffect(
+    useCallback(() => {
+      if (activeTab === 'adjust') {
+        loadStock();
+      } else {
+        loadHistory();
+      }
+    }, [activeTab, loadStock, loadHistory])
+  );
 
   // Filter supplies according to store type and level
   const availableSupplies = useMemo(() => {
