@@ -98,6 +98,12 @@ export class AlertService {
     const thresholdPercent = 5;
 
     for (const supplyId of allSupplyIds) {
+      const supply = supplyMap.get(supplyId);
+      if (!supply || supply.isActive === false) continue;
+      if (supply.category === 'RAW' && !supply.isBillableToStore && !supply.allowLocalPurchase) {
+        continue;
+      }
+
       const invInicial = initialInventory[supplyId] ?? 0;
       const entradas = transferEntries[supplyId] ?? 0;
       const consumoTeorico = theoreticalMap.get(supplyId) ?? 0;

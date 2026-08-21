@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import { Text, Button, SegmentedButtons, Portal, Snackbar, IconButton, useTheme } from 'react-native-paper';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
@@ -29,9 +30,11 @@ const RANGE_BUTTONS = [
 export default function ValidacionesScreen() {
   const theme = useTheme();
   const { alertService, cashClosingService } = useDI();
-  const { selectedStoreId } = useAppStore();
+  const { selectedStoreId, stores } = useAppStore();
   const { supplies: cachedSupplies } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
+
+  const isProductionCenter = stores.find((s) => s.id === selectedStoreId)?.isProductionCenter ?? false;
 
   const [alerts, setAlerts] = useState<DailyAlert[]>([]);
   const [supplyNames, setSupplyNames] = useState<Map<string, string>>(new Map());
@@ -45,7 +48,9 @@ export default function ValidacionesScreen() {
     if (!selectedStoreId) return;
     setLoading(true);
     try {
-      setSupplyNames(new Map(cachedSupplies.map((s) => [s.id, s.name])));
+      const activeSupplies = cachedSupplies.filter((s) => s.isActive !== false);
+      const activeSupplyMap = new Map(activeSupplies.map((s) => [s.id, s]));
+      setSupplyNames(new Map(activeSupplies.map((s) => [s.id, s.name])));
 
       const now = nowColombia();
       const endDate = toISODate(now);
@@ -64,23 +69,36 @@ export default function ValidacionesScreen() {
         startDate = toISODate(new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000));
       }
 
+      let data: DailyAlert[] = [];
       if (range === 'today' || range === 'day') {
-        const data = await alertService.getDailyAlerts(selectedStoreId, startDate);
-        setAlerts(data);
+        data = await alertService.getDailyAlerts(selectedStoreId, startDate);
       } else {
-        const data = await alertService.getAlertHistory(selectedStoreId, startDate, queryEndDate);
-        setAlerts(data);
+        data = await alertService.getAlertHistory(selectedStoreId, startDate, queryEndDate);
       }
+
+      // Filtrar insumos inactivos o materias primas no autorizadas en tiendas locales
+      const validAlerts = data.filter((a) => {
+        const supply = activeSupplyMap.get(a.supplyId);
+        if (!supply) return false;
+        if (!isProductionCenter && supply.category === 'RAW' && !supply.isBillableToStore && !supply.allowLocalPurchase) {
+          return false;
+        }
+        return true;
+      });
+
+      setAlerts(validAlerts);
     } catch {
       setAlerts([]);
     } finally {
       setLoading(false);
     }
-  }, [selectedStoreId, range, selectedDay, alertService, cachedSupplies]);
+  }, [selectedStoreId, range, selectedDay, alertService, cachedSupplies, isProductionCenter]);
 
-  useEffect(() => {
-    loadValidations();
-  }, [loadValidations]);
+  useFocusEffect(
+    useCallback(() => {
+      loadValidations();
+    }, [loadValidations])
+  );
 
   const handleRangeChange = (value: string) => {
     if (value === 'day') {
