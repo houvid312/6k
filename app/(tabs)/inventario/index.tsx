@@ -244,27 +244,50 @@ export default function InventarioScreen() {
     }
   }, [selectedStoreId, level, stockMinimumRepo, showSuccess, showError]);
 
+  // Formateador de stock vs mínimo en el tablero de trabajo
+  const formatCriticalQty = useCallback((grams: number, minGrams: number, supplyId: string) => {
+    const supply = supplyMap.get(supplyId);
+    if (!supply) return `${Math.round(grams)}g / ${minGrams}g`;
+    const gpb = supply.gramsPerBag || 1;
+    if (gpb > 1 && supply.category !== 'RAW') {
+      const currentBags = Math.floor(grams / gpb);
+      const minBags = Math.ceil(minGrams / gpb);
+      return `${currentBags} bol (${Math.round(grams)}g) / ${minBags} bol (${minGrams}g)`;
+    }
+    if (gpb === 1 && supply.category === 'OPERATIVE') {
+      return `${Math.round(grams)} unid / ${minGrams} unid`;
+    }
+    return `${Math.round(grams)}g / ${minGrams}g`;
+  }, [supplyMap]);
+
   // Filtrado de insumos bajo stock mínimo para el tablero de trabajo
   const criticalRaw = useMemo(() => {
     return rawItems.filter(item => {
+      const supply = supplyMap.get(item.supplyId);
+      if (!supply || supply.isActive === false || supply.category !== 'RAW') return false;
       const min = workflowMinimums[item.supplyId] ?? 0;
       return min > 0 && item.quantityGrams < min;
     });
-  }, [rawItems, workflowMinimums]);
+  }, [rawItems, workflowMinimums, supplyMap]);
 
   const criticalProcessed = useMemo(() => {
     return processedItems.filter(item => {
+      const supply = supplyMap.get(item.supplyId);
+      if (!supply || supply.isActive === false || supply.category === 'RAW') return false;
       const min = workflowMinimums[item.supplyId] ?? 0;
       return min > 0 && item.quantityGrams < min;
     });
-  }, [processedItems, workflowMinimums]);
+  }, [processedItems, workflowMinimums, supplyMap]);
 
   const criticalStore = useMemo(() => {
     return storeItems.filter(item => {
+      const supply = supplyMap.get(item.supplyId);
+      if (!supply || supply.isActive === false) return false;
+      if (supply.category === 'RAW' && !supply.isBillableToStore && !supply.allowLocalPurchase) return false;
       const min = workflowMinimums[item.supplyId] ?? 0;
       return min > 0 && item.quantityGrams < min;
     });
-  }, [storeItems, workflowMinimums]);
+  }, [storeItems, workflowMinimums, supplyMap]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -399,7 +422,7 @@ export default function InventarioScreen() {
                       <View key={item.supplyId} style={styles.criticalItemRow}>
                         <Text variant="bodySmall" style={styles.criticalItemName}>• {item.supplyName}</Text>
                         <Text variant="bodySmall" style={styles.criticalItemQty}>
-                          {Math.round(item.quantityGrams)}g / {workflowMinimums[item.supplyId]}g
+                          {formatCriticalQty(item.quantityGrams, workflowMinimums[item.supplyId] ?? 0, item.supplyId)}
                         </Text>
                       </View>
                     ))}
@@ -453,7 +476,7 @@ export default function InventarioScreen() {
                       <View key={item.supplyId} style={styles.criticalItemRow}>
                         <Text variant="bodySmall" style={styles.criticalItemName}>• {item.supplyName}</Text>
                         <Text variant="bodySmall" style={styles.criticalItemQty}>
-                          {Math.round(item.quantityGrams)}g / {workflowMinimums[item.supplyId]}g
+                          {formatCriticalQty(item.quantityGrams, workflowMinimums[item.supplyId] ?? 0, item.supplyId)}
                         </Text>
                       </View>
                     ))}
@@ -508,7 +531,7 @@ export default function InventarioScreen() {
                     <View key={item.supplyId} style={styles.criticalItemRow}>
                       <Text variant="bodySmall" style={styles.criticalItemName}>• {item.supplyName}</Text>
                       <Text variant="bodySmall" style={styles.criticalItemQty}>
-                        {Math.round(item.quantityGrams)}g / {workflowMinimums[item.supplyId]}g
+                        {formatCriticalQty(item.quantityGrams, workflowMinimums[item.supplyId] ?? 0, item.supplyId)}
                       </Text>
                     </View>
                   ))}
