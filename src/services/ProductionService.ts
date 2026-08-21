@@ -39,16 +39,24 @@ export class ProductionService {
     recipeId: string,
     batches: number,
     notes: string = '',
+    bags?: number,
   ): Promise<ProductionRecord> {
     const recipe = await this.recipeRepo.getById(recipeId);
     if (!recipe) {
       throw new Error(`Receta de produccion '${recipeId}' no encontrada`);
     }
 
-    // 1. Deduct raw inputs proporcionalmente
+    const outputBags = recipe.outputBags || 1;
+    const isBagsMode = bags !== undefined && bags > 0;
+    const effectiveBatches = isBagsMode ? bags / outputBags : batches;
+
+    // 1. Deduct raw inputs proporcional y exactamente por unidad
     const consumedItems = [];
     for (const input of recipe.inputs) {
-      const gramsToConsume = Math.round(input.gramsRequired * batches * 100) / 100;
+      const gramsToConsume = isBagsMode
+        ? Math.round(((input.gramsRequired / outputBags) * bags) * 100) / 100
+        : Math.round(input.gramsRequired * effectiveBatches * 100) / 100;
+
       await this.inventoryRepo.deductGrams(storeId, input.supplyId, gramsToConsume);
       consumedItems.push({
         supplyId: input.supplyId,
@@ -56,8 +64,12 @@ export class ProductionService {
       });
     }
 
-    // 2. Add to PROCESSED level
-    const totalProduced = Math.round(recipe.outputGrams * batches * 100) / 100;
+    // 2. Add to PROCESSED level (exacto por bolsa)
+    const gramsPerBag = recipe.outputGrams / outputBags;
+    const totalProduced = isBagsMode
+      ? Math.round(bags * gramsPerBag * 100) / 100
+      : Math.round(recipe.outputGrams * effectiveBatches * 100) / 100;
+
     await this.inventoryRepo.addGrams(
       storeId,
       recipe.supplyId,
@@ -70,7 +82,7 @@ export class ProductionService {
       storeId,
       workerId,
       productionRecipeId: recipeId,
-      batches: Math.round(batches * 1000) / 1000,
+      batches: Math.round(effectiveBatches * 1000) / 1000,
       totalGramsProduced: totalProduced,
       notes,
       items: consumedItems,

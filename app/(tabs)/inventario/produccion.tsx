@@ -16,6 +16,7 @@ interface RecipeEntry {
   recipe: ProductionRecipe;
   batches: string;
   bags: string;
+  lastEdited: 'BATCHES' | 'BAGS';
 }
 
 export default function ProduccionScreen() {
@@ -37,7 +38,7 @@ export default function ProduccionScreen() {
       setLoading(true);
       try {
         const recipes = await productionService.getRecipes();
-        setEntries(recipes.map((r) => ({ recipe: r, batches: '0', bags: '0' })));
+        setEntries(recipes.map((r) => ({ recipe: r, batches: '0', bags: '0', lastEdited: 'BATCHES' })));
       } catch {
         showError('Error al cargar datos');
       } finally {
@@ -53,7 +54,7 @@ export default function ProduccionScreen() {
         const b = parseFloat(value.replace(',', '.'));
         const outputBags = e.recipe.outputBags || 1;
         const calcBags = !isNaN(b) && b > 0 ? String(Math.round(b * outputBags * 10) / 10) : (value === '' ? '' : '0');
-        return { ...e, batches: value, bags: calcBags };
+        return { ...e, batches: value, bags: calcBags, lastEdited: 'BATCHES' };
       }),
     );
   }, []);
@@ -65,7 +66,7 @@ export default function ProduccionScreen() {
         const bagsNum = parseFloat(value.replace(',', '.'));
         const outputBags = e.recipe.outputBags || 1;
         const calcBatches = !isNaN(bagsNum) && bagsNum > 0 ? String(Math.round((bagsNum / outputBags) * 1000) / 1000) : (value === '' ? '' : '0');
-        return { ...e, bags: value, batches: calcBatches };
+        return { ...e, bags: value, batches: calcBatches, lastEdited: 'BAGS' };
       }),
     );
   }, []);
@@ -100,7 +101,8 @@ export default function ProduccionScreen() {
 
     const toProcess = entries.filter((e) => {
       const b = parseFloat(e.batches.replace(',', '.'));
-      return !isNaN(b) && b > 0;
+      const bg = parseFloat(e.bags.replace(',', '.'));
+      return (!isNaN(b) && b > 0) || (!isNaN(bg) && bg > 0);
     });
 
     if (toProcess.length === 0) {
@@ -114,19 +116,28 @@ export default function ProduccionScreen() {
       for (const entry of toProcess) {
         const batches = parseFloat(entry.batches.replace(',', '.'));
         const bags = parseFloat(entry.bags.replace(',', '.'));
-        const note = !isNaN(bags) && bags > 0 ? `Producción: ${bags} bolsas (${batches} lotes)` : `${batches} lotes`;
+        const outputBags = entry.recipe.outputBags || 1;
+        const gramsPerBag = entry.recipe.outputGrams / outputBags;
+        
+        const isBags = entry.lastEdited === 'BAGS' && !isNaN(bags) && bags > 0;
+        const effectiveBags = isBags ? bags : batches * outputBags;
+        const effectiveProducedGrams = Math.round(effectiveBags * gramsPerBag * 100) / 100;
+        
+        const note = isBags ? `Producción: ${bags} bolsas (${batches} lotes)` : `${batches} lotes`;
+        
         await productionService.registerProduction(
           selectedStoreId,
           selectedWorkerId,
           entry.recipe.id,
           batches,
           note,
+          isBags ? bags : undefined,
         );
-        totalProduced += entry.recipe.outputGrams * batches;
+        totalProduced += effectiveProducedGrams;
       }
 
       showSuccess(`Produccion registrada: ${Math.round(totalProduced)}g en ${toProcess.length} receta(s)`);
-      setEntries((prev) => prev.map((e) => ({ ...e, batches: '0', bags: '0' })));
+      setEntries((prev) => prev.map((e) => ({ ...e, batches: '0', bags: '0', lastEdited: 'BATCHES' })));
     } catch (err) {
       showError(err instanceof Error ? err.message : 'Error al registrar produccion');
     } finally {
@@ -190,9 +201,13 @@ export default function ProduccionScreen() {
       ) : (
         filteredEntries.map((entry) => {
           const bNum = parseFloat(entry.batches.replace(',', '.'));
-          const hasBatches = !isNaN(bNum) && bNum > 0;
-          const gramsPerBag = Math.round(entry.recipe.outputGrams / (entry.recipe.outputBags || 1));
-          const totalGrams = hasBatches ? Math.round(entry.recipe.outputGrams * bNum) : 0;
+          const bagsNum = parseFloat(entry.bags.replace(',', '.'));
+          const hasInput = (!isNaN(bNum) && bNum > 0) || (!isNaN(bagsNum) && bagsNum > 0);
+          const outputBags = entry.recipe.outputBags || 1;
+          const gramsPerBag = Math.round(entry.recipe.outputGrams / outputBags);
+          const isBags = entry.lastEdited === 'BAGS' && !isNaN(bagsNum) && bagsNum > 0;
+          const effectiveBags = isBags ? bagsNum : (hasInput ? bNum * outputBags : 0);
+          const totalGrams = hasInput ? Math.round(effectiveBags * gramsPerBag) : 0;
 
           return (
             <Card key={entry.recipe.id} style={[styles.card, { backgroundColor: '#1E1E1E' }]}>
@@ -242,7 +257,7 @@ export default function ProduccionScreen() {
                   </View>
                 </View>
 
-                {hasBatches && (
+                {hasInput && (
                   <View style={styles.producedSummary}>
                     <Text variant="bodySmall" style={{ color: '#4CAF50', fontWeight: 'bold' }}>
                       = {totalGrams.toLocaleString()}g producidos ({entry.bags} bolsas de {gramsPerBag}g)
