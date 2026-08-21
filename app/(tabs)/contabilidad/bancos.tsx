@@ -8,9 +8,10 @@ import { EmptyState } from '../../../src/components/common/EmptyState';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
+import { useFocusEffect } from 'expo-router';
 import { PaymentMethod, ClosingStatus } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
-import { todayColombia } from '../../../src/utils/dates';
+import { todayColombia, getColombiaDateString } from '../../../src/utils/dates';
 import { supabase } from '../../../src/lib/supabase';
 
 interface BankMovement {
@@ -71,7 +72,7 @@ export default function BancosScreen() {
       // 1. General Incomes (Capitalización, Inversión, etc.) via Bank
       for (const inc of incomes) {
         if (inc.paymentMethod !== PaymentMethod.EFECTIVO) {
-          const incDate = inc.date ? inc.date.split('T')[0] : today;
+          const incDate = inc.date ? getColombiaDateString(inc.date) : today;
           allMovements.push({
             id: `inc-${inc.id}`,
             date: incDate,
@@ -99,7 +100,7 @@ export default function BancosScreen() {
       for (const exp of ledgerExpenses) {
         const isRegister = exp.category === 'Compra Turno' || exp.category === 'Adelanto';
         if (!isRegister && exp.paymentMethod !== PaymentMethod.EFECTIVO) {
-          const expDate = exp.date.split('T')[0];
+          const expDate = getColombiaDateString(exp.date);
           allMovements.push({
             id: `exp-${exp.id}`,
             date: expDate,
@@ -113,7 +114,7 @@ export default function BancosScreen() {
       // 4. Bank Purchases
       for (const pur of ledgerPurchases) {
         if (pur.paymentMethod !== PaymentMethod.EFECTIVO) {
-          const purDate = pur.timestamp.split('T')[0];
+          const purDate = getColombiaDateString(pur.timestamp);
           allMovements.push({
             id: `pur-${pur.id}`,
             date: purDate,
@@ -189,9 +190,11 @@ export default function BancosScreen() {
     }
   }, [selectedStoreId, cashClosingService, expenseRepo, purchaseRepo, creditRepo, incomeRepo, stores]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   if (loading) {
     return <LoadingIndicator message="Conciliando banco..." />;

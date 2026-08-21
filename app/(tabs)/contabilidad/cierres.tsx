@@ -8,7 +8,7 @@ import { LoadingIndicator } from '../../../src/components/common/LoadingIndicato
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { formatCOP } from '../../../src/utils/currency';
-import { toISODate, formatDate } from '../../../src/utils/dates';
+import { toISODate, formatDate, getColombiaDateString } from '../../../src/utils/dates';
 import { CashClosing } from '../../../src/domain/entities';
 import { ClosingStatus } from '../../../src/domain/enums';
 
@@ -58,7 +58,7 @@ export default function CierresMensualesScreen() {
       const portions = sales.reduce((sum, s) => sum + s.totalPortions, 0);
 
       // Count unique sale days
-      const uniqueDays = new Set(sales.map((s) => s.timestamp.slice(0, 10)));
+      const uniqueDays = new Set(sales.map((s) => getColombiaDateString(s.timestamp)));
 
       setTotalIngresos(revenue);
       setTotalEgresos(expenseTotal);

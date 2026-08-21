@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Platform, Alert } from 'react-native';
+import { View, StyleSheet, Platform, Alert, Pressable } from 'react-native';
 import { TextInput, Button, Text, Card, Menu, Divider, Portal, Snackbar, useTheme, Chip, IconButton } from 'react-native-paper';
+import { useFocusEffect } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { PaymentMethodPicker } from '../../../src/components/ventas/PaymentMethodPicker';
+import { CalendarPickerModal } from '../../../src/components/common/CalendarPickerModal';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
@@ -12,7 +14,7 @@ import { Expense } from '../../../src/domain/entities';
 import { PaymentMethod } from '../../../src/domain/enums';
 import { EXPENSE_CATEGORIES } from '../../../src/utils/constants';
 import { formatCOP } from '../../../src/utils/currency';
-import { formatDate, todayColombia } from '../../../src/utils/dates';
+import { formatDate, todayColombia, getColombiaDateString } from '../../../src/utils/dates';
 
 export default function GastosScreen() {
   const theme = useTheme();
@@ -21,6 +23,8 @@ export default function GastosScreen() {
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [expenseDate, setExpenseDate] = useState(todayColombia());
+  const [calendarVisible, setCalendarVisible] = useState(false);
   const [category, setCategory] = useState('');
   const [categoryMenuVisible, setCategoryMenuVisible] = useState(false);
   const [description, setDescription] = useState('');
@@ -48,7 +52,7 @@ export default function GastosScreen() {
       const mappedPurchases: Expense[] = allPurchases.map(p => ({
         id: p.id,
         storeId: p.storeId,
-        date: p.timestamp ? p.timestamp.split('T')[0] : todayColombia(),
+        date: p.timestamp ? getColombiaDateString(p.timestamp) : todayColombia(),
         category: 'Compra Insumo',
         description: `${supMap[p.supplyId] || 'Insumo'} (${p.quantityGrams}g) - Prov: ${p.supplier}`,
         amount: p.priceCOP,
@@ -68,9 +72,11 @@ export default function GastosScreen() {
     }
   }, [selectedStoreId, expenseRepo, purchaseRepo, supplyRepo]);
 
-  useEffect(() => {
-    loadExpenses();
-  }, [loadExpenses]);
+  useFocusEffect(
+    useCallback(() => {
+      loadExpenses();
+    }, [loadExpenses])
+  );
 
   const handleSubmit = useCallback(async () => {
     if (!category) {
@@ -85,7 +91,7 @@ export default function GastosScreen() {
     setSubmitting(true);
     try {
       await expenseRepo.create({
-        date: todayColombia(),
+        date: expenseDate || todayColombia(),
         storeId: selectedStoreId,
         category,
         description: description || category,
@@ -103,7 +109,7 @@ export default function GastosScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [category, description, amount, paymentMethod, isFixed, selectedStoreId, expenseRepo, loadExpenses, showSuccess, showError]);
+  }, [category, description, amount, paymentMethod, isFixed, expenseDate, selectedStoreId, expenseRepo, loadExpenses, showSuccess, showError]);
 
   const handleDeleteExpense = useCallback((item: Expense) => {
     const isPurchase = item.category === 'Compra Insumo';
@@ -137,6 +143,41 @@ export default function GastosScreen() {
       <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600' }]}>
         Registrar Gasto
       </Text>
+
+      <Pressable
+        onPress={() => setCalendarVisible(true)}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: '#1E1E1E',
+          borderWidth: 1,
+          borderColor: '#333',
+          borderRadius: 8,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          marginBottom: 12,
+        }}
+      >
+        <IconButton icon="calendar" size={18} iconColor="#E63946" style={{ margin: 0, marginRight: 6 }} />
+        <View style={{ flex: 1 }}>
+          <Text variant="bodySmall" style={{ color: '#999' }}>Fecha del Gasto:</Text>
+          <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#F5F0EB' }}>
+            {formatDate(expenseDate)}
+          </Text>
+        </View>
+        <Text variant="bodySmall" style={{ color: '#E63946', fontWeight: 'bold' }}>Cambiar</Text>
+      </Pressable>
+
+      <CalendarPickerModal
+        visible={calendarVisible}
+        selectedDate={expenseDate}
+        maxDate={todayColombia()}
+        onSelect={(d) => {
+          setExpenseDate(d);
+          setCalendarVisible(false);
+        }}
+        onDismiss={() => setCalendarVisible(false)}
+      />
 
       <Menu
         visible={categoryMenuVisible}
