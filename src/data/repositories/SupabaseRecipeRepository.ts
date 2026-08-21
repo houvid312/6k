@@ -69,11 +69,11 @@ export class SupabaseRecipeRepository implements IRecipeRepository {
       .from('recipes')
       .select('*')
       .eq('product_id', productId)
-      .single();
+      .maybeSingle();
     if (error) {
-      if (error.code === 'PGRST116') return null;
       throw error;
     }
+    if (!data) return null;
 
     const row = data as RecipeRow;
     const { data: ingredientData, error: ingredientError } = await supabase

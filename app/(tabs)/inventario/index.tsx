@@ -168,15 +168,19 @@ export default function InventarioScreen() {
     }, [loadInventory])
   );
 
+  const loadInventoryRef = useRef(loadInventory);
+  loadInventoryRef.current = loadInventory;
+
   // Suscripción Realtime a cambios en la tabla inventory (producción, traslados, ventas, compras, etc.)
   useEffect(() => {
+    const channelName = `inv_rt_${Math.random().toString(36).substring(2, 9)}`;
     const channel = supabase
-      .channel('public_inventory_changes')
+      .channel(channelName)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'inventory' },
         () => {
-          loadInventory();
+          loadInventoryRef.current();
         }
       )
       .subscribe();
@@ -184,7 +188,7 @@ export default function InventarioScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [loadInventory]);
+  }, []);
 
   const supplyMap = useMemo(() => {
     return new Map(supplies.map((s) => [s.id, s]));
