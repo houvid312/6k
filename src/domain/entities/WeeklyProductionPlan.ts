@@ -1,0 +1,74 @@
+export interface WeeklyProductionPlanItem {
+  id: string;
+  planId: string;
+  recipeId: string;
+  dayOfWeek: number; // 0 = Domingo, 1 = Lunes, ..., 6 = Sabado
+  plannedBatches: number;
+  plannedBags: number;
+  estMinutes: number;
+  isCompleted: boolean;
+  completedAt?: string;
+  notes?: string;
+  // Propiedades enriquecidas para UI
+  recipeName?: string;
+  supplyName?: string;
+  outputGrams?: number;
+  gramsPerBag?: number;
+}
+
+export interface WeeklyProductionPlan {
+  id: string;
+  storeId: string;
+  weekStartDate: string; // YYYY-MM-DD (Lunes de la semana)
+  status: 'DRAFT' | 'APPROVED' | 'IN_PROGRESS' | 'COMPLETED';
+  totalPlannedMinutes: number;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+  items: WeeklyProductionPlanItem[];
+}
+
+export interface PlannedRecipeRequirement {
+  recipeId: string;
+  recipeName: string;
+  supplyId: string;
+  supplyName: string;
+  outputGrams: number;
+  outputBags: number;
+  prepTimeMinutes: number;
+  shelfLifeDays: number;
+  totalNeededGrams: number;
+  currentStockGrams: number;
+  targetNetGrams: number;
+  calculatedBatches: number;
+  calculatedBags: number;
+  totalEstMinutes: number;
+  suggestedDays: number[]; // Días de la semana recomendados para producir
+}
+
+export interface RawPurchaseRequirement {
+  supplyId: string;
+  supplyName: string;
+  unit: string;
+  requiredGrams: number;
+  currentRawStockGrams: number;
+  toPurchaseGrams: number;
+  toPurchaseUnits: number;
+  presentationGrams: number;
+}
+
+export interface WeeklyPlanCalculationResult {
+  weekStartDate: string;
+  totalDemandedPortions: number;
+  totalEstimatedMinutes: number;
+  totalEstimatedHours: number;
+  plannedRecipes: PlannedRecipeRequirement[];
+  rawPurchases: RawPurchaseRequirement[];
+  daySummaries: {
+    dayOfWeek: number;
+    dayName: string;
+    totalMinutes: number;
+    totalHours: number;
+    itemsCount: number;
+  }[];
+}

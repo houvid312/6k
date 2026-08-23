@@ -30,5 +30,6 @@ export type { IChecklistRepository } from './IChecklistRepository';
 export type { ICustomerRepository } from './ICustomerRepository';
 export type { IIncomeRepository } from './IIncomeRepository';
 export type { IInventoryAdjustmentRepository } from './IInventoryAdjustmentRepository';
+export type { IWeeklyProductionPlanRepository } from './IWeeklyProductionPlanRepository';
 
 

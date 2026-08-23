@@ -9,6 +9,8 @@ interface RecipeRow {
   output_grams: number;
   output_bags: number;
   is_active: boolean;
+  prep_time_minutes?: number;
+  shelf_life_days?: number;
   created_at: string;
 }
 
@@ -27,6 +29,8 @@ function toEntity(row: RecipeRow, inputRows: InputRow[]): ProductionRecipe {
     outputGrams: Number(row.output_grams),
     outputBags: row.output_bags,
     isActive: row.is_active,
+    prepTimeMinutes: row.prep_time_minutes ?? 0,
+    shelfLifeDays: row.shelf_life_days ?? 3,
     inputs: inputRows.map((r) => ({
       supplyId: r.supply_id,
       gramsRequired: Number(r.grams_required),
@@ -72,11 +76,9 @@ export class SupabaseProductionRecipeRepository implements IProductionRecipeRepo
       .from('production_recipes')
       .select('*')
       .eq('id', id)
-      .single();
-    if (error) {
-      if (error.code === 'PGRST116') return null;
-      throw error;
-    }
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
     const row = data as RecipeRow;
     const { data: inputs, error: inputsError } = await supabase
       .from('production_recipe_inputs')
@@ -95,6 +97,8 @@ export class SupabaseProductionRecipeRepository implements IProductionRecipeRepo
         output_grams: recipe.outputGrams,
         output_bags: recipe.outputBags,
         is_active: recipe.isActive,
+        prep_time_minutes: recipe.prepTimeMinutes ?? 0,
+        shelf_life_days: recipe.shelfLifeDays ?? 3,
       })
       .select()
       .single();
@@ -118,13 +122,15 @@ export class SupabaseProductionRecipeRepository implements IProductionRecipeRepo
 
   async update(
     id: string,
-    data: Partial<Pick<ProductionRecipe, 'name' | 'outputGrams' | 'outputBags' | 'isActive'>>,
+    data: Partial<Pick<ProductionRecipe, 'name' | 'outputGrams' | 'outputBags' | 'isActive' | 'prepTimeMinutes' | 'shelfLifeDays'>>,
   ): Promise<ProductionRecipe> {
     const updateData: Record<string, unknown> = {};
     if (data.name !== undefined) updateData.name = data.name;
     if (data.outputGrams !== undefined) updateData.output_grams = data.outputGrams;
     if (data.outputBags !== undefined) updateData.output_bags = data.outputBags;
     if (data.isActive !== undefined) updateData.is_active = data.isActive;
+    if (data.prepTimeMinutes !== undefined) updateData.prep_time_minutes = data.prepTimeMinutes;
+    if (data.shelfLifeDays !== undefined) updateData.shelf_life_days = data.shelfLifeDays;
 
     const { error } = await supabase
       .from('production_recipes')

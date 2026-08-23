@@ -5,6 +5,6 @@ export interface IProductionRecipeRepository {
   getActive(): Promise<ProductionRecipe[]>;
   getById(id: string): Promise<ProductionRecipe | null>;
   create(recipe: Omit<ProductionRecipe, 'id'>): Promise<ProductionRecipe>;
-  update(id: string, data: Partial<Pick<ProductionRecipe, 'name' | 'outputGrams' | 'outputBags' | 'isActive'>>): Promise<ProductionRecipe>;
+  update(id: string, data: Partial<Pick<ProductionRecipe, 'name' | 'outputGrams' | 'outputBags' | 'isActive' | 'prepTimeMinutes' | 'shelfLifeDays'>>): Promise<ProductionRecipe>;
   updateInputs(recipeId: string, inputs: ProductionRecipeInput[]): Promise<void>;
 }

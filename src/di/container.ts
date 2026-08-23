@@ -31,6 +31,7 @@ import {
   SupabaseCustomerRepository,
   SupabaseIncomeRepository,
   SupabaseInventoryAdjustmentRepository,
+  SupabaseWeeklyProductionPlanRepository,
 } from '../data/repositories';
 import {
   SaleService,
@@ -48,6 +49,7 @@ import {
   AlertService,
   WriteoffService,
   AccountingService,
+  ProductionPlanningService,
 } from '../services';
 
 // Repositories (Supabase)
@@ -83,6 +85,7 @@ const checklistRepo = new SupabaseChecklistRepository();
 const customerRepo = new SupabaseCustomerRepository();
 const incomeRepo = new SupabaseIncomeRepository();
 const inventoryAdjustmentRepo = new SupabaseInventoryAdjustmentRepository();
+const weeklyProductionPlanRepo = new SupabaseWeeklyProductionPlanRepository();
 
 // Services
 const saleService = new SaleService(saleRepo, inventoryRepo, recipeRepo, supplyRepo, productRepo, productFormatRepo);
@@ -100,6 +103,18 @@ const alertService = new AlertService(dailyAlertRepo, validationService, physica
 const writeoffService = new WriteoffService(writeoffRepo, inventoryRepo, recipeRepo);
 const cashClosingService = new CashClosingService(cashClosingRepo, saleRepo, expenseRepo, alertService, cashOpeningRepo, scheduleRepo, attendanceRepo, workerRepo);
 const accountingService = new AccountingService(saleRepo, expenseRepo, purchaseRepo, supplyRepo, transferRepo, writeoffRepo);
+const productionPlanningService = new ProductionPlanningService(
+  weeklyProductionPlanRepo,
+  productionRecipeRepo,
+  demandEstimateRepo,
+  recipeRepo,
+  inventoryRepo,
+  supplyRepo,
+  storeRepo,
+  stockMinimumRepo,
+  productRepo,
+  productStoreAssignmentRepo,
+);
 
 export const container = {
   // Repositories
@@ -135,6 +150,7 @@ export const container = {
   customerRepo,
   incomeRepo,
   inventoryAdjustmentRepo,
+  weeklyProductionPlanRepo,
 
   // Services
   saleService,
@@ -152,4 +168,5 @@ export const container = {
   alertService,
   writeoffService,
   accountingService,
+  productionPlanningService,
 };

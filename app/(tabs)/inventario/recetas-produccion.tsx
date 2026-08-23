@@ -20,6 +20,8 @@ interface NewRecipeForm {
   supplyId: string;
   outputGrams: string;
   outputBags: string;
+  prepTimeMinutes: string;
+  shelfLifeDays: string;
   inputs: EditableInput[];
 }
 
@@ -27,6 +29,8 @@ interface EditState {
   name: string;
   outputGrams: string;
   outputBags: string;
+  prepTimeMinutes: string;
+  shelfLifeDays: string;
   inputs: EditableInput[];
 }
 
@@ -35,6 +39,8 @@ const EMPTY_FORM: NewRecipeForm = {
   supplyId: '',
   outputGrams: '',
   outputBags: '1',
+  prepTimeMinutes: '30',
+  shelfLifeDays: '3',
   inputs: [],
 };
 
@@ -115,14 +121,25 @@ export default function RecetasProduccionScreen() {
     if (!form.supplyId) { showError('Selecciona el insumo producido'); return; }
     const outputGrams = parseFloat(form.outputGrams);
     const outputBags = parseInt(form.outputBags, 10);
-    if (isNaN(outputGrams) || outputGrams <= 0) { showError('Gramos invalidos'); return; }
-    if (isNaN(outputBags) || outputBags <= 0) { showError('Bolsas invalidas'); return; }
+    const prepTimeMinutes = parseInt(form.prepTimeMinutes, 10) || 30;
+    const shelfLifeDays = parseInt(form.shelfLifeDays, 10) || 3;
+    if (isNaN(outputGrams) || outputGrams <= 0) {
+      showError('Gramos producidos invalidos');
+      return;
+    }
+    if (isNaN(outputBags) || outputBags <= 0) {
+      showError('Bolsas producidas invalidas');
+      return;
+    }
+
     const parsedInputs = form.inputs.map((i) => ({
       supplyId: i.supplyId,
       gramsRequired: parseFloat(i.gramsRequired),
     }));
+
     if (parsedInputs.some((i) => !i.supplyId || isNaN(i.gramsRequired) || i.gramsRequired <= 0)) {
-      showError('Insumos de entrada invalidos'); return;
+      showError('Verifica los insumos de entrada');
+      return;
     }
 
     setSaving(true);
@@ -133,6 +150,8 @@ export default function RecetasProduccionScreen() {
         outputGrams,
         outputBags,
         isActive: true,
+        prepTimeMinutes,
+        shelfLifeDays,
         inputs: parsedInputs,
       });
       showSuccess('Receta creada');
@@ -153,6 +172,8 @@ export default function RecetasProduccionScreen() {
       name: recipe.name,
       outputGrams: String(recipe.outputGrams),
       outputBags: String(recipe.outputBags),
+      prepTimeMinutes: String(recipe.prepTimeMinutes ?? 30),
+      shelfLifeDays: String(recipe.shelfLifeDays ?? 3),
       inputs: recipe.inputs.map((i) => ({
         supplyId: i.supplyId,
         gramsRequired: String(i.gramsRequired),
@@ -184,6 +205,8 @@ export default function RecetasProduccionScreen() {
     if (!editState.name.trim()) { showError('Ingresa un nombre'); return; }
     const outputGrams = parseFloat(editState.outputGrams);
     const outputBags = parseInt(editState.outputBags, 10);
+    const prepTimeMinutes = parseInt(editState.prepTimeMinutes, 10) || 30;
+    const shelfLifeDays = parseInt(editState.shelfLifeDays, 10) || 3;
     if (isNaN(outputGrams) || outputGrams <= 0) { showError('Gramos invalidos'); return; }
     if (isNaN(outputBags) || outputBags <= 0) { showError('Bolsas invalidas'); return; }
     const parsedInputs = editState.inputs.map((i) => ({
@@ -200,6 +223,8 @@ export default function RecetasProduccionScreen() {
         name: editState.name.trim(),
         outputGrams,
         outputBags,
+        prepTimeMinutes,
+        shelfLifeDays,
       });
       await productionRecipeRepo.updateInputs(editingId, parsedInputs);
       showSuccess('Receta actualizada');
@@ -269,6 +294,35 @@ export default function RecetasProduccionScreen() {
             outlineColor="#333"
             activeOutlineColor="#E63946"
             textColor="#F5F0EB"
+          />
+        </View>
+
+        <View style={styles.row}>
+          <TextInput
+            label="Tiempo Lote (min)"
+            value={editState!.prepTimeMinutes}
+            onChangeText={(v) => setEditState((p) => p ? { ...p, prepTimeMinutes: v } : p)}
+            keyboardType="numeric"
+            mode="outlined"
+            dense
+            style={[styles.input, { flex: 1, marginRight: 8 }]}
+            outlineColor="#333"
+            activeOutlineColor="#E63946"
+            textColor="#F5F0EB"
+            right={<TextInput.Affix text="min" textStyle={{ color: '#999' }} />}
+          />
+          <TextInput
+            label="Vida Útil (días)"
+            value={editState!.shelfLifeDays}
+            onChangeText={(v) => setEditState((p) => p ? { ...p, shelfLifeDays: v } : p)}
+            keyboardType="numeric"
+            mode="outlined"
+            dense
+            style={[styles.input, { width: 120 }]}
+            outlineColor="#333"
+            activeOutlineColor="#E63946"
+            textColor="#F5F0EB"
+            right={<TextInput.Affix text="días" textStyle={{ color: '#999' }} />}
           />
         </View>
 
@@ -366,6 +420,18 @@ export default function RecetasProduccionScreen() {
             <Text variant="bodySmall" style={{ color: '#999' }}>
               {recipe.outputBags} bolsa(s) x {Math.round(recipe.outputGrams / recipe.outputBags)}g = {recipe.outputGrams}g por lote
             </Text>
+            <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
+              <View style={{ backgroundColor: '#2A2A2A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                <Text variant="labelSmall" style={{ color: '#4CAF50', fontSize: 10 }}>
+                  ⏱️ {recipe.prepTimeMinutes ?? 30} min/lote
+                </Text>
+              </View>
+              <View style={{ backgroundColor: '#2A2A2A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                <Text variant="labelSmall" style={{ color: '#2196F3', fontSize: 10 }}>
+                  ❄️ {recipe.shelfLifeDays ?? 3} días vida útil
+                </Text>
+              </View>
+            </View>
           </View>
           <IconButton
             icon="pencil"
@@ -483,6 +549,35 @@ export default function RecetasProduccionScreen() {
                 outlineColor="#333"
                 activeOutlineColor="#E63946"
                 textColor="#F5F0EB"
+              />
+            </View>
+
+            <View style={styles.row}>
+              <TextInput
+                label="Tiempo Lote (min)"
+                value={form.prepTimeMinutes}
+                onChangeText={(v) => setForm((p) => ({ ...p, prepTimeMinutes: v }))}
+                keyboardType="numeric"
+                mode="outlined"
+                dense
+                style={[styles.input, { flex: 1, marginRight: 8 }]}
+                outlineColor="#333"
+                activeOutlineColor="#E63946"
+                textColor="#F5F0EB"
+                right={<TextInput.Affix text="min" textStyle={{ color: '#999' }} />}
+              />
+              <TextInput
+                label="Vida Útil (días)"
+                value={form.shelfLifeDays}
+                onChangeText={(v) => setForm((p) => ({ ...p, shelfLifeDays: v }))}
+                keyboardType="numeric"
+                mode="outlined"
+                dense
+                style={[styles.input, { width: 120 }]}
+                outlineColor="#333"
+                activeOutlineColor="#E63946"
+                textColor="#F5F0EB"
+                right={<TextInput.Affix text="días" textStyle={{ color: '#999' }} />}
               />
             </View>
 

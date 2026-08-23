@@ -30,5 +30,6 @@ export { SupabaseChecklistRepository } from './SupabaseChecklistRepository';
 export { SupabaseCustomerRepository } from './SupabaseCustomerRepository';
 export { SupabaseIncomeRepository } from './SupabaseIncomeRepository';
 export { SupabaseInventoryAdjustmentRepository } from './SupabaseInventoryAdjustmentRepository';
+export { SupabaseWeeklyProductionPlanRepository } from './SupabaseWeeklyProductionPlanRepository';
 
 

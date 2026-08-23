@@ -10,5 +10,7 @@ export interface ProductionRecipe {
   outputGrams: number;
   outputBags: number;
   isActive: boolean;
+  prepTimeMinutes?: number;
+  shelfLifeDays?: number;
   inputs: ProductionRecipeInput[];
 }

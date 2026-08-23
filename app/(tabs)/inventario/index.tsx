@@ -356,6 +356,16 @@ export default function InventarioScreen() {
             <Button
               mode="outlined"
               compact
+              icon="calendar-clock"
+              style={{ marginRight: 8, height: 32, borderColor: '#4CAF50' }}
+              labelStyle={{ fontSize: 11, marginVertical: 4, color: '#4CAF50' }}
+              onPress={() => router.push('/(tabs)/inventario/planificador' as any)}
+            >
+              Planificador Semanal
+            </Button>
+            <Button
+              mode="outlined"
+              compact
               icon="chart-areaspline"
               style={{ marginRight: 8, height: 32 }}
               labelStyle={{ fontSize: 11, marginVertical: 4 }}
@@ -497,6 +507,15 @@ export default function InventarioScreen() {
                   >
                     Registrar Producción
                   </Button>
+                  <Button
+                    mode="outlined"
+                    onPress={() => router.push('/(tabs)/inventario/planificador' as any)}
+                    style={styles.actionBtnSecondary}
+                    textColor="#4CAF50"
+                    icon="calendar-clock"
+                  >
+                    Plan Semanal
+                  </Button>
                   {canManageRecipesAndSupplies && (
                     <Button
                       mode="outlined"
@@ -505,7 +524,7 @@ export default function InventarioScreen() {
                       textColor="#CCCCCC"
                       icon="book-cog"
                     >
-                      Recetas Prod.
+                      Recetas
                     </Button>
                   )}
                 </View>
