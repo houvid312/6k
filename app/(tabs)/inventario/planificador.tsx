@@ -61,13 +61,26 @@ const DAY_LABELS: Record<number, string> = {
   0: 'Domingo',
 };
 
+// Helper para calcular la semana predeterminada de planificacion
+function getDefaultPlanningWeekMonday(todayStr: string): string {
+  const parts = todayStr.split('-');
+  const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+  const day = d.getDay(); // 0 = Domingo, 6 = Sábado
+  const thisMonday = getMondayOfWeek(todayStr);
+  // Si estamos en fin de semana (sábado o domingo), predeterminar a la próxima semana que empieza el lunes
+  if (day === 0 || day === 6) {
+    return shiftWeek(thisMonday, 1);
+  }
+  return thisMonday;
+}
+
 export default function PlanificadorSemanalScreen() {
   const theme = useTheme();
   const { productionPlanningService, storeRepo } = useDI();
   const { selectedStoreId } = useAppStore();
   const { showSuccess, showError } = useSnackbar();
 
-  const [currentWeekMonday, setCurrentWeekMonday] = useState(() => getMondayOfWeek(todayColombia()));
+  const [currentWeekMonday, setCurrentWeekMonday] = useState(() => getDefaultPlanningWeekMonday(todayColombia()));
   const [tab, setTab] = useState<'mps' | 'raw' | 'schedule'>('mps');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -330,7 +343,19 @@ export default function PlanificadorSemanalScreen() {
           onPress={() => setCurrentWeekMonday(shiftWeek(currentWeekMonday, -1))}
         />
         <View style={{ alignItems: 'center' }}>
-          <Text variant="labelSmall" style={{ color: '#999' }}>Semana de Producción</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text variant="labelSmall" style={{ color: '#999' }}>Semana de Producción</Text>
+            {currentWeekMonday === shiftWeek(getMondayOfWeek(todayColombia()), 1) && (
+              <Text variant="labelSmall" style={{ color: '#4CAF50', fontWeight: 'bold' }}>
+                (Próxima Semana)
+              </Text>
+            )}
+            {currentWeekMonday === getMondayOfWeek(todayColombia()) && (
+              <Text variant="labelSmall" style={{ color: '#2196F3', fontWeight: 'bold' }}>
+                (Semana en Curso)
+              </Text>
+            )}
+          </View>
           <Text variant="titleMedium" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
             Semana del {formatDate(currentWeekMonday)}
           </Text>
