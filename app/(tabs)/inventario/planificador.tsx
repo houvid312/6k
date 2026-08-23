@@ -223,7 +223,7 @@ export default function PlanificadorSemanalScreen() {
     }
   };
 
-  // KPIs
+  // KPIs & Progreso
   const totalBatches = useMemo(() => {
     if (!calcResult) return 0;
     return calcResult.plannedRecipes.reduce((sum, r) => sum + r.calculatedBatches, 0);
@@ -233,6 +233,24 @@ export default function PlanificadorSemanalScreen() {
     if (!calcResult) return 0;
     return calcResult.rawPurchases.filter((p) => p.toPurchaseGrams > 0).length;
   }, [calcResult]);
+
+  const { totalScheduledTasks, completedTasksCount, progressPercent } = useMemo(() => {
+    if (!calcResult) return { totalScheduledTasks: 0, completedTasksCount: 0, progressPercent: 0 };
+    let total = 0;
+    let completed = 0;
+    for (const pr of calcResult.plannedRecipes) {
+      if (pr.calculatedBatches <= 0) continue;
+      const days = pr.suggestedDays.length > 0 ? pr.suggestedDays : [1];
+      for (const d of days) {
+        total += 1;
+        if (completedItemsMap[`${pr.recipeId}-${d}`]) {
+          completed += 1;
+        }
+      }
+    }
+    const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+    return { totalScheduledTasks: total, completedTasksCount: completed, progressPercent: percent };
+  }, [calcResult, completedItemsMap]);
 
   return (
     <ScreenContainer scrollable padded>
@@ -257,6 +275,47 @@ export default function PlanificadorSemanalScreen() {
           onPress={() => setCurrentWeekMonday(shiftWeek(currentWeekMonday, 1))}
         />
       </View>
+
+      {/* BANNER DE ESTADO Y PROGRESO */}
+      {calcResult && (
+        <View
+          style={{
+            backgroundColor: savedPlan ? '#122616' : '#261F12',
+            borderWidth: 1,
+            borderColor: savedPlan ? '#4CAF50' : '#FF9800',
+            borderRadius: 10,
+            padding: 10,
+            marginBottom: 10,
+          }}
+        >
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text variant="labelMedium" style={{ color: savedPlan ? '#4CAF50' : '#FF9800', fontWeight: 'bold' }}>
+                {savedPlan ? '🟢 Plan Oficial Guardado' : '🟡 Proyección en Vivo (Sin Guardar)'}
+              </Text>
+              {savedPlan?.updatedAt && (
+                <Text variant="labelSmall" style={{ color: '#999' }}>
+                  · Act: {formatDate(savedPlan.updatedAt.split('T')[0])}
+                </Text>
+              )}
+            </View>
+            <Text variant="labelMedium" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
+              {completedTasksCount} de {totalScheduledTasks} tareas ({progressPercent}%)
+            </Text>
+          </View>
+
+          {/* Barra de progreso visual */}
+          <View style={{ height: 6, backgroundColor: '#333', borderRadius: 3, overflow: 'hidden' }}>
+            <View
+              style={{
+                height: '100%',
+                width: `${progressPercent}%`,
+                backgroundColor: progressPercent === 100 ? '#4CAF50' : savedPlan ? '#2196F3' : '#FF9800',
+              }}
+            />
+          </View>
+        </View>
+      )}
 
       {/* KPIS DE RESUMEN SEMANAL */}
       {calcResult && (
