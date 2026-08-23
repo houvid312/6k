@@ -74,6 +74,7 @@ export default function PlanificadorSemanalScreen() {
   const [calcResult, setCalcResult] = useState<WeeklyPlanCalculationResult | null>(null);
   const [savedPlan, setSavedPlan] = useState<WeeklyProductionPlan | null>(null);
   const [completedItemsMap, setCompletedItemsMap] = useState<Record<string, boolean>>({});
+  const [completedPurchasesMap, setCompletedPurchasesMap] = useState<Record<string, boolean>>({});
 
   const loadPlanData = useCallback(async () => {
     setLoading(true);
@@ -86,7 +87,7 @@ export default function PlanificadorSemanalScreen() {
       const result = await productionPlanningService.calculateWeeklyPlan(currentWeekMonday);
       setCalcResult(result);
 
-      // 2. Buscar si ya existe un plan guardado para persistencia de tareas
+      // 2. Buscar si ya existe un plan guardado para persistencia de tareas y compras
       const existing = await productionPlanningService.getSavedPlan(cpStoreId, currentWeekMonday);
       setSavedPlan(existing);
 
@@ -96,8 +97,22 @@ export default function PlanificadorSemanalScreen() {
           compMap[`${item.recipeId}-${item.dayOfWeek}`] = item.isCompleted;
         }
         setCompletedItemsMap(compMap);
+
+        if (existing.notes && existing.notes.startsWith('{')) {
+          try {
+            const parsed = JSON.parse(existing.notes);
+            if (Array.isArray(parsed.completedPurchases)) {
+              const pMap: Record<string, boolean> = {};
+              parsed.completedPurchases.forEach((id: string) => { pMap[id] = true; });
+              setCompletedPurchasesMap(pMap);
+            }
+          } catch {
+            // ignore
+          }
+        }
       } else {
         setCompletedItemsMap({});
+        setCompletedPurchasesMap({});
       }
     } catch (err: any) {
       console.error('Error calculando plan semanal:', err);
@@ -145,12 +160,17 @@ export default function PlanificadorSemanalScreen() {
         }
       }
 
+      const notesPayload = JSON.stringify({
+        note: `Plan generado para semana del ${currentWeekMonday}`,
+        completedPurchases: Object.keys(completedPurchasesMap).filter((k) => completedPurchasesMap[k]),
+      });
+
       await productionPlanningService.savePlan({
         storeId: cpStore.id,
         weekStartDate: currentWeekMonday,
         status: 'APPROVED',
         totalPlannedMinutes: calcResult.totalEstimatedMinutes,
-        notes: `Plan generado para semana del ${currentWeekMonday}`,
+        notes: notesPayload,
         items: itemsToSave,
       });
 
@@ -160,6 +180,39 @@ export default function PlanificadorSemanalScreen() {
       showError(err?.message || 'Error al guardar el plan');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Marcar compra completada
+  const handleTogglePurchase = async (supplyId: string) => {
+    const nextState = !completedPurchasesMap[supplyId];
+    const newPurchasesMap = {
+      ...completedPurchasesMap,
+      [supplyId]: nextState,
+    };
+    setCompletedPurchasesMap(newPurchasesMap);
+
+    if (savedPlan) {
+      try {
+        const stores = await storeRepo.getAll();
+        const cpStore = stores.find((s) => s.isProductionCenter);
+        if (cpStore) {
+          const notesPayload = JSON.stringify({
+            note: `Plan generado para semana del ${currentWeekMonday}`,
+            completedPurchases: Object.keys(newPurchasesMap).filter((k) => newPurchasesMap[k]),
+          });
+          await productionPlanningService.savePlan({
+            storeId: cpStore.id,
+            weekStartDate: currentWeekMonday,
+            status: savedPlan.status,
+            totalPlannedMinutes: savedPlan.totalPlannedMinutes,
+            notes: notesPayload,
+            items: savedPlan.items as any,
+          });
+        }
+      } catch {
+        // Silent fallback
+      }
     }
   };
 
@@ -251,6 +304,20 @@ export default function PlanificadorSemanalScreen() {
     const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
     return { totalScheduledTasks: total, completedTasksCount: completed, progressPercent: percent };
   }, [calcResult, completedItemsMap]);
+
+  const { totalPurchasesCount, completedPurchasesCount, purchasesPercent } = useMemo(() => {
+    if (!calcResult) return { totalPurchasesCount: 0, completedPurchasesCount: 0, purchasesPercent: 0 };
+    const toBuy = calcResult.rawPurchases.filter((p) => p.toPurchaseGrams > 0);
+    const total = toBuy.length;
+    let completed = 0;
+    for (const p of toBuy) {
+      if (completedPurchasesMap[p.supplyId]) {
+        completed += 1;
+      }
+    }
+    const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+    return { totalPurchasesCount: total, completedPurchasesCount: completed, purchasesPercent: percent };
+  }, [calcResult, completedPurchasesMap]);
 
   return (
     <ScreenContainer scrollable padded>
@@ -509,6 +576,37 @@ export default function PlanificadorSemanalScreen() {
                 </Button>
               </View>
 
+              {/* Barra de progreso de compras */}
+              <View
+                style={{
+                  backgroundColor: purchasesPercent === 100 ? '#122616' : '#261F12',
+                  borderWidth: 1,
+                  borderColor: purchasesPercent === 100 ? '#4CAF50' : '#FF9800',
+                  borderRadius: 10,
+                  padding: 10,
+                  marginBottom: 12,
+                }}
+              >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <Text variant="labelMedium" style={{ color: purchasesPercent === 100 ? '#4CAF50' : '#FF9800', fontWeight: 'bold' }}>
+                    {purchasesPercent === 100 ? '✅ ¡Todas las compras completadas!' : '🛒 Avance de Compras Semanales'}
+                  </Text>
+                  <Text variant="labelMedium" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
+                    {completedPurchasesCount} de {totalPurchasesCount} comprados ({purchasesPercent}%)
+                  </Text>
+                </View>
+
+                <View style={{ height: 6, backgroundColor: '#333', borderRadius: 3, overflow: 'hidden' }}>
+                  <View
+                    style={{
+                      height: '100%',
+                      width: `${purchasesPercent}%`,
+                      backgroundColor: purchasesPercent === 100 ? '#4CAF50' : '#FF9800',
+                    }}
+                  />
+                </View>
+              </View>
+
               {calcResult.rawPurchases.length === 0 ? (
                 <EmptyState
                   icon="check-circle"
@@ -518,41 +616,62 @@ export default function PlanificadorSemanalScreen() {
               ) : (
                 calcResult.rawPurchases.map((raw) => {
                   const toBuy = raw.toPurchaseGrams > 0;
+                  const isDone = !!completedPurchasesMap[raw.supplyId];
+
                   return (
                     <Card
                       key={raw.supplyId}
                       style={[
                         styles.itemCard,
                         {
-                          backgroundColor: '#1E1E1E',
+                          backgroundColor: isDone ? '#142016' : '#1E1E1E',
                           borderLeftWidth: 4,
-                          borderLeftColor: toBuy ? '#FF9800' : '#4CAF50',
+                          borderLeftColor: isDone ? '#4CAF50' : toBuy ? '#FF9800' : '#4CAF50',
+                          opacity: isDone ? 0.7 : 1,
                         },
                       ]}
                     >
                       <Card.Content>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <View style={{ flex: 1, paddingRight: 8 }}>
-                            <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
-                              {raw.supplyName}
-                            </Text>
-                            <Text variant="bodySmall" style={{ color: '#999' }}>
-                              Presentación: {raw.presentationGrams}g por bolsa/unidad
-                            </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, paddingRight: 8 }}>
+                            {toBuy && (
+                              <Checkbox
+                                status={isDone ? 'checked' : 'unchecked'}
+                                onPress={() => handleTogglePurchase(raw.supplyId)}
+                                color="#4CAF50"
+                              />
+                            )}
+                            <Pressable
+                              style={{ flex: 1, paddingLeft: 4 }}
+                              onPress={() => toBuy && handleTogglePurchase(raw.supplyId)}
+                            >
+                              <Text
+                                variant="titleSmall"
+                                style={[
+                                  { color: '#F5F0EB', fontWeight: 'bold' },
+                                  isDone && { textDecorationLine: 'line-through', color: '#999' },
+                                ]}
+                              >
+                                {raw.supplyName}
+                              </Text>
+                              <Text variant="bodySmall" style={{ color: '#999' }}>
+                                Presentación: {raw.presentationGrams}g por bolsa/unidad
+                              </Text>
+                            </Pressable>
                           </View>
 
                           <View style={{ alignItems: 'flex-end' }}>
                             <Text
                               variant="titleMedium"
                               style={{
-                                color: toBuy ? '#FF9800' : '#4CAF50',
+                                color: isDone ? '#4CAF50' : toBuy ? '#FF9800' : '#4CAF50',
                                 fontWeight: 'bold',
                               }}
                             >
-                              {toBuy ? `${raw.toPurchaseUnits} unid.` : 'Suficiente'}
+                              {isDone ? 'Comprado' : toBuy ? `${raw.toPurchaseUnits} unid.` : 'Suficiente'}
                             </Text>
                             {toBuy && (
-                              <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
+                              <Text variant="bodySmall" style={{ color: isDone ? '#999' : '#F5F0EB' }}>
                                 ({raw.toPurchaseGrams >= 1000 ? (raw.toPurchaseGrams / 1000).toFixed(1) + ' kg' : raw.toPurchaseGrams + ' g'})
                               </Text>
                             )}
@@ -576,7 +695,13 @@ export default function PlanificadorSemanalScreen() {
                           </View>
                           <View style={styles.metricItem}>
                             <Text variant="labelSmall" style={{ color: '#999' }}>A Comprar:</Text>
-                            <Text variant="bodySmall" style={{ color: toBuy ? '#FF9800' : '#4CAF50', fontWeight: 'bold' }}>
+                            <Text
+                              variant="bodySmall"
+                              style={{
+                                color: isDone ? '#4CAF50' : toBuy ? '#FF9800' : '#4CAF50',
+                                fontWeight: 'bold',
+                              }}
+                            >
                               {raw.toPurchaseGrams} g
                             </Text>
                           </View>
