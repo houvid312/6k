@@ -14,36 +14,36 @@ export const colors = {
   secondaryDark: '#B08C35',
   secondaryContainer: '#3D3118',
 
-  // Surfaces
-  background: '#1A1A1A',
-  surface: '#242424',
-  surfaceVariant: '#2E2E2E',
-  elevated: '#333333',
+  // Surfaces - Modern Zinc Dark 2026
+  background: '#0D0D0E',
+  surface: '#18181B',
+  surfaceVariant: '#202024',
+  elevated: '#27272A',
 
   // Semantic
-  error: '#FF6B6B',
-  errorContainer: '#3D1C1C',
-  success: '#4ADE80',
-  successContainer: '#1C3D2A',
-  warning: '#FBBF24',
-  warningContainer: '#3D3518',
-  info: '#60A5FA',
-  infoContainer: '#1C2A3D',
+  error: '#FF5C6A',
+  errorContainer: '#3D1518',
+  success: '#10B981',
+  successContainer: '#133520',
+  warning: '#F59E0B',
+  warningContainer: '#382810',
+  info: '#3B82F6',
+  infoContainer: '#132845',
 
   // Text
   text: '#F5F0EB',
-  textSecondary: '#8B8178',
-  textTertiary: '#5C5650',
+  textSecondary: '#A1A1AA',
+  textTertiary: '#71717A',
   onPrimary: '#FFFFFF',
-  onSecondary: '#1A1A1A',
+  onSecondary: '#0D0D0E',
 
   // Borders & misc
-  border: '#3A3A3A',
-  borderLight: '#2E2E2E',
-  disabled: '#4A4A4A',
-  divider: '#2E2E2E',
+  border: '#2E2E33',
+  borderLight: 'rgba(255, 255, 255, 0.08)',
+  disabled: '#3F3F46',
+  divider: 'rgba(255, 255, 255, 0.06)',
 
   // Special
-  cardShadow: 'rgba(0, 0, 0, 0.3)',
-  overlay: 'rgba(0, 0, 0, 0.6)',
+  cardShadow: 'rgba(0, 0, 0, 0.4)',
+  overlay: 'rgba(0, 0, 0, 0.75)',
 };
