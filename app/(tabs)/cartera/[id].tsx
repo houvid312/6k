@@ -166,17 +166,17 @@ export default function DebtorDetailScreen() {
       } else {
         // Standard credit payment flow (Directly applies and updates balance)
         if (paymentMethod === 'EFECTIVO') {
-          await creditService.registerPayment(credit.id, paymentAmount, 'Abono manual en Efectivo');
+          await creditService.registerPayment(credit.id, paymentAmount, PaymentMethod.EFECTIVO, 'Abono manual en Efectivo');
           showSuccess(`${formatCOP(paymentAmount)} en Efectivo aplicado a ${credit.debtorName}`);
         } else if (paymentMethod === 'TRANSFERENCIA') {
-          await creditService.registerPayment(credit.id, paymentAmount, 'Abono manual por Transferencia');
+          await creditService.registerPayment(credit.id, paymentAmount, PaymentMethod.TRANSFERENCIA, 'Abono manual por Transferencia');
           showSuccess(`${formatCOP(paymentAmount)} por Transferencia aplicado a ${credit.debtorName}`);
         } else {
           if (cashPart > 0) {
-            await creditService.registerPayment(credit.id, cashPart, 'Abono manual en Efectivo (Parte de pago Mixto)');
+            await creditService.registerPayment(credit.id, cashPart, PaymentMethod.EFECTIVO, 'Abono manual en Efectivo (Parte de pago Mixto)');
           }
           if (bankPart > 0) {
-            await creditService.registerPayment(credit.id, bankPart, 'Abono manual por Transferencia (Parte de pago Mixto)');
+            await creditService.registerPayment(credit.id, bankPart, PaymentMethod.TRANSFERENCIA, 'Abono manual por Transferencia (Parte de pago Mixto)');
           }
           showSuccess(`Abono mixto de ${formatCOP(cashPart + bankPart)} aplicado a ${credit.debtorName}`);
         }

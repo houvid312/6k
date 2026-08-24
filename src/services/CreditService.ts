@@ -44,7 +44,12 @@ export class CreditService {
   /**
    * Registers a payment against a credit, reducing the balance.
    */
-  async registerPayment(creditId: string, paymentAmount: number, notes: string = 'Abono manual'): Promise<CreditEntry> {
+  async registerPayment(
+    creditId: string,
+    paymentAmount: number,
+    paymentMethod: PaymentMethod = PaymentMethod.EFECTIVO,
+    notes: string = 'Abono manual',
+  ): Promise<CreditEntry> {
     const all = await this.creditRepo.getAll();
     const credit = all.find((c) => c.id === creditId);
     if (!credit) {
@@ -59,9 +64,9 @@ export class CreditService {
       storeId: credit.storeId,
       date: todayColombia(),
       category: 'Abono Cartera',
-      description: `Abono de cartera (${credit.concept}) - Manual`,
+      description: `Abono de cartera (${credit.concept}) - ${paymentMethod === PaymentMethod.TRANSFERENCIA ? 'Bancos / Transferencia' : 'Efectivo'}`,
       amount: paymentAmount,
-      paymentMethod: PaymentMethod.EFECTIVO,
+      paymentMethod,
     });
 
     await this.creditRepo.applyPayment({
@@ -72,6 +77,7 @@ export class CreditService {
       date: todayColombia(),
       source: 'MANUAL',
       notes,
+      paymentMethod,
       incomeId: income.id,
     });
 
