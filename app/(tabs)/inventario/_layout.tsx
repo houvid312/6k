@@ -63,6 +63,13 @@ export default function InventarioLayout() {
       <Stack.Screen name="recetas-produccion" options={{ title: 'Recetas de Produccion' }} />
       <Stack.Screen name="sugerencia-envio" options={{ title: 'Sugerencia de Envio' }} />
       <Stack.Screen name="demanda" options={{ title: 'Demanda Estimada' }} />
+      <Stack.Screen
+        name="planificador"
+        options={{
+          title: 'Planificador Semanal',
+          headerLeft: () => <InventoryBackButton />,
+        }}
+      />
       <Stack.Screen name="insumos" options={{ title: 'Insumos' }} />
       <Stack.Screen
         name="bajas"
