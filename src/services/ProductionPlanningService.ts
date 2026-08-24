@@ -79,6 +79,7 @@ export class ProductionPlanningService {
       allSupplies.filter((s) => s.isActive !== false).map((s) => [s.id, s])
     );
     const globallyActiveProductIds = new Set(allProducts.filter((p) => p.isActive).map((p) => p.id));
+    const productMap = new Map(allProducts.map((p) => [p.id, p]));
 
     const cpProcessedStockMap = new Map<string, number>(
       cpProcessedStock.map((item) => [item.supplyId, item.quantityGrams])
@@ -117,6 +118,25 @@ export class ProductionPlanningService {
           if (est.estimatedPortions <= 0) continue;
 
           totalDemandedPortions += est.estimatedPortions;
+
+          // Si es pizza, sumar requerimiento de masa procesada (75g por porcion de familiar, 150g si es diamante)
+          const product = productMap.get(est.productId);
+          if (product && product.category === 'PIZZA') {
+            const isDiamante = product.name.toLowerCase().includes('diamante');
+            const masaSupplyId = isDiamante
+              ? '00000000-0000-0000-0002-000000000203' // Masa Diamante
+              : '00000000-0000-0000-0002-000000000201'; // Masa Familiar (75g por porcion)
+            const masaGrams = (isDiamante ? 150 : 75) * est.estimatedPortions;
+            weeklyProcessedDemandMap.set(
+              masaSupplyId,
+              (weeklyProcessedDemandMap.get(masaSupplyId) ?? 0) + masaGrams
+            );
+            dayDemand.set(
+              masaSupplyId,
+              (dayDemand.get(masaSupplyId) ?? 0) + masaGrams
+            );
+          }
+
           const salesRecipe = await this.recipeRepo.getByProductId(est.productId);
           if (!salesRecipe) continue;
 

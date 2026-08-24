@@ -66,6 +66,7 @@ export class DemandEstimationService {
 
     // Productos activos globalmente
     const allProducts = await this.productRepo.getAll();
+    const productMap = new Map(allProducts.map((p) => [p.id, p]));
     const globallyActiveIds = new Set(allProducts.filter((p) => p.isActive).map((p) => p.id));
 
     // Productos habilitados para esta sede
@@ -78,6 +79,17 @@ export class DemandEstimationService {
       for (const d of demand) {
         // Saltar si el producto está inactivo globalmente o no asignado a esta sede
         if (!globallyActiveIds.has(d.productId) || !assignedIds.has(d.productId)) continue;
+
+        // Calcular masa requerida si el producto es Pizza (75g por porcion de familiar, 150g si es diamante)
+        const product = productMap.get(d.productId);
+        if (product && product.category === 'PIZZA') {
+          const isDiamante = product.name.toLowerCase().includes('diamante');
+          const masaSupplyId = isDiamante
+            ? '00000000-0000-0000-0002-000000000203' // Masa Diamante
+            : '00000000-0000-0000-0002-000000000201'; // Masa Familiar (75g por porcion)
+          const masaGrams = (isDiamante ? 150 : 75) * d.estimatedPortions;
+          supplyGrams.set(masaSupplyId, (supplyGrams.get(masaSupplyId) ?? 0) + masaGrams);
+        }
 
         const recipe = await this.recipeRepo.getByProductId(d.productId);
         if (!recipe) continue;
