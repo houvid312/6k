@@ -537,14 +537,18 @@ export default function PlanificadorSemanalScreen() {
       let cantFormatted = '';
       let costFormatted = '';
 
-      if (purchasesDayFilter !== null && p.dailyRequirements && p.dailyRequirements[purchasesDayFilter]) {
+      if (purchasesDayFilter !== null) {
         const isDone = !!completedPurchasesMap[`${p.supplyId}-${purchasesDayFilter}`];
         check = isDone ? '✅' : '⬜';
-        const gramsForDay = p.dailyRequirements[purchasesDayFilter];
-        const unitsForDay = Math.ceil(gramsForDay / (p.presentationGrams || 1000));
-        const dayCost = p.dailyCostCop ? p.dailyCostCop[purchasesDayFilter] || 0 : unitsForDay * (p.unitCostCop || 0);
-        cantFormatted = `${unitsForDay} unid. (~${gramsForDay >= 1000 ? (gramsForDay / 1000).toFixed(1) + ' kg' : gramsForDay + ' g'})`;
-        costFormatted = dayCost > 0 ? ` · ${formatCOP(dayCost)}` : '';
+        const unitsForDay = p.dailyUnitsToPurchase ? (p.dailyUnitsToPurchase[purchasesDayFilter] ?? 0) : 0;
+        const gramsForDay = p.dailyGramsToPurchase ? (p.dailyGramsToPurchase[purchasesDayFilter] ?? 0) : (p.dailyRequirements?.[purchasesDayFilter] ?? 0);
+        const dayCost = p.dailyCostCop ? p.dailyCostCop[purchasesDayFilter] || 0 : 0;
+        
+        if (unitsForDay > 0) {
+          cantFormatted = `${unitsForDay} unid. (~${gramsForDay >= 1000 ? (gramsForDay / 1000).toFixed(1) + ' kg' : gramsForDay + ' g'})`;
+          costFormatted = dayCost > 0 ? ` · ${formatCOP(dayCost)}` : '';
+          lines.push(`${check} *${p.supplyName}*: ${cantFormatted}${costFormatted}`);
+        }
       } else {
         const doneDays = reqDays.filter((d) => !!completedPurchasesMap[`${p.supplyId}-${d}`]).length;
         check = doneDays === reqDays.length ? '✅' : doneDays > 0 ? '🟡' : '⬜';
@@ -553,9 +557,8 @@ export default function PlanificadorSemanalScreen() {
           : `${p.toPurchaseGrams} g`;
         cantFormatted = `${p.toPurchaseUnits} unid. (${totalFormatted})`;
         costFormatted = p.estimatedCostCop > 0 ? ` · ${formatCOP(p.estimatedCostCop)}` : '';
+        lines.push(`${check} *${p.supplyName}*: ${cantFormatted}${costFormatted}`);
       }
-
-      lines.push(`${check} *${p.supplyName}*: ${cantFormatted}${costFormatted}`);
     });
 
     lines.push(``);
@@ -1261,24 +1264,20 @@ export default function PlanificadorSemanalScreen() {
                     ? raw.dailyRequirements[purchasesDayFilter] || 0
                     : null;
                   
-                  const costOnFilterDay = purchasesDayFilter !== null && raw.dailyCostCop
-                    ? raw.dailyCostCop[purchasesDayFilter] || 0
-                    : raw.estimatedCostCop || 0;
-
-                  const displayUnits = purchasesDayFilter !== null && gramsOnFilterDay !== null
-                    ? (gramsOnFilterDay > 0 ? Math.ceil(gramsOnFilterDay / (raw.presentationGrams || 1000)) : 0)
+                  const displayUnits = purchasesDayFilter !== null && raw.dailyUnitsToPurchase
+                    ? (raw.dailyUnitsToPurchase[purchasesDayFilter] ?? 0)
                     : raw.toPurchaseUnits;
 
-                  const displayGrams = purchasesDayFilter !== null && gramsOnFilterDay !== null
-                    ? gramsOnFilterDay
+                  const displayGrams = purchasesDayFilter !== null && raw.dailyGramsToPurchase
+                    ? (raw.dailyGramsToPurchase[purchasesDayFilter] ?? 0)
                     : raw.toPurchaseGrams;
 
-                  const displayCost = purchasesDayFilter !== null
-                    ? costOnFilterDay
-                    : raw.estimatedCostCop || 0;
+                  const displayCost = purchasesDayFilter !== null && raw.dailyCostCop
+                    ? (raw.dailyCostCop[purchasesDayFilter] ?? 0)
+                    : (raw.estimatedCostCop || 0);
 
                   const hasRequirementOnView = purchasesDayFilter !== null
-                    ? (gramsOnFilterDay ?? 0) > 0
+                    ? (displayUnits > 0 || (gramsOnFilterDay ?? 0) > 0)
                     : toBuy;
 
                   // Estado de completitud
@@ -1356,6 +1355,7 @@ export default function PlanificadorSemanalScreen() {
                                   {raw.requiredDays.map((d) => {
                                     const isThisDayDone = !!completedPurchasesMap[`${raw.supplyId}-${d}`];
                                     const isViewingThisDay = purchasesDayFilter === d;
+                                    const unitsForDayBadge = raw.dailyUnitsToPurchase ? raw.dailyUnitsToPurchase[d] || 0 : 0;
 
                                     return (
                                       <TouchableOpacity
@@ -1380,7 +1380,7 @@ export default function PlanificadorSemanalScreen() {
                                             fontWeight: isThisDayDone || isViewingThisDay ? 'bold' : 'normal',
                                           }}
                                         >
-                                          {isThisDayDone ? '✅' : '⬜'} {DAY_LABELS[d]}
+                                          {isThisDayDone ? '✅' : '⬜'} {DAY_LABELS[d]} {unitsForDayBadge > 0 ? `(${unitsForDayBadge}u)` : ''}
                                         </Text>
                                       </TouchableOpacity>
                                     );
@@ -1399,7 +1399,7 @@ export default function PlanificadorSemanalScreen() {
                               }}
                             >
                               {purchasesDayFilter !== null
-                                ? isDayDone ? 'Comprado' : hasRequirementOnView ? `${displayUnits} unid.` : 'Suficiente'
+                                ? isDayDone ? 'Comprado' : displayUnits > 0 ? `${displayUnits} unid.` : 'Cubierto con Stock'
                                 : isAllWeekDone ? `Comprado (${doneDaysCount}/${reqDays.length})` : isPartialWeekDone ? `Parcial (${doneDaysCount}/${reqDays.length})` : toBuy ? `${raw.toPurchaseUnits} unid.` : 'Suficiente'}
                             </Text>
                             {hasRequirementOnView && (
@@ -1433,7 +1433,9 @@ export default function PlanificadorSemanalScreen() {
                             </Text>
                           </View>
                           <View style={styles.metricItem}>
-                            <Text variant="labelSmall" style={{ color: '#999' }}>A Comprar Total:</Text>
+                            <Text variant="labelSmall" style={{ color: '#999' }}>
+                              {purchasesDayFilter !== null ? `A Comprar ${DAY_LABELS[purchasesDayFilter!]}:` : 'A Comprar Total:'}
+                            </Text>
                             <Text
                               variant="bodySmall"
                               style={{
@@ -1441,7 +1443,7 @@ export default function PlanificadorSemanalScreen() {
                                 fontWeight: 'bold',
                               }}
                             >
-                              {raw.toPurchaseGrams.toLocaleString()} g
+                              {displayGrams.toLocaleString()} g {displayUnits > 0 ? `(${displayUnits} u.)` : ''}
                             </Text>
                           </View>
                         </View>

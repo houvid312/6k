@@ -59,8 +59,10 @@ export interface RawPurchaseRequirement {
   unitCostCop: number; // Costo por unidad/presentación (COP)
   estimatedCostCop: number; // toPurchaseUnits * unitCostCop
   requiredDays?: number[]; // Días de la semana en que se requiere este insumo crudo (ej. [1, 4])
-  dailyRequirements?: Record<number, number>; // dayOfWeek -> gramos requeridos ese día
-  dailyCostCop?: Record<number, number>; // dayOfWeek -> costo estimado ese día en COP
+  dailyRequirements?: Record<number, number>; // dayOfWeek -> gramos brutos de uso ese día
+  dailyUnitsToPurchase?: Record<number, number>; // dayOfWeek -> unidades netas a comprar ese día
+  dailyGramsToPurchase?: Record<number, number>; // dayOfWeek -> gramos netos a comprar ese día
+  dailyCostCop?: Record<number, number>; // dayOfWeek -> costo neto estimado ese día en COP
 }
 
 export interface WeeklyPlanCalculationResult {

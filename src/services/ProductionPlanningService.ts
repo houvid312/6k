@@ -278,6 +278,8 @@ export class ProductionPlanningService {
 
       const dailyMap = rawDailyRequirementsMap.get(rawSupplyId);
       const dailyReqs: Record<number, number> = {};
+      const dailyUnits: Record<number, number> = {};
+      const dailyGrams: Record<number, number> = {};
       const dailyCosts: Record<number, number> = {};
       const reqDays: number[] = [];
 
@@ -285,13 +287,27 @@ export class ProductionPlanningService {
         for (const [d, g] of dailyMap.entries()) {
           if (g > 0) {
             dailyReqs[d] = Math.round(g);
-            const unitsOnDay = Math.ceil(g / gpb);
-            dailyCosts[d] = unitsOnDay * unitCostCop;
             reqDays.push(d);
           }
         }
       }
       reqDays.sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b));
+
+      // Simulación de flujo de inventario cronológico (Time-Phased MRP)
+      // Se consume el inventario existente en planta antes de comprar en cada jornada
+      let runningStock = currentRawStock;
+
+      for (const d of reqDays) {
+        const grossGrams = dailyReqs[d] || 0;
+        const netShortage = Math.max(0, grossGrams - runningStock);
+        const unitsToBuy = netShortage > 0 ? Math.ceil(netShortage / gpb) : 0;
+        const gramsBought = unitsToBuy * gpb;
+        runningStock = Math.max(0, runningStock + gramsBought - grossGrams);
+
+        dailyUnits[d] = unitsToBuy;
+        dailyGrams[d] = Math.round(netShortage);
+        dailyCosts[d] = unitsToBuy * unitCostCop;
+      }
 
       rawPurchases.push({
         supplyId: rawSupplyId,
@@ -306,6 +322,8 @@ export class ProductionPlanningService {
         estimatedCostCop,
         requiredDays: reqDays,
         dailyRequirements: dailyReqs,
+        dailyUnitsToPurchase: dailyUnits,
+        dailyGramsToPurchase: dailyGrams,
         dailyCostCop: dailyCosts,
       });
     }
@@ -461,6 +479,8 @@ export class ProductionPlanningService {
 
       const dailyMap = rawDailyRequirementsMap.get(rawSupplyId);
       const dailyReqs: Record<number, number> = {};
+      const dailyUnits: Record<number, number> = {};
+      const dailyGrams: Record<number, number> = {};
       const dailyCosts: Record<number, number> = {};
       const reqDays: number[] = [];
 
@@ -468,13 +488,26 @@ export class ProductionPlanningService {
         for (const [d, g] of dailyMap.entries()) {
           if (g > 0) {
             dailyReqs[d] = Math.round(g);
-            const unitsOnDay = Math.ceil(g / gpb);
-            dailyCosts[d] = unitsOnDay * unitCostCop;
             reqDays.push(d);
           }
         }
       }
       reqDays.sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b));
+
+      // Simulación de flujo de inventario cronológico (Time-Phased MRP)
+      let runningStock = currentRawStock;
+
+      for (const d of reqDays) {
+        const grossGrams = dailyReqs[d] || 0;
+        const netShortage = Math.max(0, grossGrams - runningStock);
+        const unitsToBuy = netShortage > 0 ? Math.ceil(netShortage / gpb) : 0;
+        const gramsBought = unitsToBuy * gpb;
+        runningStock = Math.max(0, runningStock + gramsBought - grossGrams);
+
+        dailyUnits[d] = unitsToBuy;
+        dailyGrams[d] = Math.round(netShortage);
+        dailyCosts[d] = unitsToBuy * unitCostCop;
+      }
 
       rawPurchases.push({
         supplyId: rawSupplyId,
@@ -489,6 +522,8 @@ export class ProductionPlanningService {
         estimatedCostCop,
         requiredDays: reqDays,
         dailyRequirements: dailyReqs,
+        dailyUnitsToPurchase: dailyUnits,
+        dailyGramsToPurchase: dailyGrams,
         dailyCostCop: dailyCosts,
       });
     }
