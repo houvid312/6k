@@ -1203,7 +1203,7 @@ export default function PlanificadorSemanalScreen() {
                   const toBuy = raw.toPurchaseGrams > 0;
                   const isDone = !!completedPurchasesMap[raw.supplyId];
 
-                  // Si hay filtro de día, mostrar la necesidad de ese día y su costo
+                  // Si hay filtro de día, calcular la necesidad específica de ese día
                   const gramsOnFilterDay = purchasesDayFilter !== null && raw.dailyRequirements
                     ? raw.dailyRequirements[purchasesDayFilter] || 0
                     : null;
@@ -1211,6 +1211,22 @@ export default function PlanificadorSemanalScreen() {
                   const costOnFilterDay = purchasesDayFilter !== null && raw.dailyCostCop
                     ? raw.dailyCostCop[purchasesDayFilter] || 0
                     : raw.estimatedCostCop || 0;
+
+                  const displayUnits = purchasesDayFilter !== null && gramsOnFilterDay !== null
+                    ? (gramsOnFilterDay > 0 ? Math.ceil(gramsOnFilterDay / (raw.presentationGrams || 1000)) : 0)
+                    : raw.toPurchaseUnits;
+
+                  const displayGrams = purchasesDayFilter !== null && gramsOnFilterDay !== null
+                    ? gramsOnFilterDay
+                    : raw.toPurchaseGrams;
+
+                  const displayCost = purchasesDayFilter !== null
+                    ? costOnFilterDay
+                    : raw.estimatedCostCop || 0;
+
+                  const hasRequirementOnView = purchasesDayFilter !== null
+                    ? (gramsOnFilterDay ?? 0) > 0
+                    : toBuy;
 
                   return (
                     <Card
@@ -1220,7 +1236,7 @@ export default function PlanificadorSemanalScreen() {
                         {
                           backgroundColor: isDone ? '#142016' : '#1E1E1E',
                           borderLeftWidth: 4,
-                          borderLeftColor: isDone ? '#4CAF50' : toBuy ? '#FF9800' : '#4CAF50',
+                          borderLeftColor: isDone ? '#4CAF50' : hasRequirementOnView ? '#FF9800' : '#4CAF50',
                           opacity: isDone ? 0.7 : 1,
                         },
                       ]}
@@ -1228,7 +1244,7 @@ export default function PlanificadorSemanalScreen() {
                       <Card.Content>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, paddingRight: 8 }}>
-                            {toBuy && (
+                            {hasRequirementOnView && (
                               <Checkbox
                                 status={isDone ? 'checked' : 'unchecked'}
                                 onPress={() => handleTogglePurchase(raw.supplyId)}
@@ -1237,7 +1253,7 @@ export default function PlanificadorSemanalScreen() {
                             )}
                             <Pressable
                               style={{ flex: 1, paddingLeft: 4 }}
-                              onPress={() => toBuy && handleTogglePurchase(raw.supplyId)}
+                              onPress={() => hasRequirementOnView && handleTogglePurchase(raw.supplyId)}
                             >
                               <Text
                                 variant="titleSmall"
@@ -1286,19 +1302,19 @@ export default function PlanificadorSemanalScreen() {
                             <Text
                               variant="titleMedium"
                               style={{
-                                color: isDone ? '#4CAF50' : toBuy ? '#FF9800' : '#4CAF50',
+                                color: isDone ? '#4CAF50' : hasRequirementOnView ? '#FF9800' : '#4CAF50',
                                 fontWeight: 'bold',
                               }}
                             >
-                              {isDone ? 'Comprado' : toBuy ? `${raw.toPurchaseUnits} unid.` : 'Suficiente'}
+                              {isDone ? 'Comprado' : hasRequirementOnView ? `${displayUnits} unid.` : 'Suficiente'}
                             </Text>
-                            {toBuy && (
+                            {hasRequirementOnView && (
                               <>
                                 <Text variant="bodySmall" style={{ color: isDone ? '#999' : '#F5F0EB' }}>
-                                  ({raw.toPurchaseGrams >= 1000 ? (raw.toPurchaseGrams / 1000).toFixed(1) + ' kg' : raw.toPurchaseGrams + ' g'})
+                                  ({displayGrams >= 1000 ? (displayGrams / 1000).toFixed(1) + ' kg' : displayGrams + ' g'})
                                 </Text>
                                 <Text variant="labelSmall" style={{ color: '#4CAF50', fontWeight: 'bold', marginTop: 2 }}>
-                                  {formatCOP(costOnFilterDay)}
+                                  {formatCOP(displayCost)}
                                 </Text>
                               </>
                             )}

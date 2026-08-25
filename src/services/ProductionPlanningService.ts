@@ -239,6 +239,10 @@ export class ProductionPlanningService {
       const batchesPerDay = batches / days.length;
 
       for (const input of pr.inputs) {
+        const inputSupply = activeSuppliesMap.get(input.supplyId);
+        // Omitir insumos que son fabricados internamente (PROCESSED) ya que sus materias primas ya se calculan con su propia receta
+        if (inputSupply && inputSupply.category === 'PROCESSED') continue;
+
         const rawGrams = input.gramsRequired * batches;
         requiredRawGramsMap.set(
           input.supplyId,
@@ -418,6 +422,10 @@ export class ProductionPlanningService {
       const batchesPerDay = batches / days.length;
 
       for (const input of pr.inputs) {
+        const inputSupply = activeSuppliesMap.get(input.supplyId);
+        // Omitir insumos que son fabricados internamente (PROCESSED)
+        if (inputSupply && inputSupply.category === 'PROCESSED') continue;
+
         const rawGrams = input.gramsRequired * batches;
         requiredRawGramsMap.set(
           input.supplyId,
