@@ -4,6 +4,7 @@ import {
   IProductionRecipeRepository,
   IProductionRecordRepository,
   IInventoryRepository,
+  ISupplyRepository,
 } from '../domain/interfaces/repositories';
 
 export class ProductionService {
@@ -11,6 +12,7 @@ export class ProductionService {
     private recipeRepo: IProductionRecipeRepository,
     private recordRepo: IProductionRecordRepository,
     private inventoryRepo: IInventoryRepository,
+    private supplyRepo?: ISupplyRepository,
   ) {}
 
   /**
@@ -29,7 +31,7 @@ export class ProductionService {
 
   /**
    * Registers a production batch:
-   * 1. Deducts raw materials from RAW inventory
+   * 1. Deducts input materials from their respective inventory level (RAW or PROCESSED)
    * 2. Adds produced grams to PROCESSED inventory
    * 3. Creates a production record for traceability
    */
@@ -50,14 +52,22 @@ export class ProductionService {
     const isBagsMode = bags !== undefined && bags > 0;
     const effectiveBatches = isBagsMode ? bags / outputBags : batches;
 
-    // 1. Deduct raw inputs proporcional y exactamente por unidad
+    // 1. Deduct inputs proporcional y exactamente por unidad segun su nivel correspondiente
     const consumedItems = [];
     for (const input of recipe.inputs) {
       const gramsToConsume = isBagsMode
         ? Math.round(((input.gramsRequired / outputBags) * bags) * 100) / 100
         : Math.round(input.gramsRequired * effectiveBatches * 100) / 100;
 
-      await this.inventoryRepo.deductGrams(storeId, input.supplyId, gramsToConsume);
+      let deductionLevel = InventoryLevel.RAW;
+      if (this.supplyRepo) {
+        const supply = await this.supplyRepo.getById(input.supplyId);
+        if (supply && supply.category === 'PROCESSED') {
+          deductionLevel = InventoryLevel.PROCESSED;
+        }
+      }
+
+      await this.inventoryRepo.deductGrams(storeId, input.supplyId, gramsToConsume, deductionLevel);
       consumedItems.push({
         supplyId: input.supplyId,
         gramsConsumed: gramsToConsume,
