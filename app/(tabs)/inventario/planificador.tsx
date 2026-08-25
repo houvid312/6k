@@ -26,6 +26,7 @@ import {
   WeeklyProductionPlan,
 } from '../../../src/domain/entities';
 import { todayColombia, formatDate } from '../../../src/utils/dates';
+import { formatCOP } from '../../../src/utils/currency';
 
 // Helper para calcular el Lunes de la semana de una fecha YYYY-MM-DD
 function getMondayOfWeek(dateStr: string): string {
@@ -455,7 +456,34 @@ export default function PlanificadorSemanalScreen() {
     });
   }, [calcResult, purchasesDayFilter]);
 
-  // Copiar lista de compras para WhatsApp (Semana o Día específico)
+  // Presupuesto total estimado de compras (Semana o Día filtrado)
+  const totalBudget = useMemo(() => {
+    if (!calcResult) return 0;
+    if (purchasesDayFilter !== null) {
+      return filteredRawPurchases.reduce((sum, p) => {
+        const dayCost = p.dailyCostCop ? p.dailyCostCop[purchasesDayFilter] : 0;
+        return sum + (dayCost || 0);
+      }, 0);
+    }
+    return filteredRawPurchases.reduce((sum, p) => sum + (p.estimatedCostCop || 0), 0);
+  }, [calcResult, filteredRawPurchases, purchasesDayFilter]);
+
+  const completedBudget = useMemo(() => {
+    if (!calcResult) return 0;
+    if (purchasesDayFilter !== null) {
+      return filteredRawPurchases
+        .filter((p) => completedPurchasesMap[p.supplyId])
+        .reduce((sum, p) => {
+          const dayCost = p.dailyCostCop ? p.dailyCostCop[purchasesDayFilter] : 0;
+          return sum + (dayCost || 0);
+        }, 0);
+    }
+    return filteredRawPurchases
+      .filter((p) => completedPurchasesMap[p.supplyId])
+      .reduce((sum, p) => sum + (p.estimatedCostCop || 0), 0);
+  }, [calcResult, filteredRawPurchases, completedPurchasesMap, purchasesDayFilter]);
+
+  // Copiar lista de compras para WhatsApp (Semana o Día específico) con presupuesto
   const handleCopyPurchaseList = () => {
     if (!calcResult || filteredRawPurchases.length === 0) {
       showError('No hay compras calculadas');
@@ -474,6 +502,7 @@ export default function PlanificadorSemanalScreen() {
     } else {
       lines.push(`🛒 *PEDIDO DE MATERIA PRIMA (Semana ${formatDate(currentWeekMonday)})*`);
     }
+    lines.push(`💰 *Presupuesto Estimado: ${formatCOP(totalBudget)}*`);
     lines.push(``);
 
     purchasesToBuy.forEach((p) => {
@@ -481,18 +510,22 @@ export default function PlanificadorSemanalScreen() {
       const check = isDone ? '✅' : '⬜';
       
       let cantFormatted = '';
+      let costFormatted = '';
       if (purchasesDayFilter !== null && p.dailyRequirements && p.dailyRequirements[purchasesDayFilter]) {
         const gramsForDay = p.dailyRequirements[purchasesDayFilter];
         const unitsForDay = Math.ceil(gramsForDay / (p.presentationGrams || 1000));
+        const dayCost = p.dailyCostCop ? p.dailyCostCop[purchasesDayFilter] || 0 : unitsForDay * (p.unitCostCop || 0);
         cantFormatted = `${unitsForDay} unid. (~${gramsForDay >= 1000 ? (gramsForDay / 1000).toFixed(1) + ' kg' : gramsForDay + ' g'})`;
+        costFormatted = dayCost > 0 ? ` · ${formatCOP(dayCost)}` : '';
       } else {
         const totalFormatted = p.toPurchaseGrams >= 1000
           ? `${(p.toPurchaseGrams / 1000).toFixed(1)} kg`
           : `${p.toPurchaseGrams} g`;
         cantFormatted = `${p.toPurchaseUnits} unid. (${totalFormatted})`;
+        costFormatted = p.estimatedCostCop > 0 ? ` · ${formatCOP(p.estimatedCostCop)}` : '';
       }
 
-      lines.push(`${check} *${p.supplyName}*: ${cantFormatted}`);
+      lines.push(`${check} *${p.supplyName}*: ${cantFormatted}${costFormatted}`);
     });
 
     lines.push(``);
@@ -785,6 +818,8 @@ export default function PlanificadorSemanalScreen() {
               {calcResult.plannedRecipes.map((pr) => {
                 const needsProduction = pr.calculatedBatches > 0;
                 const isUpdatingThis = updatingRecipeId === pr.recipeId;
+                const producedGrams = Math.round(pr.calculatedBatches * pr.outputGrams);
+                const demandedGrams = pr.weeklyDemandedGrams || 0;
 
                 return (
                   <Card
@@ -809,8 +844,8 @@ export default function PlanificadorSemanalScreen() {
                               <ActivityIndicator size={14} color="#E63946" />
                             )}
                           </View>
-                          <Text variant="bodySmall" style={{ color: '#999' }}>
-                            Insumo: {pr.supplyName} · Lote: {pr.outputGrams}g ({pr.outputBags} bolsa/s)
+                          <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
+                            Fabricará: <Text style={{ color: '#4CAF50', fontWeight: 'bold' }}>{producedGrams.toLocaleString()} g</Text> ({pr.calculatedBags} bolsas) · Demanda Puntos: <Text style={{ color: '#E63946', fontWeight: 'bold' }}>{demandedGrams.toLocaleString()} g</Text>
                           </Text>
                           <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
                             <View style={{ backgroundColor: '#2A2A2A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
@@ -849,21 +884,21 @@ export default function PlanificadorSemanalScreen() {
 
                       <View style={styles.metricsGrid}>
                         <View style={styles.metricItem}>
-                          <Text variant="labelSmall" style={{ color: '#999' }}>Demanda + Mín:</Text>
-                          <Text variant="bodySmall" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
-                            {pr.totalNeededGrams} g
+                          <Text variant="labelSmall" style={{ color: '#999' }}>Demanda Locales:</Text>
+                          <Text variant="bodySmall" style={{ color: '#E63946', fontWeight: 'bold' }}>
+                            {demandedGrams.toLocaleString()} g
                           </Text>
                         </View>
                         <View style={styles.metricItem}>
                           <Text variant="labelSmall" style={{ color: '#999' }}>Stock Actual CP:</Text>
                           <Text variant="bodySmall" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
-                            {pr.currentStockGrams} g
+                            {pr.currentStockGrams.toLocaleString()} g
                           </Text>
                         </View>
                         <View style={styles.metricItem}>
-                          <Text variant="labelSmall" style={{ color: '#999' }}>Faltante Neto:</Text>
-                          <Text variant="bodySmall" style={{ color: needsProduction ? '#E63946' : '#4CAF50', fontWeight: 'bold' }}>
-                            {pr.targetNetGrams} g
+                          <Text variant="labelSmall" style={{ color: '#999' }}>Total a Fabricar:</Text>
+                          <Text variant="bodySmall" style={{ color: needsProduction ? '#4CAF50' : '#888', fontWeight: 'bold' }}>
+                            {producedGrams.toLocaleString()} g
                           </Text>
                         </View>
                       </View>
@@ -997,8 +1032,44 @@ export default function PlanificadorSemanalScreen() {
                   onPress={handleCopyPurchaseList}
                   compact
                 >
-                  {purchasesDayFilter !== null ? `Copiar Pedido (${DAY_LABELS[purchasesDayFilter]})` : 'Copiar Pedido'}
+                  {purchasesDayFilter !== null ? `Copiar (${DAY_LABELS[purchasesDayFilter]})` : 'Copiar Pedido'}
                 </Button>
+              </View>
+
+              {/* TARJETA DE PRESUPUESTO ESTIMADO DE COMPRAS (COP) */}
+              <View
+                style={{
+                  backgroundColor: '#171D18',
+                  borderRadius: 10,
+                  padding: 12,
+                  marginBottom: 12,
+                  borderWidth: 1,
+                  borderColor: '#264D2C',
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <View>
+                  <Text variant="labelSmall" style={{ color: '#8BC34A', fontWeight: '600' }}>
+                    💰 {purchasesDayFilter !== null
+                      ? `Presupuesto Compras (${DAY_LABELS[purchasesDayFilter]}):`
+                      : 'Presupuesto Total Compras (Semana):'}
+                  </Text>
+                  <Text variant="headlineSmall" style={{ color: '#4CAF50', fontWeight: 'bold', marginTop: 2 }}>
+                    {formatCOP(totalBudget)}
+                  </Text>
+                </View>
+
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text variant="labelSmall" style={{ color: '#999' }}>Ejecutado / Comprado:</Text>
+                  <Text variant="titleMedium" style={{ color: '#F5F0EB', fontWeight: 'bold', marginTop: 2 }}>
+                    {formatCOP(completedBudget)}
+                  </Text>
+                  <Text variant="labelSmall" style={{ color: '#888', fontSize: 10 }}>
+                    {totalBudget > 0 ? Math.round((completedBudget / totalBudget) * 100) : 0}% del valor total
+                  </Text>
+                </View>
               </View>
 
               {/* SELECTOR DE DÍAS PARA COMPRAS (TIME-PHASED MRP) */}
@@ -1132,10 +1203,14 @@ export default function PlanificadorSemanalScreen() {
                   const toBuy = raw.toPurchaseGrams > 0;
                   const isDone = !!completedPurchasesMap[raw.supplyId];
 
-                  // Si hay filtro de día, mostrar la necesidad de ese día
+                  // Si hay filtro de día, mostrar la necesidad de ese día y su costo
                   const gramsOnFilterDay = purchasesDayFilter !== null && raw.dailyRequirements
                     ? raw.dailyRequirements[purchasesDayFilter] || 0
                     : null;
+                  
+                  const costOnFilterDay = purchasesDayFilter !== null && raw.dailyCostCop
+                    ? raw.dailyCostCop[purchasesDayFilter] || 0
+                    : raw.estimatedCostCop || 0;
 
                   return (
                     <Card
@@ -1174,7 +1249,7 @@ export default function PlanificadorSemanalScreen() {
                                 {raw.supplyName}
                               </Text>
                               <Text variant="bodySmall" style={{ color: '#999' }}>
-                                Presentación: {raw.presentationGrams}g por bolsa/unidad
+                                Presentación: {raw.presentationGrams}g por bolsa/unidad · Costo: <Text style={{ color: '#4CAF50' }}>{formatCOP(raw.unitCostCop || 0)}</Text>
                               </Text>
 
                               {/* Badges de días en que se usa */}
@@ -1218,9 +1293,14 @@ export default function PlanificadorSemanalScreen() {
                               {isDone ? 'Comprado' : toBuy ? `${raw.toPurchaseUnits} unid.` : 'Suficiente'}
                             </Text>
                             {toBuy && (
-                              <Text variant="bodySmall" style={{ color: isDone ? '#999' : '#F5F0EB' }}>
-                                ({raw.toPurchaseGrams >= 1000 ? (raw.toPurchaseGrams / 1000).toFixed(1) + ' kg' : raw.toPurchaseGrams + ' g'})
-                              </Text>
+                              <>
+                                <Text variant="bodySmall" style={{ color: isDone ? '#999' : '#F5F0EB' }}>
+                                  ({raw.toPurchaseGrams >= 1000 ? (raw.toPurchaseGrams / 1000).toFixed(1) + ' kg' : raw.toPurchaseGrams + ' g'})
+                                </Text>
+                                <Text variant="labelSmall" style={{ color: '#4CAF50', fontWeight: 'bold', marginTop: 2 }}>
+                                  {formatCOP(costOnFilterDay)}
+                                </Text>
+                              </>
                             )}
                           </View>
                         </View>
@@ -1233,13 +1313,13 @@ export default function PlanificadorSemanalScreen() {
                               {gramsOnFilterDay !== null ? `Uso el ${DAY_LABELS[purchasesDayFilter!]}:` : 'Requerido Semana:'}
                             </Text>
                             <Text variant="bodySmall" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
-                              {gramsOnFilterDay !== null ? `${gramsOnFilterDay} g` : `${raw.requiredGrams} g`}
+                              {gramsOnFilterDay !== null ? `${gramsOnFilterDay.toLocaleString()} g` : `${raw.requiredGrams.toLocaleString()} g`}
                             </Text>
                           </View>
                           <View style={styles.metricItem}>
                             <Text variant="labelSmall" style={{ color: '#999' }}>Stock Bodega RAW:</Text>
                             <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
-                              {raw.currentRawStockGrams} g
+                              {raw.currentRawStockGrams.toLocaleString()} g
                             </Text>
                           </View>
                           <View style={styles.metricItem}>
@@ -1251,7 +1331,7 @@ export default function PlanificadorSemanalScreen() {
                                 fontWeight: 'bold',
                               }}
                             >
-                              {raw.toPurchaseGrams} g
+                              {raw.toPurchaseGrams.toLocaleString()} g
                             </Text>
                           </View>
                         </View>

@@ -213,6 +213,7 @@ export class ProductionPlanningService {
         outputBags,
         prepTimeMinutes: prepTime,
         shelfLifeDays: shelfLife,
+        weeklyDemandedGrams: Math.round(demandedGrams),
         totalNeededGrams: Math.round(totalNeeded),
         currentStockGrams: Math.round(currentStock),
         targetNetGrams: Math.round(targetNetGrams),
@@ -266,15 +267,20 @@ export class ProductionPlanningService {
       const toPurchaseGrams = Math.max(0, requiredGrams - currentRawStock);
       const gpb = supply.gramsPerBag > 0 ? supply.gramsPerBag : 1000;
       const toPurchaseUnits = toPurchaseGrams > 0 ? Math.ceil(toPurchaseGrams / gpb) : 0;
+      const unitCostCop = supply.productionCostCop > 0 ? supply.productionCostCop : (supply.commercialPriceCop || 0);
+      const estimatedCostCop = toPurchaseUnits * unitCostCop;
 
       const dailyMap = rawDailyRequirementsMap.get(rawSupplyId);
       const dailyReqs: Record<number, number> = {};
+      const dailyCosts: Record<number, number> = {};
       const reqDays: number[] = [];
 
       if (dailyMap) {
         for (const [d, g] of dailyMap.entries()) {
           if (g > 0) {
             dailyReqs[d] = Math.round(g);
+            const unitsOnDay = Math.ceil(g / gpb);
+            dailyCosts[d] = unitsOnDay * unitCostCop;
             reqDays.push(d);
           }
         }
@@ -290,8 +296,11 @@ export class ProductionPlanningService {
         toPurchaseGrams: Math.round(toPurchaseGrams),
         toPurchaseUnits,
         presentationGrams: gpb,
+        unitCostCop,
+        estimatedCostCop,
         requiredDays: reqDays,
         dailyRequirements: dailyReqs,
+        dailyCostCop: dailyCosts,
       });
     }
 
@@ -435,15 +444,20 @@ export class ProductionPlanningService {
       const toPurchaseGrams = Math.max(0, requiredGrams - currentRawStock);
       const gpb = supply.gramsPerBag > 0 ? supply.gramsPerBag : 1000;
       const toPurchaseUnits = toPurchaseGrams > 0 ? Math.ceil(toPurchaseGrams / gpb) : 0;
+      const unitCostCop = supply.productionCostCop > 0 ? supply.productionCostCop : (supply.commercialPriceCop || 0);
+      const estimatedCostCop = toPurchaseUnits * unitCostCop;
 
       const dailyMap = rawDailyRequirementsMap.get(rawSupplyId);
       const dailyReqs: Record<number, number> = {};
+      const dailyCosts: Record<number, number> = {};
       const reqDays: number[] = [];
 
       if (dailyMap) {
         for (const [d, g] of dailyMap.entries()) {
           if (g > 0) {
             dailyReqs[d] = Math.round(g);
+            const unitsOnDay = Math.ceil(g / gpb);
+            dailyCosts[d] = unitsOnDay * unitCostCop;
             reqDays.push(d);
           }
         }
@@ -459,8 +473,11 @@ export class ProductionPlanningService {
         toPurchaseGrams: Math.round(toPurchaseGrams),
         toPurchaseUnits,
         presentationGrams: gpb,
+        unitCostCop,
+        estimatedCostCop,
         requiredDays: reqDays,
         dailyRequirements: dailyReqs,
+        dailyCostCop: dailyCosts,
       });
     }
 

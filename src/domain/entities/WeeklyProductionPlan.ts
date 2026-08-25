@@ -37,7 +37,8 @@ export interface PlannedRecipeRequirement {
   outputBags: number;
   prepTimeMinutes: number;
   shelfLifeDays: number;
-  totalNeededGrams: number;
+  weeklyDemandedGrams: number; // Demanda neta de los locales para la semana
+  totalNeededGrams: number; // Demanda + Stock Mínimo
   currentStockGrams: number;
   targetNetGrams: number;
   calculatedBatches: number;
@@ -55,8 +56,11 @@ export interface RawPurchaseRequirement {
   toPurchaseGrams: number;
   toPurchaseUnits: number;
   presentationGrams: number;
+  unitCostCop: number; // Costo por unidad/presentación (COP)
+  estimatedCostCop: number; // toPurchaseUnits * unitCostCop
   requiredDays?: number[]; // Días de la semana en que se requiere este insumo crudo (ej. [1, 4])
   dailyRequirements?: Record<number, number>; // dayOfWeek -> gramos requeridos ese día
+  dailyCostCop?: Record<number, number>; // dayOfWeek -> costo estimado ese día en COP
 }
 
 export interface WeeklyPlanCalculationResult {
