@@ -1,4 +1,4 @@
--- Migration 087: Prevenir error 23505 duplicate key en receive_transfer_with_billing usando ON CONFLICT
+-- Migration 087: Prevenir error 23505 duplicate key en receive_transfer_with_billing buscando/actualizando el cobro existente
 BEGIN;
 
 CREATE OR REPLACE FUNCTION receive_transfer_with_billing(p_transfer_id UUID)
@@ -130,36 +130,46 @@ BEGIN
     v_total_price := v_total_price + v_line_total;
   END LOOP;
 
-  -- Upsert en credit_entries para evitar conflicto de clave duplicada si ya existia
-  INSERT INTO credit_entries (
-    debtor_name,
-    debtor_type,
-    store_id,
-    transfer_id,
-    concept,
-    amount,
-    balance,
-    is_paid,
-    paid_date,
-    date
-  )
-  VALUES (
-    v_store_name,
-    'LOCAL'::debtor_type,
-    v_transfer.to_store_id,
-    p_transfer_id,
-    'Cobro interno traslado ' || right(p_transfer_id::TEXT, 6),
-    v_total_price,
-    v_total_price,
-    v_total_price = 0,
-    CASE WHEN v_total_price = 0 THEN v_today ELSE NULL END,
-    v_today
-  )
-  ON CONFLICT (transfer_id) DO UPDATE SET
-    amount = EXCLUDED.amount,
-    balance = CASE WHEN credit_entries.is_paid THEN 0 ELSE EXCLUDED.amount END,
-    concept = EXCLUDED.concept
-  RETURNING id INTO v_credit_id;
+  -- Buscar si ya existe un cobro para este traslado (idempotente)
+  SELECT id INTO v_credit_id
+  FROM credit_entries
+  WHERE transfer_id = p_transfer_id;
+
+  IF v_credit_id IS NOT NULL THEN
+    UPDATE credit_entries
+    SET
+      debtor_name = v_store_name,
+      amount = v_total_price,
+      balance = CASE WHEN is_paid THEN 0 ELSE v_total_price END,
+      concept = 'Cobro interno traslado ' || right(p_transfer_id::TEXT, 6)
+    WHERE id = v_credit_id;
+  ELSE
+    INSERT INTO credit_entries (
+      debtor_name,
+      debtor_type,
+      store_id,
+      transfer_id,
+      concept,
+      amount,
+      balance,
+      is_paid,
+      paid_date,
+      date
+    )
+    VALUES (
+      v_store_name,
+      'LOCAL'::debtor_type,
+      v_transfer.to_store_id,
+      p_transfer_id,
+      'Cobro interno traslado ' || right(p_transfer_id::TEXT, 6),
+      v_total_price,
+      v_total_price,
+      v_total_price = 0,
+      CASE WHEN v_total_price = 0 THEN v_today ELSE NULL END,
+      v_today
+    )
+    RETURNING id INTO v_credit_id;
+  END IF;
 
   UPDATE transfers
   SET
