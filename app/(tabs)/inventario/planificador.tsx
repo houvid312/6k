@@ -137,7 +137,7 @@ export default function PlanificadorSemanalScreen() {
             }
             if (Array.isArray(parsed.completedPurchases)) {
               const pMap: Record<string, boolean> = {};
-              parsed.completedPurchases.forEach((id: string) => { pMap[id] = true; });
+              parsed.completedPurchases.forEach((key: string) => { pMap[key] = true; });
               setCompletedPurchasesMap(pMap);
             }
           } catch (e) {
@@ -377,15 +377,8 @@ export default function PlanificadorSemanalScreen() {
     }
   };
 
-  // Marcar compra completada
-  const handleTogglePurchase = async (supplyId: string) => {
-    const nextState = !completedPurchasesMap[supplyId];
-    const newPurchasesMap = {
-      ...completedPurchasesMap,
-      [supplyId]: nextState,
-    };
-    setCompletedPurchasesMap(newPurchasesMap);
-
+  // Helper para persistir compras en DB
+  const savePurchasesMapToDB = async (newPurchasesMap: Record<string, boolean>) => {
     if (savedPlan) {
       try {
         const stores = await storeRepo.getAll();
@@ -419,6 +412,30 @@ export default function PlanificadorSemanalScreen() {
         console.error('Error toggling purchase in DB:', err);
       }
     }
+  };
+
+  // Marcar compra completada para un DÍA ESPECÍFICO
+  const handleTogglePurchaseDay = async (supplyId: string, dayOfWeek: number) => {
+    const key = `${supplyId}-${dayOfWeek}`;
+    const nextState = !completedPurchasesMap[key];
+    const newPurchasesMap = {
+      ...completedPurchasesMap,
+      [key]: nextState,
+    };
+    setCompletedPurchasesMap(newPurchasesMap);
+    await savePurchasesMapToDB(newPurchasesMap);
+  };
+
+  // Marcar/desmarcar compra de TODOS LOS DÍAS de la semana para un insumo
+  const handleTogglePurchaseWeekAll = async (supplyId: string, days: number[]) => {
+    const allDone = days.every((d) => !!completedPurchasesMap[`${supplyId}-${d}`]);
+    const nextState = !allDone;
+    const newPurchasesMap = { ...completedPurchasesMap };
+    days.forEach((d) => {
+      newPurchasesMap[`${supplyId}-${d}`] = nextState;
+    });
+    setCompletedPurchasesMap(newPurchasesMap);
+    await savePurchasesMapToDB(newPurchasesMap);
   };
 
   // Marcar tarea completada en el cronograma
@@ -465,22 +482,30 @@ export default function PlanificadorSemanalScreen() {
         return sum + (dayCost || 0);
       }, 0);
     }
-    return filteredRawPurchases.reduce((sum, p) => sum + (p.estimatedCostCop || 0), 0);
+    return calcResult.rawPurchases.reduce((sum, p) => sum + (p.estimatedCostCop || 0), 0);
   }, [calcResult, filteredRawPurchases, purchasesDayFilter]);
 
   const completedBudget = useMemo(() => {
     if (!calcResult) return 0;
     if (purchasesDayFilter !== null) {
       return filteredRawPurchases
-        .filter((p) => completedPurchasesMap[p.supplyId])
+        .filter((p) => !!completedPurchasesMap[`${p.supplyId}-${purchasesDayFilter}`])
         .reduce((sum, p) => {
           const dayCost = p.dailyCostCop ? p.dailyCostCop[purchasesDayFilter] : 0;
           return sum + (dayCost || 0);
         }, 0);
     }
-    return filteredRawPurchases
-      .filter((p) => completedPurchasesMap[p.supplyId])
-      .reduce((sum, p) => sum + (p.estimatedCostCop || 0), 0);
+    return calcResult.rawPurchases.reduce((sum, p) => {
+      const days = p.requiredDays && p.requiredDays.length > 0 ? p.requiredDays : [1];
+      let itemCompletedCost = 0;
+      days.forEach((d) => {
+        if (completedPurchasesMap[`${p.supplyId}-${d}`]) {
+          const dCost = p.dailyCostCop ? p.dailyCostCop[d] || 0 : (p.estimatedCostCop / days.length);
+          itemCompletedCost += dCost;
+        }
+      });
+      return sum + itemCompletedCost;
+    }, 0);
   }, [calcResult, filteredRawPurchases, completedPurchasesMap, purchasesDayFilter]);
 
   // Copiar lista de compras para WhatsApp (Semana o Día específico) con presupuesto
@@ -506,18 +531,23 @@ export default function PlanificadorSemanalScreen() {
     lines.push(``);
 
     purchasesToBuy.forEach((p) => {
-      const isDone = !!completedPurchasesMap[p.supplyId];
-      const check = isDone ? '✅' : '⬜';
+      const reqDays = p.requiredDays && p.requiredDays.length > 0 ? p.requiredDays : [1];
       
+      let check = '⬜';
       let cantFormatted = '';
       let costFormatted = '';
+
       if (purchasesDayFilter !== null && p.dailyRequirements && p.dailyRequirements[purchasesDayFilter]) {
+        const isDone = !!completedPurchasesMap[`${p.supplyId}-${purchasesDayFilter}`];
+        check = isDone ? '✅' : '⬜';
         const gramsForDay = p.dailyRequirements[purchasesDayFilter];
         const unitsForDay = Math.ceil(gramsForDay / (p.presentationGrams || 1000));
         const dayCost = p.dailyCostCop ? p.dailyCostCop[purchasesDayFilter] || 0 : unitsForDay * (p.unitCostCop || 0);
         cantFormatted = `${unitsForDay} unid. (~${gramsForDay >= 1000 ? (gramsForDay / 1000).toFixed(1) + ' kg' : gramsForDay + ' g'})`;
         costFormatted = dayCost > 0 ? ` · ${formatCOP(dayCost)}` : '';
       } else {
+        const doneDays = reqDays.filter((d) => !!completedPurchasesMap[`${p.supplyId}-${d}`]).length;
+        check = doneDays === reqDays.length ? '✅' : doneDays > 0 ? '🟡' : '⬜';
         const totalFormatted = p.toPurchaseGrams >= 1000
           ? `${(p.toPurchaseGrams / 1000).toFixed(1)} kg`
           : `${p.toPurchaseGrams} g`;
@@ -540,7 +570,7 @@ export default function PlanificadorSemanalScreen() {
     }
   };
 
-  // Metricas de avance
+  // Metricas de avance de tareas
   const totalTasksCount = useMemo(() => {
     if (!calcResult) return 0;
     return calcResult.plannedRecipes.reduce((sum, r) => {
@@ -555,13 +585,36 @@ export default function PlanificadorSemanalScreen() {
 
   const progressPercent = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : 0;
 
+  // Metricas de avance de compras
   const totalPurchasesCount = useMemo(() => {
-    return filteredRawPurchases.filter((p) => p.toPurchaseGrams > 0).length;
-  }, [filteredRawPurchases]);
+    if (!calcResult) return 0;
+    if (purchasesDayFilter !== null) {
+      return filteredRawPurchases.filter((p) => {
+        const g = p.dailyRequirements ? p.dailyRequirements[purchasesDayFilter] : 0;
+        return g && g > 0;
+      }).length;
+    }
+    return calcResult.rawPurchases
+      .filter((p) => p.toPurchaseGrams > 0)
+      .reduce((sum, p) => sum + (p.requiredDays?.length || 1), 0);
+  }, [calcResult, filteredRawPurchases, purchasesDayFilter]);
 
   const completedPurchasesCount = useMemo(() => {
-    return filteredRawPurchases.filter((p) => p.toPurchaseGrams > 0 && completedPurchasesMap[p.supplyId]).length;
-  }, [filteredRawPurchases, completedPurchasesMap]);
+    if (!calcResult) return 0;
+    if (purchasesDayFilter !== null) {
+      return filteredRawPurchases.filter((p) => {
+        const g = p.dailyRequirements ? p.dailyRequirements[purchasesDayFilter] : 0;
+        return g && g > 0 && !!completedPurchasesMap[`${p.supplyId}-${purchasesDayFilter}`];
+      }).length;
+    }
+    return calcResult.rawPurchases
+      .filter((p) => p.toPurchaseGrams > 0)
+      .reduce((sum, p) => {
+        const days = p.requiredDays && p.requiredDays.length > 0 ? p.requiredDays : [1];
+        const doneDays = days.filter((d) => !!completedPurchasesMap[`${p.supplyId}-${d}`]).length;
+        return sum + doneDays;
+      }, 0);
+  }, [calcResult, filteredRawPurchases, completedPurchasesMap, purchasesDayFilter]);
 
   const purchasesPercent = totalPurchasesCount > 0 ? Math.round((completedPurchasesCount / totalPurchasesCount) * 100) : 0;
 
@@ -1177,7 +1230,7 @@ export default function PlanificadorSemanalScreen() {
                       : '🛒 Avance de Compras Semanales'}
                   </Text>
                   <Text variant="labelMedium" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
-                    {completedPurchasesCount} de {totalPurchasesCount} comprados ({purchasesPercent}%)
+                    {completedPurchasesCount} de {totalPurchasesCount} jornadas compradas ({purchasesPercent}%)
                   </Text>
                 </View>
 
@@ -1201,7 +1254,7 @@ export default function PlanificadorSemanalScreen() {
               ) : (
                 filteredRawPurchases.map((raw) => {
                   const toBuy = raw.toPurchaseGrams > 0;
-                  const isDone = !!completedPurchasesMap[raw.supplyId];
+                  const reqDays = raw.requiredDays && raw.requiredDays.length > 0 ? raw.requiredDays : [1];
 
                   // Si hay filtro de día, calcular la necesidad específica de ese día
                   const gramsOnFilterDay = purchasesDayFilter !== null && raw.dailyRequirements
@@ -1228,16 +1281,27 @@ export default function PlanificadorSemanalScreen() {
                     ? (gramsOnFilterDay ?? 0) > 0
                     : toBuy;
 
+                  // Estado de completitud
+                  const isDayDone = purchasesDayFilter !== null
+                    ? !!completedPurchasesMap[`${raw.supplyId}-${purchasesDayFilter}`]
+                    : false;
+
+                  const doneDaysCount = reqDays.filter((d) => !!completedPurchasesMap[`${raw.supplyId}-${d}`]).length;
+                  const isAllWeekDone = doneDaysCount === reqDays.length && reqDays.length > 0;
+                  const isPartialWeekDone = doneDaysCount > 0 && doneDaysCount < reqDays.length;
+
+                  const isCardDone = purchasesDayFilter !== null ? isDayDone : isAllWeekDone;
+
                   return (
                     <Card
                       key={raw.supplyId}
                       style={[
                         styles.itemCard,
                         {
-                          backgroundColor: isDone ? '#142016' : '#1E1E1E',
+                          backgroundColor: isCardDone ? '#142016' : '#1E1E1E',
                           borderLeftWidth: 4,
-                          borderLeftColor: isDone ? '#4CAF50' : hasRequirementOnView ? '#FF9800' : '#4CAF50',
-                          opacity: isDone ? 0.7 : 1,
+                          borderLeftColor: isCardDone ? '#4CAF50' : hasRequirementOnView ? '#FF9800' : '#4CAF50',
+                          opacity: isCardDone ? 0.75 : 1,
                         },
                       ]}
                     >
@@ -1246,20 +1310,37 @@ export default function PlanificadorSemanalScreen() {
                           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, paddingRight: 8 }}>
                             {hasRequirementOnView && (
                               <Checkbox
-                                status={isDone ? 'checked' : 'unchecked'}
-                                onPress={() => handleTogglePurchase(raw.supplyId)}
+                                status={
+                                  purchasesDayFilter !== null
+                                    ? isDayDone ? 'checked' : 'unchecked'
+                                    : isAllWeekDone ? 'checked' : isPartialWeekDone ? 'indeterminate' : 'unchecked'
+                                }
+                                onPress={() => {
+                                  if (purchasesDayFilter !== null) {
+                                    handleTogglePurchaseDay(raw.supplyId, purchasesDayFilter);
+                                  } else {
+                                    handleTogglePurchaseWeekAll(raw.supplyId, reqDays);
+                                  }
+                                }}
                                 color="#4CAF50"
                               />
                             )}
                             <Pressable
                               style={{ flex: 1, paddingLeft: 4 }}
-                              onPress={() => hasRequirementOnView && handleTogglePurchase(raw.supplyId)}
+                              onPress={() => {
+                                if (!hasRequirementOnView) return;
+                                if (purchasesDayFilter !== null) {
+                                  handleTogglePurchaseDay(raw.supplyId, purchasesDayFilter);
+                                } else {
+                                  handleTogglePurchaseWeekAll(raw.supplyId, reqDays);
+                                }
+                              }}
                             >
                               <Text
                                 variant="titleSmall"
                                 style={[
                                   { color: '#F5F0EB', fontWeight: 'bold' },
-                                  isDone && { textDecorationLine: 'line-through', color: '#999' },
+                                  isCardDone && { textDecorationLine: 'line-through', color: '#999' },
                                 ]}
                               >
                                 {raw.supplyName}
@@ -1268,31 +1349,42 @@ export default function PlanificadorSemanalScreen() {
                                 Presentación: {raw.presentationGrams}g por bolsa/unidad · Costo: <Text style={{ color: '#4CAF50' }}>{formatCOP(raw.unitCostCop || 0)}</Text>
                               </Text>
 
-                              {/* Badges de días en que se usa */}
+                              {/* Badges INTERACTIVOS de días */}
                               {raw.requiredDays && raw.requiredDays.length > 0 && (
-                                <View style={{ flexDirection: 'row', gap: 4, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                                  <Text variant="labelSmall" style={{ color: '#777', fontSize: 10 }}>Usado en:</Text>
-                                  {raw.requiredDays.map((d) => (
-                                    <View
-                                      key={d}
-                                      style={{
-                                        backgroundColor: purchasesDayFilter === d ? '#E63946' : '#2A2A2A',
-                                        paddingHorizontal: 6,
-                                        paddingVertical: 1,
-                                        borderRadius: 4,
-                                      }}
-                                    >
-                                      <Text
+                                <View style={{ flexDirection: 'row', gap: 5, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                  <Text variant="labelSmall" style={{ color: '#888', fontSize: 10 }}>Días:</Text>
+                                  {raw.requiredDays.map((d) => {
+                                    const isThisDayDone = !!completedPurchasesMap[`${raw.supplyId}-${d}`];
+                                    const isViewingThisDay = purchasesDayFilter === d;
+
+                                    return (
+                                      <TouchableOpacity
+                                        key={d}
+                                        onPress={() => handleTogglePurchaseDay(raw.supplyId, d)}
                                         style={{
-                                          color: purchasesDayFilter === d ? '#FFF' : '#AAA',
-                                          fontSize: 9,
-                                          fontWeight: purchasesDayFilter === d ? 'bold' : '600',
+                                          backgroundColor: isThisDayDone ? '#142016' : isViewingThisDay ? '#E63946' : '#2A2A2A',
+                                          paddingHorizontal: 7,
+                                          paddingVertical: 2,
+                                          borderRadius: 5,
+                                          borderWidth: 1,
+                                          borderColor: isThisDayDone ? '#4CAF50' : isViewingThisDay ? '#E63946' : '#444',
+                                          flexDirection: 'row',
+                                          alignItems: 'center',
+                                          gap: 3,
                                         }}
                                       >
-                                        {DAY_LABELS[d] || 'Día'}
-                                      </Text>
-                                    </View>
-                                  ))}
+                                        <Text
+                                          style={{
+                                            color: isThisDayDone ? '#4CAF50' : '#FFF',
+                                            fontSize: 10,
+                                            fontWeight: isThisDayDone || isViewingThisDay ? 'bold' : 'normal',
+                                          }}
+                                        >
+                                          {isThisDayDone ? '✅' : '⬜'} {DAY_LABELS[d]}
+                                        </Text>
+                                      </TouchableOpacity>
+                                    );
+                                  })}
                                 </View>
                               )}
                             </Pressable>
@@ -1302,15 +1394,17 @@ export default function PlanificadorSemanalScreen() {
                             <Text
                               variant="titleMedium"
                               style={{
-                                color: isDone ? '#4CAF50' : hasRequirementOnView ? '#FF9800' : '#4CAF50',
+                                color: isCardDone ? '#4CAF50' : isPartialWeekDone ? '#FF9800' : hasRequirementOnView ? '#FF9800' : '#4CAF50',
                                 fontWeight: 'bold',
                               }}
                             >
-                              {isDone ? 'Comprado' : hasRequirementOnView ? `${displayUnits} unid.` : 'Suficiente'}
+                              {purchasesDayFilter !== null
+                                ? isDayDone ? 'Comprado' : hasRequirementOnView ? `${displayUnits} unid.` : 'Suficiente'
+                                : isAllWeekDone ? `Comprado (${doneDaysCount}/${reqDays.length})` : isPartialWeekDone ? `Parcial (${doneDaysCount}/${reqDays.length})` : toBuy ? `${raw.toPurchaseUnits} unid.` : 'Suficiente'}
                             </Text>
                             {hasRequirementOnView && (
                               <>
-                                <Text variant="bodySmall" style={{ color: isDone ? '#999' : '#F5F0EB' }}>
+                                <Text variant="bodySmall" style={{ color: isCardDone ? '#999' : '#F5F0EB' }}>
                                   ({displayGrams >= 1000 ? (displayGrams / 1000).toFixed(1) + ' kg' : displayGrams + ' g'})
                                 </Text>
                                 <Text variant="labelSmall" style={{ color: '#4CAF50', fontWeight: 'bold', marginTop: 2 }}>
@@ -1343,7 +1437,7 @@ export default function PlanificadorSemanalScreen() {
                             <Text
                               variant="bodySmall"
                               style={{
-                                color: isDone ? '#4CAF50' : toBuy ? '#FF9800' : '#4CAF50',
+                                color: isCardDone ? '#4CAF50' : toBuy ? '#FF9800' : '#4CAF50',
                                 fontWeight: 'bold',
                               }}
                             >
