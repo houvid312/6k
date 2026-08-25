@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, Pressable, Platform, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, Platform, Alert, TouchableOpacity } from 'react-native';
 import {
   Card,
   Text,
@@ -10,6 +10,7 @@ import {
   Checkbox,
   useTheme,
   ActivityIndicator,
+  Chip,
 } from 'react-native-paper';
 import { useFocusEffect } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
@@ -31,7 +32,6 @@ function getMondayOfWeek(dateStr: string): string {
   const parts = dateStr.split('-');
   const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
   const day = d.getDay();
-  // day 0 is Sunday, 1 is Monday...
   const diff = d.getDate() - day + (day === 0 ? -6 : 1);
   const monday = new Date(d.setDate(diff));
   const y = monday.getFullYear();
@@ -61,13 +61,22 @@ const DAY_LABELS: Record<number, string> = {
   0: 'Domingo',
 };
 
+const WEEK_DAYS_OPTIONS = [
+  { d: 1, label: 'Lun' },
+  { d: 2, label: 'Mar' },
+  { d: 3, label: 'Mié' },
+  { d: 4, label: 'Jue' },
+  { d: 5, label: 'Vie' },
+  { d: 6, label: 'Sáb' },
+  { d: 0, label: 'Dom' },
+];
+
 // Helper para calcular la semana predeterminada de planificacion
 function getDefaultPlanningWeekMonday(todayStr: string): string {
   const parts = todayStr.split('-');
   const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
   const day = d.getDay(); // 0 = Domingo, 6 = Sábado
   const thisMonday = getMondayOfWeek(todayStr);
-  // Si estamos en fin de semana (sábado o domingo), predeterminar a la próxima semana que empieza el lunes
   if (day === 0 || day === 6) {
     return shiftWeek(thisMonday, 1);
   }
@@ -88,48 +97,63 @@ export default function PlanificadorSemanalScreen() {
   const [savedPlan, setSavedPlan] = useState<WeeklyProductionPlan | null>(null);
   const [completedItemsMap, setCompletedItemsMap] = useState<Record<string, boolean>>({});
   const [completedPurchasesMap, setCompletedPurchasesMap] = useState<Record<string, boolean>>({});
+  const [isDirty, setIsDirty] = useState(false);
+
+  const isFrozenPlan = useMemo(() => {
+    return !!savedPlan && !isDirty;
+  }, [savedPlan, isDirty]);
 
   const loadPlanData = useCallback(async () => {
     setLoading(true);
+    setIsDirty(false);
     try {
       const stores = await storeRepo.getAll();
       const cpStore = stores.find((s) => s.isProductionCenter);
       const cpStoreId = cpStore ? cpStore.id : selectedStoreId;
 
-      // 1. Calcular el plan semanal con los algoritmos de demanda agregada
-      const result = await productionPlanningService.calculateWeeklyPlan(currentWeekMonday);
-      setCalcResult(result);
-
-      // 2. Buscar si ya existe un plan guardado para persistencia de tareas y compras
+      // 1. Buscar si ya existe un plan guardado con su snapshot congelado
       const existing = await productionPlanningService.getSavedPlan(cpStoreId, currentWeekMonday);
       setSavedPlan(existing);
 
+      let snapshotLoaded = false;
       if (existing) {
+        // Cargar mapa de tareas completadas
         const compMap: Record<string, boolean> = {};
         for (const item of existing.items) {
           compMap[`${item.recipeId}-${item.dayOfWeek}`] = item.isCompleted;
         }
         setCompletedItemsMap(compMap);
 
+        // Parsear notas para snapshot y compras
         if (existing.notes && existing.notes.startsWith('{')) {
           try {
             const parsed = JSON.parse(existing.notes);
+            if (parsed.snapshot && Array.isArray(parsed.snapshot.plannedRecipes)) {
+              setCalcResult(parsed.snapshot);
+              snapshotLoaded = true;
+            }
             if (Array.isArray(parsed.completedPurchases)) {
               const pMap: Record<string, boolean> = {};
               parsed.completedPurchases.forEach((id: string) => { pMap[id] = true; });
               setCompletedPurchasesMap(pMap);
             }
-          } catch {
-            // ignore
+          } catch (e) {
+            console.error('Error parsing plan snapshot notes:', e);
           }
         }
       } else {
         setCompletedItemsMap({});
         setCompletedPurchasesMap({});
       }
+
+      // Si no habia snapshot guardado, calculamos la proyeccion en vivo
+      if (!snapshotLoaded) {
+        const result = await productionPlanningService.calculateWeeklyPlan(currentWeekMonday);
+        setCalcResult(result);
+      }
     } catch (err: any) {
-      console.error('Error calculando plan semanal:', err);
-      showError(err?.message || 'Error al calcular plan semanal');
+      console.error('Error cargando plan semanal:', err);
+      showError(err?.message || 'Error al cargar plan semanal');
       setCalcResult(null);
     } finally {
       setLoading(false);
@@ -142,7 +166,79 @@ export default function PlanificadorSemanalScreen() {
     }, [loadPlanData])
   );
 
-  // Guardar / Confirmar Plan Semanal
+  // Recalcular proyección en vivo con stock actual
+  const handleRecalculateLive = async () => {
+    setLoading(true);
+    try {
+      const fresh = await productionPlanningService.calculateWeeklyPlan(currentWeekMonday);
+      setCalcResult(fresh);
+      setIsDirty(true);
+      showSuccess('Proyección recalculada con stock e inventario actual.');
+    } catch (err: any) {
+      showError(err?.message || 'Error al recalcular');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Ajustar lotes manualmente
+  const handleUpdateRecipeBatches = async (recipeId: string, delta: number) => {
+    if (!calcResult) return;
+    const updatedRecipes = calcResult.plannedRecipes.map((pr) => {
+      if (pr.recipeId === recipeId) {
+        const nextBatches = Math.max(0, Math.round((pr.calculatedBatches + delta) * 10) / 10);
+        return {
+          ...pr,
+          calculatedBatches: nextBatches,
+        };
+      }
+      return pr;
+    });
+
+    try {
+      const recalculated = await productionPlanningService.recalculateFromCustomPlan(
+        updatedRecipes,
+        currentWeekMonday,
+        calcResult.totalDemandedPortions,
+      );
+      setCalcResult(recalculated);
+      setIsDirty(true);
+    } catch (err: any) {
+      showError(err?.message || 'Error al recalcular lotes');
+    }
+  };
+
+  // Alternar días de producción para una receta
+  const handleToggleRecipeDay = async (recipeId: string, dayNum: number) => {
+    if (!calcResult) return;
+    const updatedRecipes = calcResult.plannedRecipes.map((pr) => {
+      if (pr.recipeId === recipeId) {
+        const days = pr.suggestedDays || [];
+        const exists = days.includes(dayNum);
+        let nextDays = exists ? days.filter((d) => d !== dayNum) : [...days, dayNum];
+        if (nextDays.length === 0) nextDays = [dayNum]; // Mantener al menos 1 día
+        return {
+          ...pr,
+          suggestedDays: nextDays.sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b)),
+        };
+      }
+      return pr;
+    });
+
+    try {
+      const recalculated = await productionPlanningService.recalculateFromCustomPlan(
+        updatedRecipes,
+        currentWeekMonday,
+        calcResult.totalDemandedPortions,
+      );
+      setCalcResult(recalculated);
+      setIsDirty(true);
+    } catch (err: any) {
+      showError(err?.message || 'Error al actualizar cronograma');
+    }
+  };
+
+  // Guardar / Confirmar Plan Semanal congelado
   const handleSavePlan = async () => {
     if (!calcResult) return;
     setSaving(true);
@@ -155,7 +251,7 @@ export default function PlanificadorSemanalScreen() {
       const itemsToSave: any[] = [];
       for (const pr of calcResult.plannedRecipes) {
         if (pr.calculatedBatches <= 0) continue;
-        const days = pr.suggestedDays.length > 0 ? pr.suggestedDays : [1];
+        const days = pr.suggestedDays && pr.suggestedDays.length > 0 ? pr.suggestedDays : [1];
         const batchesPerDay = pr.calculatedBatches / days.length;
         const bagsPerDay = Math.ceil(pr.calculatedBags / days.length);
         const minsPerDay = Math.round(pr.totalEstMinutes / days.length);
@@ -173,8 +269,11 @@ export default function PlanificadorSemanalScreen() {
         }
       }
 
+      // Guardar el snapshot completo congelado en notes
       const notesPayload = JSON.stringify({
-        note: `Plan generado para semana del ${currentWeekMonday}`,
+        version: 1,
+        savedAt: new Date().toISOString(),
+        snapshot: calcResult,
         completedPurchases: Object.keys(completedPurchasesMap).filter((k) => completedPurchasesMap[k]),
       });
 
@@ -187,7 +286,7 @@ export default function PlanificadorSemanalScreen() {
         items: itemsToSave,
       });
 
-      showSuccess('Plan semanal guardado con éxito');
+      showSuccess('Plan semanal guardado y congelado con éxito');
       loadPlanData();
     } catch (err: any) {
       showError(err?.message || 'Error al guardar el plan');
@@ -210,10 +309,21 @@ export default function PlanificadorSemanalScreen() {
         const stores = await storeRepo.getAll();
         const cpStore = stores.find((s) => s.isProductionCenter);
         if (cpStore) {
+          let existingSnapshot = calcResult;
+          if (savedPlan.notes && savedPlan.notes.startsWith('{')) {
+            try {
+              const parsed = JSON.parse(savedPlan.notes);
+              if (parsed.snapshot) existingSnapshot = parsed.snapshot;
+            } catch {}
+          }
+
           const notesPayload = JSON.stringify({
-            note: `Plan generado para semana del ${currentWeekMonday}`,
+            version: 1,
+            savedAt: new Date().toISOString(),
+            snapshot: existingSnapshot,
             completedPurchases: Object.keys(newPurchasesMap).filter((k) => newPurchasesMap[k]),
           });
+
           await productionPlanningService.savePlan({
             storeId: cpStore.id,
             weekStartDate: currentWeekMonday,
@@ -223,8 +333,8 @@ export default function PlanificadorSemanalScreen() {
             items: savedPlan.items as any,
           });
         }
-      } catch {
-        // Silent fallback
+      } catch (err) {
+        console.error('Error toggling purchase in DB:', err);
       }
     }
   };
@@ -253,150 +363,207 @@ export default function PlanificadorSemanalScreen() {
     }
   };
 
-  // Copiar lista de compras para WhatsApp / Proveedores
-  const handleCopyPurchaseList = async () => {
+  // Copiar lista de compras para WhatsApp
+  const handleCopyPurchaseList = () => {
     if (!calcResult || calcResult.rawPurchases.length === 0) {
-      showError('No hay compras para copiar');
+      showError('No hay compras calculadas');
       return;
     }
 
-    const itemsText = calcResult.rawPurchases
-      .filter((p) => p.toPurchaseGrams > 0)
-      .map((p) => {
-        const cantStr = p.toPurchaseUnits > 0
-          ? `${p.toPurchaseUnits} unidad(es) (${p.toPurchaseGrams >= 1000 ? (p.toPurchaseGrams / 1000).toFixed(1) + ' kg' : p.toPurchaseGrams + ' g'})`
-          : `${p.toPurchaseGrams} g`;
-        return `• *${p.supplyName}*: ${cantStr}`;
-      })
-      .join('\n');
+    const purchasesToBuy = calcResult.rawPurchases.filter((p) => p.toPurchaseGrams > 0);
+    if (purchasesToBuy.length === 0) {
+      showSuccess('¡No hay compras pendientes! El stock actual es suficiente.');
+      return;
+    }
 
-    const message = `🍕 *PEDIDO DE COMPRAS - 6K PIZZA*\n📅 *Semana del:* ${formatDate(currentWeekMonday)}\n\n${itemsText}\n\n_Generado automáticamente desde 6K App._`;
+    const lines: string[] = [];
+    lines.push(`🛒 *PEDIDO DE MATERIA PRIMA (RAW)*`);
+    lines.push(`📅 Semana: ${formatDate(currentWeekMonday)}`);
+    lines.push(``);
 
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(message);
-      } else if (Platform.OS === 'web' && typeof document !== 'undefined') {
-        const textarea = document.createElement('textarea');
-        textarea.value = message;
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
-      }
+    purchasesToBuy.forEach((p, idx) => {
+      const isDone = !!completedPurchasesMap[p.supplyId];
+      const check = isDone ? '✅' : '⬜';
+      const cantFormatted = p.toPurchaseGrams >= 1000
+        ? `${(p.toPurchaseGrams / 1000).toFixed(1)} kg`
+        : `${p.toPurchaseGrams} g`;
+
+      lines.push(`${check} *${p.supplyName}*: ${p.toPurchaseUnits} unid. (${cantFormatted})`);
+    });
+
+    lines.push(``);
+    lines.push(`_Generado automáticamente desde 6K Pizza_`);
+    const fullText = lines.join('\n');
+
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(fullText);
       showSuccess('¡Lista de compras copiada al portapapeles!');
-    } catch {
-      showError('No se pudo copiar automáticamente');
+    } else {
+      Alert.alert('Lista de Compras', fullText);
     }
   };
 
-  // KPIs & Progreso
+  // Metricas de avance
+  const totalTasksCount = useMemo(() => {
+    if (!calcResult) return 0;
+    return calcResult.plannedRecipes.reduce((sum, r) => {
+      if (r.calculatedBatches <= 0) return sum;
+      return sum + (r.suggestedDays ? r.suggestedDays.length : 1);
+    }, 0);
+  }, [calcResult]);
+
+  const completedTasksCount = useMemo(() => {
+    return Object.values(completedItemsMap).filter(Boolean).length;
+  }, [completedItemsMap]);
+
+  const progressPercent = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : 0;
+
+  const totalPurchasesCount = useMemo(() => {
+    if (!calcResult) return 0;
+    return calcResult.rawPurchases.filter((p) => p.toPurchaseGrams > 0).length;
+  }, [calcResult]);
+
+  const completedPurchasesCount = useMemo(() => {
+    if (!calcResult) return 0;
+    return calcResult.rawPurchases.filter((p) => p.toPurchaseGrams > 0 && completedPurchasesMap[p.supplyId]).length;
+  }, [calcResult, completedPurchasesMap]);
+
+  const purchasesPercent = totalPurchasesCount > 0 ? Math.round((completedPurchasesCount / totalPurchasesCount) * 100) : 0;
+
   const totalBatches = useMemo(() => {
     if (!calcResult) return 0;
     return calcResult.plannedRecipes.reduce((sum, r) => sum + r.calculatedBatches, 0);
   }, [calcResult]);
 
-  const totalRawPurchasesCount = useMemo(() => {
-    if (!calcResult) return 0;
-    return calcResult.rawPurchases.filter((p) => p.toPurchaseGrams > 0).length;
-  }, [calcResult]);
-
-  const { totalScheduledTasks, completedTasksCount, progressPercent } = useMemo(() => {
-    if (!calcResult) return { totalScheduledTasks: 0, completedTasksCount: 0, progressPercent: 0 };
-    let total = 0;
-    let completed = 0;
-    for (const pr of calcResult.plannedRecipes) {
-      if (pr.calculatedBatches <= 0) continue;
-      const days = pr.suggestedDays.length > 0 ? pr.suggestedDays : [1];
-      for (const d of days) {
-        total += 1;
-        if (completedItemsMap[`${pr.recipeId}-${d}`]) {
-          completed += 1;
-        }
-      }
-    }
-    const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
-    return { totalScheduledTasks: total, completedTasksCount: completed, progressPercent: percent };
-  }, [calcResult, completedItemsMap]);
-
-  const { totalPurchasesCount, completedPurchasesCount, purchasesPercent } = useMemo(() => {
-    if (!calcResult) return { totalPurchasesCount: 0, completedPurchasesCount: 0, purchasesPercent: 0 };
-    const toBuy = calcResult.rawPurchases.filter((p) => p.toPurchaseGrams > 0);
-    const total = toBuy.length;
-    let completed = 0;
-    for (const p of toBuy) {
-      if (completedPurchasesMap[p.supplyId]) {
-        completed += 1;
-      }
-    }
-    const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
-    return { totalPurchasesCount: total, completedPurchasesCount: completed, purchasesPercent: percent };
-  }, [calcResult, completedPurchasesMap]);
-
   return (
-    <ScreenContainer scrollable padded>
-      {/* HEADER: Selector de Semana */}
+    <ScreenContainer scrollable={true}>
+      {/* SELECTOR DE SEMANA */}
       <View style={styles.weekSelectorContainer}>
         <IconButton
           icon="chevron-left"
-          size={24}
           iconColor="#F5F0EB"
-          onPress={() => setCurrentWeekMonday(shiftWeek(currentWeekMonday, -1))}
+          size={24}
+          onPress={() => setCurrentWeekMonday((prev) => shiftWeek(prev, -1))}
         />
         <View style={{ alignItems: 'center' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Text variant="labelSmall" style={{ color: '#999' }}>Semana de Producción</Text>
-            {currentWeekMonday === shiftWeek(getMondayOfWeek(todayColombia()), 1) && (
-              <Text variant="labelSmall" style={{ color: '#4CAF50', fontWeight: 'bold' }}>
-                (Próxima Semana)
-              </Text>
-            )}
-            {currentWeekMonday === getMondayOfWeek(todayColombia()) && (
-              <Text variant="labelSmall" style={{ color: '#2196F3', fontWeight: 'bold' }}>
-                (Semana en Curso)
-              </Text>
-            )}
+            <Text variant="titleMedium" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
+              Semana del {formatDate(currentWeekMonday)}
+            </Text>
+            {currentWeekMonday === getMondayOfWeek(todayColombia()) ? (
+              <Chip compact textStyle={{ fontSize: 10, color: '#4CAF50' }} style={{ backgroundColor: '#142016' }}>
+                En Curso
+              </Chip>
+            ) : currentWeekMonday === shiftWeek(getMondayOfWeek(todayColombia()), 1) ? (
+              <Chip compact textStyle={{ fontSize: 10, color: '#2196F3' }} style={{ backgroundColor: '#131E29' }}>
+                Próxima Semana
+              </Chip>
+            ) : null}
           </View>
-          <Text variant="titleMedium" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
-            Semana del {formatDate(currentWeekMonday)}
+          <Text variant="bodySmall" style={{ color: '#999' }}>
+            Plan Maestro de Producción (MPS) & Compras (MRP)
           </Text>
         </View>
         <IconButton
           icon="chevron-right"
-          size={24}
           iconColor="#F5F0EB"
-          onPress={() => setCurrentWeekMonday(shiftWeek(currentWeekMonday, 1))}
+          size={24}
+          onPress={() => setCurrentWeekMonday((prev) => shiftWeek(prev, 1))}
         />
       </View>
 
-      {/* BANNER DE ESTADO Y PROGRESO */}
-      {calcResult && (
+      {/* ESTADO DEL PLAN (CONGELADO VS BORRADOR / RECALCULAR) */}
+      <View
+        style={{
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          backgroundColor: isFrozenPlan ? '#122616' : '#261F12',
+          borderWidth: 1,
+          borderColor: isFrozenPlan ? '#4CAF50' : '#FF9800',
+          borderRadius: 10,
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          marginBottom: 12,
+        }}
+      >
+        <View style={{ flex: 1, paddingRight: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text
+              variant="labelMedium"
+              style={{
+                color: isFrozenPlan ? '#4CAF50' : '#FF9800',
+                fontWeight: 'bold',
+              }}
+            >
+              {isFrozenPlan
+                ? '🟢 Plan Oficial Guardado (Estático / Congelado)'
+                : isDirty
+                ? '💾 Cambios sin guardar en el plan'
+                : '🟡 Proyección en Vivo (Borrador)'}
+            </Text>
+          </View>
+          <Text variant="bodySmall" style={{ color: '#AAA', fontSize: 11 }}>
+            {isFrozenPlan
+              ? 'Volúmenes y cronograma fijos. Tareas y compras son dinámicas en tiempo real.'
+              : isDirty
+              ? 'Has modificado lotes o días. Presiona "Guardar Plan" para congelar.'
+              : 'Calculado según demanda proyectada y stock actual en planta.'}
+          </Text>
+        </View>
+
+        <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+          {isFrozenPlan && (
+            <Button
+              mode="outlined"
+              compact
+              icon="refresh"
+              textColor="#4CAF50"
+              style={{ borderColor: '#4CAF50', borderRadius: 8 }}
+              onPress={handleRecalculateLive}
+            >
+              Recalcular en Vivo
+            </Button>
+          )}
+
+          {(!isFrozenPlan || isDirty) && (
+            <Button
+              mode="contained"
+              compact
+              icon="content-save"
+              buttonColor="#E63946"
+              loading={saving}
+              disabled={saving}
+              style={{ borderRadius: 8 }}
+              onPress={handleSavePlan}
+            >
+              Guardar Plan
+            </Button>
+          )}
+        </View>
+      </View>
+
+      {/* BARRA DE PROGRESO DE TAREAS */}
+      {totalTasksCount > 0 && (
         <View
           style={{
-            backgroundColor: savedPlan ? '#122616' : '#261F12',
-            borderWidth: 1,
-            borderColor: savedPlan ? '#4CAF50' : '#FF9800',
+            backgroundColor: '#1E1E1E',
             borderRadius: 10,
             padding: 10,
-            marginBottom: 10,
+            marginBottom: 12,
+            borderWidth: 1,
+            borderColor: '#333',
           }}
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text variant="labelMedium" style={{ color: savedPlan ? '#4CAF50' : '#FF9800', fontWeight: 'bold' }}>
-                {savedPlan ? '🟢 Plan Oficial Guardado' : '🟡 Proyección en Vivo (Sin Guardar)'}
-              </Text>
-              {savedPlan?.updatedAt && (
-                <Text variant="labelSmall" style={{ color: '#999' }}>
-                  · Act: {formatDate(savedPlan.updatedAt.split('T')[0])}
-                </Text>
-              )}
-            </View>
+            <Text variant="labelMedium" style={{ color: progressPercent === 100 ? '#4CAF50' : '#F5F0EB', fontWeight: 'bold' }}>
+              {progressPercent === 100 ? '✅ ¡Semana 100% Cumplida!' : '📋 Avance de Tareas de Producción'}
+            </Text>
             <Text variant="labelMedium" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
-              {completedTasksCount} de {totalScheduledTasks} tareas ({progressPercent}%)
+              {completedTasksCount} de {totalTasksCount} tareas ({progressPercent}%)
             </Text>
           </View>
 
-          {/* Barra de progreso visual */}
           <View style={{ height: 6, backgroundColor: '#333', borderRadius: 3, overflow: 'hidden' }}>
             <View
               style={{
@@ -454,12 +621,12 @@ export default function PlanificadorSemanalScreen() {
       />
 
       {loading ? (
-        <LoadingIndicator message="Calculando plan maestro de producción..." />
+        <LoadingIndicator message="Cargando plan maestro de producción..." />
       ) : !calcResult ? (
         <EmptyState
           icon="calendar-alert"
           title="Sin datos"
-          subtitle="No fue posible calcular el plan para esta semana."
+          subtitle="No fue posible cargar el plan para esta semana."
         />
       ) : (
         <>
@@ -469,25 +636,27 @@ export default function PlanificadorSemanalScreen() {
           {tab === 'mps' && (
             <View>
               <View style={styles.tabHeaderRow}>
-                <View>
+                <View style={{ flex: 1 }}>
                   <Text variant="titleMedium" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
                     Plan Maestro de Producción (Lotes)
                   </Text>
                   <Text variant="bodySmall" style={{ color: '#999' }}>
-                    Calculado según demanda agregada semanal de locales vs stock en planta
+                    Ajusta los lotes y los días de producción antes de guardar
                   </Text>
                 </View>
-                <Button
-                  mode="contained"
-                  icon="content-save"
-                  buttonColor="#E63946"
-                  loading={saving}
-                  disabled={saving}
-                  onPress={handleSavePlan}
-                  compact
-                >
-                  Guardar Plan
-                </Button>
+                {(!isFrozenPlan || isDirty) && (
+                  <Button
+                    mode="contained"
+                    icon="content-save"
+                    buttonColor="#E63946"
+                    loading={saving}
+                    disabled={saving}
+                    onPress={handleSavePlan}
+                    compact
+                  >
+                    Guardar
+                  </Button>
+                )}
               </View>
 
               {calcResult.plannedRecipes.map((pr) => {
@@ -566,6 +735,82 @@ export default function PlanificadorSemanalScreen() {
                           <Text variant="bodySmall" style={{ color: needsProduction ? '#E63946' : '#4CAF50', fontWeight: 'bold' }}>
                             {pr.targetNetGrams} g
                           </Text>
+                        </View>
+                      </View>
+
+                      {/* SELECTOR DE DÍAS INTERACTIVO */}
+                      <View style={{ marginTop: 10, backgroundColor: '#171717', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: '#2A2A2A' }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <Text variant="labelSmall" style={{ color: '#CCC', fontWeight: '600' }}>
+                            📅 Días Programados de Producción:
+                          </Text>
+                          <Text variant="labelSmall" style={{ color: '#E63946', fontWeight: '600' }}>
+                            {pr.suggestedDays?.length || 0} día(s)
+                          </Text>
+                        </View>
+
+                        <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap' }}>
+                          {WEEK_DAYS_OPTIONS.map((dayObj) => {
+                            const isSelected = pr.suggestedDays?.includes(dayObj.d);
+                            return (
+                              <TouchableOpacity
+                                key={dayObj.d}
+                                onPress={() => handleToggleRecipeDay(pr.recipeId, dayObj.d)}
+                                style={{
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 5,
+                                  borderRadius: 6,
+                                  backgroundColor: isSelected ? '#E63946' : '#222',
+                                  borderWidth: 1,
+                                  borderColor: isSelected ? '#E63946' : '#333',
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    color: isSelected ? '#FFF' : '#888',
+                                    fontSize: 11,
+                                    fontWeight: isSelected ? 'bold' : 'normal',
+                                  }}
+                                >
+                                  {dayObj.label}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
+
+                      {/* AJUSTE MANUAL DE LOTES (+/-) */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+                        <Text variant="labelSmall" style={{ color: '#999' }}>Ajustar Lotes:</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <TouchableOpacity
+                            onPress={() => handleUpdateRecipeBatches(pr.recipeId, -1)}
+                            style={styles.stepperBtn}
+                          >
+                            <Text style={styles.stepperBtnText}>-1</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => handleUpdateRecipeBatches(pr.recipeId, -0.5)}
+                            style={styles.stepperBtn}
+                          >
+                            <Text style={styles.stepperBtnText}>-0.5</Text>
+                          </TouchableOpacity>
+                          <View style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#2A2A2A', borderRadius: 4, minWidth: 44, alignItems: 'center' }}>
+                            <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>{pr.calculatedBatches}</Text>
+                          </View>
+                          <TouchableOpacity
+                            onPress={() => handleUpdateRecipeBatches(pr.recipeId, 0.5)}
+                            style={styles.stepperBtn}
+                          >
+                            <Text style={styles.stepperBtnText}>+0.5</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => handleUpdateRecipeBatches(pr.recipeId, 1)}
+                            style={styles.stepperBtn}
+                          >
+                            <Text style={styles.stepperBtnText}>+1</Text>
+                          </TouchableOpacity>
                         </View>
                       </View>
                     </Card.Content>
@@ -750,26 +995,28 @@ export default function PlanificadorSemanalScreen() {
                     Cronograma de Trabajo Semanal
                   </Text>
                   <Text variant="bodySmall" style={{ color: '#999' }}>
-                    Distribución de recetas según vida útil y demanda de locales
+                    Distribución de recetas por día según los días asignados en Lotes
                   </Text>
                 </View>
-                <Button
-                  mode="outlined"
-                  icon="content-save"
-                  textColor="#E63946"
-                  loading={saving}
-                  disabled={saving}
-                  onPress={handleSavePlan}
-                  compact
-                >
-                  Guardar
-                </Button>
+                {(!isFrozenPlan || isDirty) && (
+                  <Button
+                    mode="contained"
+                    icon="content-save"
+                    buttonColor="#E63946"
+                    loading={saving}
+                    disabled={saving}
+                    onPress={handleSavePlan}
+                    compact
+                  >
+                    Guardar
+                  </Button>
+                )}
               </View>
 
               {calcResult.daySummaries.map((day) => {
                 // Obtener las recetas planeadas para este día
                 const dayRecipes = calcResult.plannedRecipes.filter(
-                  (r) => r.calculatedBatches > 0 && r.suggestedDays.includes(day.dayOfWeek)
+                  (r) => r.calculatedBatches > 0 && r.suggestedDays && r.suggestedDays.includes(day.dayOfWeek)
                 );
 
                 return (
@@ -801,10 +1048,11 @@ export default function PlanificadorSemanalScreen() {
                         dayRecipes.map((r) => {
                           const key = `${r.recipeId}-${day.dayOfWeek}`;
                           const isDone = !!completedItemsMap[key];
-                          const batchesForDay = r.suggestedDays.length > 1
-                            ? (r.calculatedBatches / r.suggestedDays.length).toFixed(1)
+                          const daysCount = r.suggestedDays ? r.suggestedDays.length : 1;
+                          const batchesForDay = daysCount > 1
+                            ? (r.calculatedBatches / daysCount).toFixed(1)
                             : r.calculatedBatches;
-                          const bagsForDay = Math.ceil(r.calculatedBags / r.suggestedDays.length);
+                          const bagsForDay = Math.ceil(r.calculatedBags / daysCount);
 
                           return (
                             <Pressable
@@ -831,7 +1079,7 @@ export default function PlanificadorSemanalScreen() {
                                   {r.recipeName}
                                 </Text>
                                 <Text variant="bodySmall" style={{ color: '#999' }}>
-                                  {batchesForDay} lote(s) · {bagsForDay} bolsa(s) · ~{Math.round(r.totalEstMinutes / r.suggestedDays.length)} min
+                                  {batchesForDay} lote(s) · {bagsForDay} bolsa(s) · ~{Math.round(r.totalEstMinutes / daysCount)} min
                                 </Text>
                               </View>
                             </Pressable>
@@ -901,6 +1149,19 @@ const styles = StyleSheet.create({
   metricItem: {
     flex: 1,
     alignItems: 'center',
+  },
+  stepperBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#333',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#444',
+  },
+  stepperBtnText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '600',
   },
   dayCard: {
     marginBottom: 12,

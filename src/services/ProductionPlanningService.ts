@@ -310,6 +310,139 @@ export class ProductionPlanningService {
   }
 
   /**
+   * Recalcula requerimientos de compras RAW, minutos totales y resumen por días
+   * cuando el usuario modifica manualmente los lotes o días de producción de las recetas.
+   */
+  async recalculateFromCustomPlan(
+    plannedRecipes: PlannedRecipeRequirement[],
+    weekStartDate: string,
+    totalDemandedPortions = 0,
+  ): Promise<WeeklyPlanCalculationResult> {
+    const allStores = await this.storeRepo.getAll();
+    const cpStore = allStores.find((s) => s.isProductionCenter);
+    if (!cpStore) throw new Error('No se encontró Centro de Producción.');
+
+    const [productionRecipes, allSupplies, cpRawStock] = await Promise.all([
+      this.productionRecipeRepo.getActive(),
+      this.supplyRepo.getAll(),
+      this.inventoryRepo.getByStore(cpStore.id, InventoryLevel.RAW),
+    ]);
+
+    const activeSuppliesMap = new Map<string, Supply>(
+      allSupplies.filter((s) => s.isActive !== false).map((s) => [s.id, s])
+    );
+    const cpRawStockMap = new Map<string, number>(
+      cpRawStock.map((item) => [item.supplyId, item.quantityGrams])
+    );
+    const prodRecipeMap = new Map<string, ProductionRecipe>(
+      productionRecipes.map((pr) => [pr.id, pr])
+    );
+
+    let totalEstimatedMinutes = 0;
+    const plannedBatchesPerRecipe = new Map<string, number>();
+
+    const updatedRecipes: PlannedRecipeRequirement[] = plannedRecipes.map((prReq) => {
+      const prodRecipe = prodRecipeMap.get(prReq.recipeId);
+      const batches = Math.max(0, Math.round((Number(prReq.calculatedBatches) || 0) * 10) / 10);
+      const outputBags = prReq.outputBags || prodRecipe?.outputBags || 1;
+      const bags = Math.ceil(batches * outputBags);
+      const prepTime = prReq.prepTimeMinutes || prodRecipe?.prepTimeMinutes || 30;
+      const estMins = Math.round(batches * prepTime);
+      totalEstimatedMinutes += estMins;
+      plannedBatchesPerRecipe.set(prReq.recipeId, batches);
+
+      return {
+        ...prReq,
+        calculatedBatches: batches,
+        calculatedBags: bags,
+        totalEstMinutes: estMins,
+      };
+    });
+
+    // 3. Calcular Requerimientos de Compra de Materia Prima (RAW MRP)
+    const requiredRawGramsMap = new Map<string, number>();
+
+    for (const pr of productionRecipes) {
+      const batches = plannedBatchesPerRecipe.get(pr.id) ?? 0;
+      if (batches <= 0) continue;
+
+      for (const input of pr.inputs) {
+        const rawGrams = input.gramsRequired * batches;
+        requiredRawGramsMap.set(
+          input.supplyId,
+          (requiredRawGramsMap.get(input.supplyId) ?? 0) + rawGrams
+        );
+      }
+    }
+
+    const rawPurchases: RawPurchaseRequirement[] = [];
+
+    for (const [rawSupplyId, requiredGrams] of requiredRawGramsMap.entries()) {
+      const supply = activeSuppliesMap.get(rawSupplyId);
+      if (!supply) continue;
+
+      const currentRawStock = cpRawStockMap.get(rawSupplyId) ?? 0;
+      const toPurchaseGrams = Math.max(0, requiredGrams - currentRawStock);
+      const gpb = supply.gramsPerBag > 0 ? supply.gramsPerBag : 1000;
+      const toPurchaseUnits = toPurchaseGrams > 0 ? Math.ceil(toPurchaseGrams / gpb) : 0;
+
+      rawPurchases.push({
+        supplyId: rawSupplyId,
+        supplyName: supply.name,
+        unit: supply.unit || 'g',
+        requiredGrams: Math.round(requiredGrams),
+        currentRawStockGrams: Math.round(currentRawStock),
+        toPurchaseGrams: Math.round(toPurchaseGrams),
+        toPurchaseUnits,
+        presentationGrams: gpb,
+      });
+    }
+
+    rawPurchases.sort((a, b) => b.toPurchaseGrams - a.toPurchaseGrams);
+
+    // 4. Generar Resumen por Día de la Semana
+    const dayMinutesMap = new Map<number, { minutes: number; count: number }>();
+    for (let day = 0; day <= 6; day++) {
+      dayMinutesMap.set(day, { minutes: 0, count: 0 });
+    }
+
+    for (const item of updatedRecipes) {
+      if (item.calculatedBatches <= 0) continue;
+      const days = item.suggestedDays && item.suggestedDays.length > 0 ? item.suggestedDays : [1];
+      const minsPerDay = Math.round(item.totalEstMinutes / days.length);
+
+      for (const d of days) {
+        const current = dayMinutesMap.get(d) || { minutes: 0, count: 0 };
+        current.minutes += minsPerDay;
+        current.count += 1;
+        dayMinutesMap.set(d, current);
+      }
+    }
+
+    const orderedDays = [1, 2, 3, 4, 5, 6, 0];
+    const daySummaries = orderedDays.map((d) => {
+      const data = dayMinutesMap.get(d) || { minutes: 0, count: 0 };
+      return {
+        dayOfWeek: d,
+        dayName: DAY_NAMES[d] || 'Día',
+        totalMinutes: data.minutes,
+        totalHours: Math.round((data.minutes / 60) * 10) / 10,
+        itemsCount: data.count,
+      };
+    });
+
+    return {
+      weekStartDate,
+      totalDemandedPortions,
+      totalEstimatedMinutes,
+      totalEstimatedHours: Math.round((totalEstimatedMinutes / 60) * 10) / 10,
+      plannedRecipes: updatedRecipes,
+      rawPurchases,
+      daySummaries,
+    };
+  }
+
+  /**
    * Obtiene el plan semanal guardado o nulo.
    */
   async getSavedPlan(storeId: string, weekStartDate: string): Promise<WeeklyProductionPlan | null> {
