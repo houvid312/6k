@@ -68,7 +68,7 @@ export class ProductionPlanningService {
       cpMinimums,
     ] = await Promise.all([
       this.productionRecipeRepo.getActive(),
-      this.supplyRepo.getAll(),
+      this.supplyRepo.getAll(true),
       this.productRepo.getAll(),
       this.inventoryRepo.getByStore(cpStore.id, InventoryLevel.PROCESSED),
       this.inventoryRepo.getByStore(cpStore.id, InventoryLevel.RAW),
@@ -267,7 +267,9 @@ export class ProductionPlanningService {
       const toPurchaseGrams = Math.max(0, requiredGrams - currentRawStock);
       const gpb = supply.gramsPerBag > 0 ? supply.gramsPerBag : 1000;
       const toPurchaseUnits = toPurchaseGrams > 0 ? Math.ceil(toPurchaseGrams / gpb) : 0;
-      const unitCostCop = supply.productionCostCop > 0 ? supply.productionCostCop : (supply.commercialPriceCop || 0);
+      const unitCostCop = supply.productionCostCop > 0
+        ? supply.productionCostCop
+        : (supply.commercialPriceCop > 0 ? supply.commercialPriceCop : (supply.salePriceCop || 0));
       const estimatedCostCop = toPurchaseUnits * unitCostCop;
 
       const dailyMap = rawDailyRequirementsMap.get(rawSupplyId);
@@ -366,7 +368,7 @@ export class ProductionPlanningService {
 
     const [productionRecipes, allSupplies, cpRawStock] = await Promise.all([
       this.productionRecipeRepo.getActive(),
-      this.supplyRepo.getAll(),
+      this.supplyRepo.getAll(true),
       this.inventoryRepo.getByStore(cpStore.id, InventoryLevel.RAW),
     ]);
 
@@ -444,7 +446,9 @@ export class ProductionPlanningService {
       const toPurchaseGrams = Math.max(0, requiredGrams - currentRawStock);
       const gpb = supply.gramsPerBag > 0 ? supply.gramsPerBag : 1000;
       const toPurchaseUnits = toPurchaseGrams > 0 ? Math.ceil(toPurchaseGrams / gpb) : 0;
-      const unitCostCop = supply.productionCostCop > 0 ? supply.productionCostCop : (supply.commercialPriceCop || 0);
+      const unitCostCop = supply.productionCostCop > 0
+        ? supply.productionCostCop
+        : (supply.commercialPriceCop > 0 ? supply.commercialPriceCop : (supply.salePriceCop || 0));
       const estimatedCostCop = toPurchaseUnits * unitCostCop;
 
       const dailyMap = rawDailyRequirementsMap.get(rawSupplyId);
