@@ -9,7 +9,7 @@ import { useDI } from '../../../src/di/providers';
 import { useSnackbar } from '../../../src/hooks';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { CreditEntry, Expense } from '../../../src/domain/entities';
-import { PaymentMethod } from '../../../src/domain/enums';
+import { PaymentMethod, UserRole } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate } from '../../../src/utils/dates';
 
@@ -51,7 +51,7 @@ export default function DebtorDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { creditService, expenseRepo } = useDI();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
-  const { selectedStoreId, stores } = useAppStore();
+  const { selectedStoreId, stores, userRole } = useAppStore();
 
   const [credit, setCredit] = useState<CreditEntry | null>(null);
   const [relatedCredits, setRelatedCredits] = useState<CreditEntry[]>([]);
@@ -391,8 +391,8 @@ export default function DebtorDetailScreen() {
                     </Text>
                   </View>
                   
-                  {/* Actions for CP when status is PENDING */}
-                  {isLocal && isPending && isProduction && (
+                  {/* Actions for CP or GERENTE when status is PENDING */}
+                  {isLocal && isPending && (isProduction || userRole === UserRole.GERENTE) && (
                     <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
                       <Button
                         mode="contained"

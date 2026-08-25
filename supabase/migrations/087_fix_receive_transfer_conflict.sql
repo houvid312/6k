@@ -1,0 +1,181 @@
+-- Migration 087: Prevenir error 23505 duplicate key en receive_transfer_with_billing usando ON CONFLICT
+BEGIN;
+
+CREATE OR REPLACE FUNCTION receive_transfer_with_billing(p_transfer_id UUID)
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_transfer transfers%ROWTYPE;
+  v_item RECORD;
+  v_store_name TEXT;
+  v_current_destination_grams NUMERIC;
+  v_grams_per_bag NUMERIC;
+  v_grams_to_transfer NUMERIC;
+  v_unit_cost NUMERIC(12,2);
+  v_unit_price INTEGER;
+  v_line_cost NUMERIC(12,2);
+  v_line_total INTEGER;
+  v_total_cost NUMERIC(12,2) := 0;
+  v_total_price INTEGER := 0;
+  v_credit_id UUID;
+  v_today DATE := (now() AT TIME ZONE 'America/Bogota')::DATE;
+  v_is_cp BOOLEAN;
+  v_supply_category TEXT;
+  v_from_level inventory_level;
+BEGIN
+  SELECT *
+  INTO v_transfer
+  FROM transfers
+  WHERE id = p_transfer_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Transfer % not found', p_transfer_id;
+  END IF;
+
+  IF v_transfer.status NOT IN ('PENDING', 'IN_TRANSIT') THEN
+    RAISE EXCEPTION 'Transfer % cannot be received in status %', p_transfer_id, v_transfer.status;
+  END IF;
+
+  SELECT name
+  INTO v_store_name
+  FROM stores
+  WHERE id = v_transfer.to_store_id;
+
+  IF v_store_name IS NULL THEN
+    RAISE EXCEPTION 'Destination store % not found', v_transfer.to_store_id;
+  END IF;
+
+  SELECT is_production_center
+  INTO v_is_cp
+  FROM stores
+  WHERE id = v_transfer.from_store_id;
+
+  FOR v_item IN
+    SELECT id, supply_id, bags_to_send
+    FROM transfer_items
+    WHERE transfer_id = p_transfer_id
+    FOR UPDATE
+  LOOP
+    SELECT
+      COALESCE(NULLIF(grams_per_bag, 0), 1),
+      COALESCE(production_cost_cop, 0),
+      CASE
+        WHEN COALESCE(is_billable_to_store, true) THEN COALESCE(commercial_price_cop, 0)
+        ELSE 0
+      END,
+      category
+    INTO v_grams_per_bag, v_unit_cost, v_unit_price, v_supply_category
+    FROM supplies
+    WHERE id = v_item.supply_id;
+
+    IF v_grams_per_bag IS NULL THEN
+      RAISE EXCEPTION 'Supply % not found', v_item.supply_id;
+    END IF;
+
+    v_grams_to_transfer := v_item.bags_to_send * v_grams_per_bag;
+    v_line_cost := ROUND((v_item.bags_to_send * v_unit_cost)::NUMERIC, 2);
+    v_line_total := v_item.bags_to_send * v_unit_price;
+
+    IF COALESCE(v_is_cp, false) THEN
+      IF v_supply_category = 'RAW' THEN
+        v_from_level := 'RAW'::inventory_level;
+      ELSE
+        v_from_level := 'PROCESSED'::inventory_level;
+      END IF;
+    ELSE
+      v_from_level := 'STORE'::inventory_level;
+    END IF;
+
+    SELECT quantity_grams
+    INTO v_current_destination_grams
+    FROM inventory
+    WHERE store_id = v_transfer.to_store_id
+      AND supply_id = v_item.supply_id
+      AND level = 'STORE'::inventory_level;
+
+    v_current_destination_grams := COALESCE(v_current_destination_grams, 0);
+
+    -- Descontar en origen
+    INSERT INTO inventory (store_id, supply_id, level, quantity_grams, last_updated)
+    VALUES (v_transfer.from_store_id, v_item.supply_id, v_from_level, -v_grams_to_transfer, now())
+    ON CONFLICT (supply_id, store_id, level)
+    DO UPDATE SET
+      quantity_grams = inventory.quantity_grams + EXCLUDED.quantity_grams,
+      last_updated = now();
+
+    -- Sumar en destino
+    INSERT INTO inventory (store_id, supply_id, level, quantity_grams, last_updated)
+    VALUES (v_transfer.to_store_id, v_item.supply_id, 'STORE'::inventory_level, v_grams_to_transfer, now())
+    ON CONFLICT (supply_id, store_id, level)
+    DO UPDATE SET
+      quantity_grams = inventory.quantity_grams + EXCLUDED.quantity_grams,
+      last_updated = now();
+
+    UPDATE transfer_items
+    SET
+      current_inventory_grams = v_current_destination_grams,
+      target_grams = v_current_destination_grams + v_grams_to_transfer,
+      grams_per_bag_snapshot = v_grams_per_bag,
+      unit_cost_cop_snapshot = v_unit_cost,
+      unit_price_cop_snapshot = v_unit_price,
+      total_cost_cop_snapshot = v_line_cost,
+      total_price_cop_snapshot = v_line_total
+    WHERE id = v_item.id;
+
+    v_total_cost := v_total_cost + v_line_cost;
+    v_total_price := v_total_price + v_line_total;
+  END LOOP;
+
+  -- Upsert en credit_entries para evitar conflicto de clave duplicada si ya existia
+  INSERT INTO credit_entries (
+    debtor_name,
+    debtor_type,
+    store_id,
+    transfer_id,
+    concept,
+    amount,
+    balance,
+    is_paid,
+    paid_date,
+    date
+  )
+  VALUES (
+    v_store_name,
+    'LOCAL'::debtor_type,
+    v_transfer.to_store_id,
+    p_transfer_id,
+    'Cobro interno traslado ' || right(p_transfer_id::TEXT, 6),
+    v_total_price,
+    v_total_price,
+    v_total_price = 0,
+    CASE WHEN v_total_price = 0 THEN v_today ELSE NULL END,
+    v_today
+  )
+  ON CONFLICT (transfer_id) DO UPDATE SET
+    amount = EXCLUDED.amount,
+    balance = CASE WHEN credit_entries.is_paid THEN 0 ELSE EXCLUDED.amount END,
+    concept = EXCLUDED.concept
+  RETURNING id INTO v_credit_id;
+
+  UPDATE transfers
+  SET
+    status = 'RECEIVED',
+    received_at = now(),
+    shipping_date = v_today,
+    total_cost_cop = v_total_cost,
+    total_price_cop = v_total_price,
+    billed_at = now(),
+    credit_entry_id = v_credit_id
+  WHERE id = p_transfer_id;
+
+  RETURN p_transfer_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION receive_transfer_with_billing(UUID) TO authenticated;
+
+COMMIT;
