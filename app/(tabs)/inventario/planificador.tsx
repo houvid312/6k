@@ -93,6 +93,7 @@ export default function PlanificadorSemanalScreen() {
   const [tab, setTab] = useState<'mps' | 'raw' | 'schedule'>('mps');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [updatingRecipeId, setUpdatingRecipeId] = useState<string | null>(null);
   const [calcResult, setCalcResult] = useState<WeeklyPlanCalculationResult | null>(null);
   const [savedPlan, setSavedPlan] = useState<WeeklyProductionPlan | null>(null);
   const [completedItemsMap, setCompletedItemsMap] = useState<Record<string, boolean>>({});
@@ -182,21 +183,22 @@ export default function PlanificadorSemanalScreen() {
     }
   };
 
-  // Ajustar lotes manualmente
+  // Ajustar lotes manualmente (+/-)
   const handleUpdateRecipeBatches = async (recipeId: string, delta: number) => {
-    if (!calcResult) return;
-    const updatedRecipes = calcResult.plannedRecipes.map((pr) => {
-      if (pr.recipeId === recipeId) {
-        const nextBatches = Math.max(0, Math.round((pr.calculatedBatches + delta) * 10) / 10);
-        return {
-          ...pr,
-          calculatedBatches: nextBatches,
-        };
-      }
-      return pr;
-    });
-
+    if (!calcResult || updatingRecipeId) return;
+    setUpdatingRecipeId(recipeId);
     try {
+      const updatedRecipes = calcResult.plannedRecipes.map((pr) => {
+        if (pr.recipeId === recipeId) {
+          const nextBatches = Math.max(0, Math.round((pr.calculatedBatches + delta) * 10) / 10);
+          return {
+            ...pr,
+            calculatedBatches: nextBatches,
+          };
+        }
+        return pr;
+      });
+
       const recalculated = await productionPlanningService.recalculateFromCustomPlan(
         updatedRecipes,
         currentWeekMonday,
@@ -206,27 +208,103 @@ export default function PlanificadorSemanalScreen() {
       setIsDirty(true);
     } catch (err: any) {
       showError(err?.message || 'Error al recalcular lotes');
+    } finally {
+      setUpdatingRecipeId(null);
+    }
+  };
+
+  // Redondear lotes de una receta a múltiplo de 1 o 2
+  const handleRoundRecipeBatches = async (recipeId: string, multiple: 1 | 2) => {
+    if (!calcResult || updatingRecipeId) return;
+    setUpdatingRecipeId(recipeId);
+    try {
+      const updatedRecipes = calcResult.plannedRecipes.map((pr) => {
+        if (pr.recipeId === recipeId && pr.calculatedBatches > 0) {
+          let nextBatches = pr.calculatedBatches;
+          if (multiple === 1) {
+            nextBatches = Math.ceil(pr.calculatedBatches);
+          } else if (multiple === 2) {
+            nextBatches = Math.ceil(pr.calculatedBatches / 2) * 2;
+            if (nextBatches === 0 && pr.calculatedBatches > 0) nextBatches = 2;
+          }
+          return {
+            ...pr,
+            calculatedBatches: nextBatches,
+          };
+        }
+        return pr;
+      });
+
+      const recalculated = await productionPlanningService.recalculateFromCustomPlan(
+        updatedRecipes,
+        currentWeekMonday,
+        calcResult.totalDemandedPortions,
+      );
+      setCalcResult(recalculated);
+      setIsDirty(true);
+    } catch (err: any) {
+      showError(err?.message || 'Error al redondear lotes');
+    } finally {
+      setUpdatingRecipeId(null);
+    }
+  };
+
+  // Redondear todas las recetas activas a múltiplo de 1 o 2
+  const handleRoundAllBatches = async (multiple: 1 | 2) => {
+    if (!calcResult || loading) return;
+    setLoading(true);
+    try {
+      const updatedRecipes = calcResult.plannedRecipes.map((pr) => {
+        if (pr.calculatedBatches > 0) {
+          let nextBatches = pr.calculatedBatches;
+          if (multiple === 1) {
+            nextBatches = Math.ceil(pr.calculatedBatches);
+          } else if (multiple === 2) {
+            nextBatches = Math.ceil(pr.calculatedBatches / 2) * 2;
+            if (nextBatches === 0 && pr.calculatedBatches > 0) nextBatches = 2;
+          }
+          return {
+            ...pr,
+            calculatedBatches: nextBatches,
+          };
+        }
+        return pr;
+      });
+
+      const recalculated = await productionPlanningService.recalculateFromCustomPlan(
+        updatedRecipes,
+        currentWeekMonday,
+        calcResult.totalDemandedPortions,
+      );
+      setCalcResult(recalculated);
+      setIsDirty(true);
+      showSuccess(`Todos los lotes redondeados al múltiplo de ${multiple} superior.`);
+    } catch (err: any) {
+      showError(err?.message || 'Error al redondear');
+    } finally {
+      setLoading(false);
     }
   };
 
   // Alternar días de producción para una receta
   const handleToggleRecipeDay = async (recipeId: string, dayNum: number) => {
-    if (!calcResult) return;
-    const updatedRecipes = calcResult.plannedRecipes.map((pr) => {
-      if (pr.recipeId === recipeId) {
-        const days = pr.suggestedDays || [];
-        const exists = days.includes(dayNum);
-        let nextDays = exists ? days.filter((d) => d !== dayNum) : [...days, dayNum];
-        if (nextDays.length === 0) nextDays = [dayNum]; // Mantener al menos 1 día
-        return {
-          ...pr,
-          suggestedDays: nextDays.sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b)),
-        };
-      }
-      return pr;
-    });
-
+    if (!calcResult || updatingRecipeId) return;
+    setUpdatingRecipeId(recipeId);
     try {
+      const updatedRecipes = calcResult.plannedRecipes.map((pr) => {
+        if (pr.recipeId === recipeId) {
+          const days = pr.suggestedDays || [];
+          const exists = days.includes(dayNum);
+          let nextDays = exists ? days.filter((d) => d !== dayNum) : [...days, dayNum];
+          if (nextDays.length === 0) nextDays = [dayNum]; // Mantener al menos 1 día
+          return {
+            ...pr,
+            suggestedDays: nextDays.sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b)),
+          };
+        }
+        return pr;
+      });
+
       const recalculated = await productionPlanningService.recalculateFromCustomPlan(
         updatedRecipes,
         currentWeekMonday,
@@ -236,6 +314,8 @@ export default function PlanificadorSemanalScreen() {
       setIsDirty(true);
     } catch (err: any) {
       showError(err?.message || 'Error al actualizar cronograma');
+    } finally {
+      setUpdatingRecipeId(null);
     }
   };
 
@@ -681,8 +761,31 @@ export default function PlanificadorSemanalScreen() {
                 )}
               </View>
 
+              {/* BOTONES DE REDONDEO GLOBAL */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+                <Text variant="labelSmall" style={{ color: '#888', marginRight: 2 }}>
+                  Redondeo Rápido:
+                </Text>
+                <TouchableOpacity
+                  onPress={() => handleRoundAllBatches(1)}
+                  disabled={updatingRecipeId !== null}
+                  style={styles.roundAllBtn}
+                >
+                  <Text style={styles.roundAllBtnText}>⬆️ Todos a 1 (Enteros)</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => handleRoundAllBatches(2)}
+                  disabled={updatingRecipeId !== null}
+                  style={styles.roundAllBtn}
+                >
+                  <Text style={styles.roundAllBtnText}>⬆️ Todos a 2 (Pares)</Text>
+                </TouchableOpacity>
+              </View>
+
               {calcResult.plannedRecipes.map((pr) => {
                 const needsProduction = pr.calculatedBatches > 0;
+                const isUpdatingThis = updatingRecipeId === pr.recipeId;
+
                 return (
                   <Card
                     key={pr.recipeId}
@@ -698,9 +801,14 @@ export default function PlanificadorSemanalScreen() {
                     <Card.Content>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                         <View style={{ flex: 1, paddingRight: 8 }}>
-                          <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
-                            {pr.recipeName}
-                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
+                              {pr.recipeName}
+                            </Text>
+                            {isUpdatingThis && (
+                              <ActivityIndicator size={14} color="#E63946" />
+                            )}
+                          </View>
                           <Text variant="bodySmall" style={{ color: '#999' }}>
                             Insumo: {pr.supplyName} · Lote: {pr.outputGrams}g ({pr.outputBags} bolsa/s)
                           </Text>
@@ -778,6 +886,7 @@ export default function PlanificadorSemanalScreen() {
                               <TouchableOpacity
                                 key={dayObj.d}
                                 onPress={() => handleToggleRecipeDay(pr.recipeId, dayObj.d)}
+                                disabled={isUpdatingThis}
                                 style={{
                                   paddingHorizontal: 8,
                                   paddingVertical: 5,
@@ -785,6 +894,7 @@ export default function PlanificadorSemanalScreen() {
                                   backgroundColor: isSelected ? '#E63946' : '#222',
                                   borderWidth: 1,
                                   borderColor: isSelected ? '#E63946' : '#333',
+                                  opacity: isUpdatingThis ? 0.6 : 1,
                                 }}
                               >
                                 <Text
@@ -802,19 +912,38 @@ export default function PlanificadorSemanalScreen() {
                         </View>
                       </View>
 
-                      {/* AJUSTE MANUAL DE LOTES (+/-) */}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-                        <Text variant="labelSmall" style={{ color: '#999' }}>Ajustar Lotes:</Text>
+                      {/* CONTROLES DE AJUSTE MANUAL Y REDONDEO */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, flexWrap: 'wrap', gap: 6 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <Text variant="labelSmall" style={{ color: '#888' }}>Redondear:</Text>
+                          <TouchableOpacity
+                            onPress={() => handleRoundRecipeBatches(pr.recipeId, 1)}
+                            disabled={isUpdatingThis}
+                            style={[styles.roundMiniBtn, isUpdatingThis && { opacity: 0.5 }]}
+                          >
+                            <Text style={styles.roundMiniBtnText}>A 1</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => handleRoundRecipeBatches(pr.recipeId, 2)}
+                            disabled={isUpdatingThis}
+                            style={[styles.roundMiniBtn, isUpdatingThis && { opacity: 0.5 }]}
+                          >
+                            <Text style={styles.roundMiniBtnText}>A 2</Text>
+                          </TouchableOpacity>
+                        </View>
+
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                           <TouchableOpacity
                             onPress={() => handleUpdateRecipeBatches(pr.recipeId, -1)}
-                            style={styles.stepperBtn}
+                            disabled={isUpdatingThis}
+                            style={[styles.stepperBtn, isUpdatingThis && { opacity: 0.5 }]}
                           >
                             <Text style={styles.stepperBtnText}>-1</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             onPress={() => handleUpdateRecipeBatches(pr.recipeId, -0.5)}
-                            style={styles.stepperBtn}
+                            disabled={isUpdatingThis}
+                            style={[styles.stepperBtn, isUpdatingThis && { opacity: 0.5 }]}
                           >
                             <Text style={styles.stepperBtnText}>-0.5</Text>
                           </TouchableOpacity>
@@ -823,13 +952,15 @@ export default function PlanificadorSemanalScreen() {
                           </View>
                           <TouchableOpacity
                             onPress={() => handleUpdateRecipeBatches(pr.recipeId, 0.5)}
-                            style={styles.stepperBtn}
+                            disabled={isUpdatingThis}
+                            style={[styles.stepperBtn, isUpdatingThis && { opacity: 0.5 }]}
                           >
                             <Text style={styles.stepperBtnText}>+0.5</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
                             onPress={() => handleUpdateRecipeBatches(pr.recipeId, 1)}
-                            style={styles.stepperBtn}
+                            disabled={isUpdatingThis}
+                            style={[styles.stepperBtn, isUpdatingThis && { opacity: 0.5 }]}
                           >
                             <Text style={styles.stepperBtnText}>+1</Text>
                           </TouchableOpacity>
@@ -1308,6 +1439,32 @@ const styles = StyleSheet.create({
   },
   stepperBtnText: {
     color: '#FFF',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  roundMiniBtn: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    backgroundColor: '#262626',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#3D3D3D',
+  },
+  roundMiniBtnText: {
+    color: '#4CAF50',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  roundAllBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#1A2A1A',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+  },
+  roundAllBtnText: {
+    color: '#4CAF50',
     fontSize: 11,
     fontWeight: '600',
   },
