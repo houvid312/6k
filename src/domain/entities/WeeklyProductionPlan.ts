@@ -55,6 +55,8 @@ export interface RawPurchaseRequirement {
   toPurchaseGrams: number;
   toPurchaseUnits: number;
   presentationGrams: number;
+  requiredDays?: number[]; // Días de la semana en que se requiere este insumo crudo (ej. [1, 4])
+  dailyRequirements?: Record<number, number>; // dayOfWeek -> gramos requeridos ese día
 }
 
 export interface WeeklyPlanCalculationResult {

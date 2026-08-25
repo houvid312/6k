@@ -223,12 +223,19 @@ export class ProductionPlanningService {
       });
     }
 
-    // 3. Calcular Requerimientos de Compra de Materia Prima (RAW MRP)
+    // 3. Calcular Requerimientos de Compra de Materia Prima (RAW MRP con distribución por días)
     const requiredRawGramsMap = new Map<string, number>();
+    const rawDailyRequirementsMap = new Map<string, Map<number, number>>();
 
     for (const pr of productionRecipes) {
       const batches = plannedBatchesPerRecipe.get(pr.id) ?? 0;
       if (batches <= 0) continue;
+
+      const recipeReq = plannedRecipes.find((r) => r.recipeId === pr.id);
+      const days = recipeReq?.suggestedDays && recipeReq.suggestedDays.length > 0
+        ? recipeReq.suggestedDays
+        : [1];
+      const batchesPerDay = batches / days.length;
 
       for (const input of pr.inputs) {
         const rawGrams = input.gramsRequired * batches;
@@ -236,6 +243,16 @@ export class ProductionPlanningService {
           input.supplyId,
           (requiredRawGramsMap.get(input.supplyId) ?? 0) + rawGrams
         );
+
+        if (!rawDailyRequirementsMap.has(input.supplyId)) {
+          rawDailyRequirementsMap.set(input.supplyId, new Map<number, number>());
+        }
+        const dailyMap = rawDailyRequirementsMap.get(input.supplyId)!;
+
+        for (const d of days) {
+          const gramsOnDay = input.gramsRequired * batchesPerDay;
+          dailyMap.set(d, (dailyMap.get(d) ?? 0) + gramsOnDay);
+        }
       }
     }
 
@@ -250,6 +267,20 @@ export class ProductionPlanningService {
       const gpb = supply.gramsPerBag > 0 ? supply.gramsPerBag : 1000;
       const toPurchaseUnits = toPurchaseGrams > 0 ? Math.ceil(toPurchaseGrams / gpb) : 0;
 
+      const dailyMap = rawDailyRequirementsMap.get(rawSupplyId);
+      const dailyReqs: Record<number, number> = {};
+      const reqDays: number[] = [];
+
+      if (dailyMap) {
+        for (const [d, g] of dailyMap.entries()) {
+          if (g > 0) {
+            dailyReqs[d] = Math.round(g);
+            reqDays.push(d);
+          }
+        }
+      }
+      reqDays.sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b));
+
       rawPurchases.push({
         supplyId: rawSupplyId,
         supplyName: supply.name,
@@ -259,6 +290,8 @@ export class ProductionPlanningService {
         toPurchaseGrams: Math.round(toPurchaseGrams),
         toPurchaseUnits,
         presentationGrams: gpb,
+        requiredDays: reqDays,
+        dailyRequirements: dailyReqs,
       });
     }
 
@@ -359,12 +392,19 @@ export class ProductionPlanningService {
       };
     });
 
-    // 3. Calcular Requerimientos de Compra de Materia Prima (RAW MRP)
+    // 3. Calcular Requerimientos de Compra de Materia Prima (RAW MRP con distribución por días)
     const requiredRawGramsMap = new Map<string, number>();
+    const rawDailyRequirementsMap = new Map<string, Map<number, number>>();
 
     for (const pr of productionRecipes) {
       const batches = plannedBatchesPerRecipe.get(pr.id) ?? 0;
       if (batches <= 0) continue;
+
+      const recipeReq = updatedRecipes.find((r) => r.recipeId === pr.id);
+      const days = recipeReq?.suggestedDays && recipeReq.suggestedDays.length > 0
+        ? recipeReq.suggestedDays
+        : [1];
+      const batchesPerDay = batches / days.length;
 
       for (const input of pr.inputs) {
         const rawGrams = input.gramsRequired * batches;
@@ -372,6 +412,16 @@ export class ProductionPlanningService {
           input.supplyId,
           (requiredRawGramsMap.get(input.supplyId) ?? 0) + rawGrams
         );
+
+        if (!rawDailyRequirementsMap.has(input.supplyId)) {
+          rawDailyRequirementsMap.set(input.supplyId, new Map<number, number>());
+        }
+        const dailyMap = rawDailyRequirementsMap.get(input.supplyId)!;
+
+        for (const d of days) {
+          const gramsOnDay = input.gramsRequired * batchesPerDay;
+          dailyMap.set(d, (dailyMap.get(d) ?? 0) + gramsOnDay);
+        }
       }
     }
 
@@ -386,6 +436,20 @@ export class ProductionPlanningService {
       const gpb = supply.gramsPerBag > 0 ? supply.gramsPerBag : 1000;
       const toPurchaseUnits = toPurchaseGrams > 0 ? Math.ceil(toPurchaseGrams / gpb) : 0;
 
+      const dailyMap = rawDailyRequirementsMap.get(rawSupplyId);
+      const dailyReqs: Record<number, number> = {};
+      const reqDays: number[] = [];
+
+      if (dailyMap) {
+        for (const [d, g] of dailyMap.entries()) {
+          if (g > 0) {
+            dailyReqs[d] = Math.round(g);
+            reqDays.push(d);
+          }
+        }
+      }
+      reqDays.sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b));
+
       rawPurchases.push({
         supplyId: rawSupplyId,
         supplyName: supply.name,
@@ -395,6 +459,8 @@ export class ProductionPlanningService {
         toPurchaseGrams: Math.round(toPurchaseGrams),
         toPurchaseUnits,
         presentationGrams: gpb,
+        requiredDays: reqDays,
+        dailyRequirements: dailyReqs,
       });
     }
 

@@ -97,6 +97,7 @@ export default function PlanificadorSemanalScreen() {
   const [savedPlan, setSavedPlan] = useState<WeeklyProductionPlan | null>(null);
   const [completedItemsMap, setCompletedItemsMap] = useState<Record<string, boolean>>({});
   const [completedPurchasesMap, setCompletedPurchasesMap] = useState<Record<string, boolean>>({});
+  const [purchasesDayFilter, setPurchasesDayFilter] = useState<number | null>(null); // null = Toda la semana
   const [isDirty, setIsDirty] = useState(false);
 
   const isFrozenPlan = useMemo(() => {
@@ -363,32 +364,55 @@ export default function PlanificadorSemanalScreen() {
     }
   };
 
-  // Copiar lista de compras para WhatsApp
+  // Filtrado dinámico de compras según el día seleccionado
+  const filteredRawPurchases = useMemo(() => {
+    if (!calcResult) return [];
+    if (purchasesDayFilter === null) return calcResult.rawPurchases;
+
+    return calcResult.rawPurchases.filter((p) => {
+      const g = p.dailyRequirements ? p.dailyRequirements[purchasesDayFilter] : 0;
+      return g && g > 0;
+    });
+  }, [calcResult, purchasesDayFilter]);
+
+  // Copiar lista de compras para WhatsApp (Semana o Día específico)
   const handleCopyPurchaseList = () => {
-    if (!calcResult || calcResult.rawPurchases.length === 0) {
+    if (!calcResult || filteredRawPurchases.length === 0) {
       showError('No hay compras calculadas');
       return;
     }
 
-    const purchasesToBuy = calcResult.rawPurchases.filter((p) => p.toPurchaseGrams > 0);
+    const purchasesToBuy = filteredRawPurchases.filter((p) => p.toPurchaseGrams > 0);
     if (purchasesToBuy.length === 0) {
-      showSuccess('¡No hay compras pendientes! El stock actual es suficiente.');
+      showSuccess('¡No hay compras pendientes para esta selección!');
       return;
     }
 
     const lines: string[] = [];
-    lines.push(`🛒 *PEDIDO DE MATERIA PRIMA (RAW)*`);
-    lines.push(`📅 Semana: ${formatDate(currentWeekMonday)}`);
+    if (purchasesDayFilter !== null) {
+      lines.push(`🛒 *PEDIDO DE MATERIA PRIMA (Producción ${DAY_LABELS[purchasesDayFilter]} - Semana ${formatDate(currentWeekMonday)})*`);
+    } else {
+      lines.push(`🛒 *PEDIDO DE MATERIA PRIMA (Semana ${formatDate(currentWeekMonday)})*`);
+    }
     lines.push(``);
 
-    purchasesToBuy.forEach((p, idx) => {
+    purchasesToBuy.forEach((p) => {
       const isDone = !!completedPurchasesMap[p.supplyId];
       const check = isDone ? '✅' : '⬜';
-      const cantFormatted = p.toPurchaseGrams >= 1000
-        ? `${(p.toPurchaseGrams / 1000).toFixed(1)} kg`
-        : `${p.toPurchaseGrams} g`;
+      
+      let cantFormatted = '';
+      if (purchasesDayFilter !== null && p.dailyRequirements && p.dailyRequirements[purchasesDayFilter]) {
+        const gramsForDay = p.dailyRequirements[purchasesDayFilter];
+        const unitsForDay = Math.ceil(gramsForDay / (p.presentationGrams || 1000));
+        cantFormatted = `${unitsForDay} unid. (~${gramsForDay >= 1000 ? (gramsForDay / 1000).toFixed(1) + ' kg' : gramsForDay + ' g'})`;
+      } else {
+        const totalFormatted = p.toPurchaseGrams >= 1000
+          ? `${(p.toPurchaseGrams / 1000).toFixed(1)} kg`
+          : `${p.toPurchaseGrams} g`;
+        cantFormatted = `${p.toPurchaseUnits} unid. (${totalFormatted})`;
+      }
 
-      lines.push(`${check} *${p.supplyName}*: ${p.toPurchaseUnits} unid. (${cantFormatted})`);
+      lines.push(`${check} *${p.supplyName}*: ${cantFormatted}`);
     });
 
     lines.push(``);
@@ -419,14 +443,12 @@ export default function PlanificadorSemanalScreen() {
   const progressPercent = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : 0;
 
   const totalPurchasesCount = useMemo(() => {
-    if (!calcResult) return 0;
-    return calcResult.rawPurchases.filter((p) => p.toPurchaseGrams > 0).length;
-  }, [calcResult]);
+    return filteredRawPurchases.filter((p) => p.toPurchaseGrams > 0).length;
+  }, [filteredRawPurchases]);
 
   const completedPurchasesCount = useMemo(() => {
-    if (!calcResult) return 0;
-    return calcResult.rawPurchases.filter((p) => p.toPurchaseGrams > 0 && completedPurchasesMap[p.supplyId]).length;
-  }, [calcResult, completedPurchasesMap]);
+    return filteredRawPurchases.filter((p) => p.toPurchaseGrams > 0 && completedPurchasesMap[p.supplyId]).length;
+  }, [filteredRawPurchases, completedPurchasesMap]);
 
   const purchasesPercent = totalPurchasesCount > 0 ? Math.round((completedPurchasesCount / totalPurchasesCount) * 100) : 0;
 
@@ -821,17 +843,19 @@ export default function PlanificadorSemanalScreen() {
           )}
 
           {/* ========================================================= */}
-          {/* PESTAÑA 2: COMPRAS DE MATERIA PRIMA (RAW) */}
+          {/* PESTAÑA 2: COMPRAS DE MATERIA PRIMA (RAW - TIME PHASED MRP) */}
           {/* ========================================================= */}
           {tab === 'raw' && (
             <View>
               <View style={styles.tabHeaderRow}>
-                <View>
+                <View style={{ flex: 1 }}>
                   <Text variant="titleMedium" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
                     Requerimientos de Compra (Materia Prima)
                   </Text>
                   <Text variant="bodySmall" style={{ color: '#999' }}>
-                    Insumos crudos necesarios para fabricar los lotes planeados
+                    {purchasesDayFilter !== null
+                      ? `Insumos requeridos para la producción del ${DAY_LABELS[purchasesDayFilter]}`
+                      : 'Insumos crudos necesarios para fabricar toda la producción semanal'}
                   </Text>
                 </View>
                 <Button
@@ -842,8 +866,93 @@ export default function PlanificadorSemanalScreen() {
                   onPress={handleCopyPurchaseList}
                   compact
                 >
-                  Copiar Pedido
+                  {purchasesDayFilter !== null ? `Copiar Pedido (${DAY_LABELS[purchasesDayFilter]})` : 'Copiar Pedido'}
                 </Button>
+              </View>
+
+              {/* SELECTOR DE DÍAS PARA COMPRAS (TIME-PHASED MRP) */}
+              <View style={{ marginBottom: 12 }}>
+                <Text variant="labelSmall" style={{ color: '#999', marginBottom: 6 }}>
+                  Filtrar compras por día de producción:
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
+                  <TouchableOpacity
+                    onPress={() => setPurchasesDayFilter(null)}
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: 8,
+                      backgroundColor: purchasesDayFilter === null ? '#E63946' : '#222',
+                      borderWidth: 1,
+                      borderColor: purchasesDayFilter === null ? '#E63946' : '#333',
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: purchasesDayFilter === null ? '#FFF' : '#AAA',
+                        fontSize: 11,
+                        fontWeight: purchasesDayFilter === null ? 'bold' : 'normal',
+                      }}
+                    >
+                      📦 Toda la Semana
+                    </Text>
+                  </TouchableOpacity>
+
+                  {WEEK_DAYS_OPTIONS.map((dayObj) => {
+                    const isSelected = purchasesDayFilter === dayObj.d;
+                    const itemsOnDay = calcResult.rawPurchases.filter(
+                      (p) => p.dailyRequirements && (p.dailyRequirements[dayObj.d] ?? 0) > 0
+                    ).length;
+
+                    return (
+                      <TouchableOpacity
+                        key={dayObj.d}
+                        onPress={() => setPurchasesDayFilter(dayObj.d)}
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 6,
+                          borderRadius: 8,
+                          backgroundColor: isSelected ? '#E63946' : '#222',
+                          borderWidth: 1,
+                          borderColor: isSelected ? '#E63946' : '#333',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 5,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: isSelected ? '#FFF' : '#AAA',
+                            fontSize: 11,
+                            fontWeight: isSelected ? 'bold' : 'normal',
+                          }}
+                        >
+                          {dayObj.label}
+                        </Text>
+                        {itemsOnDay > 0 && (
+                          <View
+                            style={{
+                              backgroundColor: isSelected ? 'rgba(0,0,0,0.35)' : '#333',
+                              borderRadius: 10,
+                              paddingHorizontal: 5,
+                              paddingVertical: 1,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: isSelected ? '#FFF' : '#4CAF50',
+                                fontSize: 9,
+                                fontWeight: 'bold',
+                              }}
+                            >
+                              {itemsOnDay}
+                            </Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
               </View>
 
               {/* Barra de progreso de compras */}
@@ -859,7 +968,11 @@ export default function PlanificadorSemanalScreen() {
               >
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                   <Text variant="labelMedium" style={{ color: purchasesPercent === 100 ? '#4CAF50' : '#FF9800', fontWeight: 'bold' }}>
-                    {purchasesPercent === 100 ? '✅ ¡Todas las compras completadas!' : '🛒 Avance de Compras Semanales'}
+                    {purchasesPercent === 100
+                      ? '✅ ¡Todas las compras completadas!'
+                      : purchasesDayFilter !== null
+                      ? `🛒 Compras para Producción del ${DAY_LABELS[purchasesDayFilter]}`
+                      : '🛒 Avance de Compras Semanales'}
                   </Text>
                   <Text variant="labelMedium" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
                     {completedPurchasesCount} de {totalPurchasesCount} comprados ({purchasesPercent}%)
@@ -877,16 +990,21 @@ export default function PlanificadorSemanalScreen() {
                 </View>
               </View>
 
-              {calcResult.rawPurchases.length === 0 ? (
+              {filteredRawPurchases.length === 0 ? (
                 <EmptyState
                   icon="check-circle"
-                  title="Stock Suficiente"
-                  subtitle="Hay suficiente materia prima en bodega para toda la producción semanal."
+                  title="Sin Compras para este Día"
+                  subtitle="No se requieren materias primas para la jornada seleccionada o el stock actual es suficiente."
                 />
               ) : (
-                calcResult.rawPurchases.map((raw) => {
+                filteredRawPurchases.map((raw) => {
                   const toBuy = raw.toPurchaseGrams > 0;
                   const isDone = !!completedPurchasesMap[raw.supplyId];
+
+                  // Si hay filtro de día, mostrar la necesidad de ese día
+                  const gramsOnFilterDay = purchasesDayFilter !== null && raw.dailyRequirements
+                    ? raw.dailyRequirements[purchasesDayFilter] || 0
+                    : null;
 
                   return (
                     <Card
@@ -927,6 +1045,34 @@ export default function PlanificadorSemanalScreen() {
                               <Text variant="bodySmall" style={{ color: '#999' }}>
                                 Presentación: {raw.presentationGrams}g por bolsa/unidad
                               </Text>
+
+                              {/* Badges de días en que se usa */}
+                              {raw.requiredDays && raw.requiredDays.length > 0 && (
+                                <View style={{ flexDirection: 'row', gap: 4, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                                  <Text variant="labelSmall" style={{ color: '#777', fontSize: 10 }}>Usado en:</Text>
+                                  {raw.requiredDays.map((d) => (
+                                    <View
+                                      key={d}
+                                      style={{
+                                        backgroundColor: purchasesDayFilter === d ? '#E63946' : '#2A2A2A',
+                                        paddingHorizontal: 6,
+                                        paddingVertical: 1,
+                                        borderRadius: 4,
+                                      }}
+                                    >
+                                      <Text
+                                        style={{
+                                          color: purchasesDayFilter === d ? '#FFF' : '#AAA',
+                                          fontSize: 9,
+                                          fontWeight: purchasesDayFilter === d ? 'bold' : '600',
+                                        }}
+                                      >
+                                        {DAY_LABELS[d] || 'Día'}
+                                      </Text>
+                                    </View>
+                                  ))}
+                                </View>
+                              )}
                             </Pressable>
                           </View>
 
@@ -952,9 +1098,11 @@ export default function PlanificadorSemanalScreen() {
 
                         <View style={styles.metricsGrid}>
                           <View style={styles.metricItem}>
-                            <Text variant="labelSmall" style={{ color: '#999' }}>Requerido Lotes:</Text>
-                            <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
-                              {raw.requiredGrams} g
+                            <Text variant="labelSmall" style={{ color: '#999' }}>
+                              {gramsOnFilterDay !== null ? `Uso el ${DAY_LABELS[purchasesDayFilter!]}:` : 'Requerido Semana:'}
+                            </Text>
+                            <Text variant="bodySmall" style={{ color: '#F5F0EB', fontWeight: 'bold' }}>
+                              {gramsOnFilterDay !== null ? `${gramsOnFilterDay} g` : `${raw.requiredGrams} g`}
                             </Text>
                           </View>
                           <View style={styles.metricItem}>
@@ -964,7 +1112,7 @@ export default function PlanificadorSemanalScreen() {
                             </Text>
                           </View>
                           <View style={styles.metricItem}>
-                            <Text variant="labelSmall" style={{ color: '#999' }}>A Comprar:</Text>
+                            <Text variant="labelSmall" style={{ color: '#999' }}>A Comprar Total:</Text>
                             <Text
                               variant="bodySmall"
                               style={{
