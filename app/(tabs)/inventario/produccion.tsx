@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Card, Text, TextInput, Button, Divider, Portal, Snackbar, useTheme } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
-import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { LoadingIndicator } from '../../../src/components/common/LoadingIndicator';
 import { EmptyState } from '../../../src/components/common/EmptyState';
 import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
@@ -22,9 +22,12 @@ interface RecipeEntry {
 export default function ProduccionScreen() {
   const theme = useTheme();
   const { productionService } = useDI();
-  const { selectedStoreId } = useAppStore();
+  const { selectedStoreId, stores } = useAppStore();
   const { workers: cachedWorkers } = useMasterDataStore();
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
+
+  const cpStore = useMemo(() => stores.find((s) => s.isProductionCenter), [stores]);
+  const targetStoreId = cpStore ? cpStore.id : selectedStoreId;
 
   const workers = cachedWorkers.filter((w) => w.isActive);
   const [selectedWorkerId, setSelectedWorkerId] = useState<string>('');
@@ -94,8 +97,8 @@ export default function ProduccionScreen() {
       showError('Selecciona un trabajador');
       return;
     }
-    if (!selectedStoreId) {
-      showError('Selecciona un local');
+    if (!targetStoreId) {
+      showError('No se encontró el Centro de Producción');
       return;
     }
 
@@ -126,7 +129,7 @@ export default function ProduccionScreen() {
         const note = isBags ? `Producción: ${bags} bolsas (${batches} lotes)` : `${batches} lotes`;
         
         await productionService.registerProduction(
-          selectedStoreId,
+          targetStoreId,
           selectedWorkerId,
           entry.recipe.id,
           batches,
@@ -143,7 +146,7 @@ export default function ProduccionScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [selectedWorkerId, selectedStoreId, entries, productionService, showSuccess, showError]);
+  }, [selectedWorkerId, targetStoreId, entries, productionService, showSuccess, showError]);
 
   if (loading) {
     return <LoadingIndicator message="Cargando recetas de produccion..." />;
@@ -151,7 +154,17 @@ export default function ProduccionScreen() {
 
   return (
     <ScreenContainer scrollable padded>
-      <StoreSelector />
+      <View style={{ backgroundColor: '#142016', borderRadius: 8, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: '#2E7D32', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <MaterialCommunityIcons name="factory" size={20} color="#4CAF50" />
+        <View style={{ flex: 1 }}>
+          <Text variant="labelMedium" style={{ color: '#4CAF50', fontWeight: 'bold' }}>
+            {cpStore?.name || 'Centro de Producción'}
+          </Text>
+          <Text variant="bodySmall" style={{ color: '#AAA', fontSize: 11 }}>
+            La producción registrada ingresa directamente al inventario PROCESADO de la planta.
+          </Text>
+        </View>
+      </View>
 
       <Text variant="titleMedium" style={[styles.title, { color: theme.colors.onBackground }]}>
         Registro de Produccion
