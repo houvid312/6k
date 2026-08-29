@@ -243,6 +243,7 @@ export default function ProductosScreen() {
         });
       });
 
+      grouped.sort((a, b) => a.name.localeCompare(b.name));
       setAdditionsList(grouped);
     } catch {
       showError('Error cargando catálogo de adiciones');
