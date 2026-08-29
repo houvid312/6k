@@ -668,11 +668,28 @@ export default function VentasScreen() {
     setAvailableAdditions([]);
     setSelectedAdditions([]);
     if (!selectedFormatId) return;
-    additionCatalogRepo
-      .getByFormatId(selectedFormatId)
-      .then(setAvailableAdditions)
-      .catch((err) => console.error('Error cargando adiciones:', err));
-  }, [selectedFormatId, additionCatalogRepo]);
+    (async () => {
+      try {
+        let adds = await additionCatalogRepo.getByFormatId(selectedFormatId);
+        if (adds.length === 0 && selectedProductId) {
+          // Fallback en caso de formatos nuevos o no catalogados directamente
+          const otherFormats = formatsByProductId[selectedProductId] ?? [];
+          for (const ofmt of otherFormats) {
+            if (ofmt.id !== selectedFormatId) {
+              const fallbackAdds = await additionCatalogRepo.getByFormatId(ofmt.id);
+              if (fallbackAdds.length > 0) {
+                adds = fallbackAdds.map((a) => ({ ...a, formatId: selectedFormatId }));
+                break;
+              }
+            }
+          }
+        }
+        setAvailableAdditions(adds);
+      } catch (err) {
+        console.error('Error cargando adiciones:', err);
+      }
+    })();
+  }, [selectedFormatId, selectedProductId, formatsByProductId, additionCatalogRepo]);
 
   const handleToggleAddition = useCallback((addition: AdditionCatalogItem) => {
     setSelectedAdditions((prev) => {
