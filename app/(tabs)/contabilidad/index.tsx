@@ -1317,12 +1317,17 @@ export default function ContabilidadScreen() {
       await cashAuditRepo.upsert(entry);
       setAuditModalVisible(false);
       loadData();
-    } catch (error) {
-      setAuditError(
-        error instanceof Error
-          ? error.message
-          : 'No se pudo guardar el conteo real de caja.',
-      );
+    } catch (error: any) {
+      const msg = error?.message || '';
+      if (msg.includes('row-level security') || msg.includes('JWT') || msg.includes('401') || msg.includes('42501')) {
+        setAuditError('Tu sesión ha expirado o no tiene permisos. Por favor cierra sesión y vuelve a ingresar con tu PIN.');
+      } else {
+        setAuditError(
+          error instanceof Error
+            ? error.message
+            : 'No se pudo guardar el conteo real de caja.',
+        );
+      }
     } finally {
       setAuditSaving(false);
     }
