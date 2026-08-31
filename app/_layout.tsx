@@ -13,7 +13,7 @@ import { UserRole } from '../src/domain/enums';
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
-  const { login, loadStores, isAuthenticated } = useAppStore();
+  const { login, logout, loadStores, isAuthenticated } = useAppStore();
   const { loadMasterData } = useMasterDataStore();
 
   useEffect(() => {
@@ -44,6 +44,16 @@ function AuthGate({ children }: { children: React.ReactNode }) {
         setLoading(false);
       }
     })();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        logout();
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   if (loading) {
