@@ -30,11 +30,12 @@ export default function CierresMensualesScreen() {
   // KPIs
   const [totalIngresos, setTotalIngresos] = useState(0);
   const [totalEgresos, setTotalEgresos] = useState(0);
+  const [totalAdelantos, setTotalAdelantos] = useState(0);
   const [totalPortions, setTotalPortions] = useState(0);
   const [totalSaleDays, setTotalSaleDays] = useState(0);
 
   // Breakdown
-  const [topCategories, setTopCategories] = useState<{ category: string; total: number }[]>([]);
+  const [expenseCategories, setExpenseCategories] = useState<{ category: string; total: number }[]>([]);
 
   // Historial de cierres de caja diarios
   const [dailyClosings, setDailyClosings] = useState<CashClosing[]>([]);
@@ -53,8 +54,12 @@ export default function CierresMensualesScreen() {
         expenseRepo.getByDateRange(selectedStoreId, startDate, endDate + 'T23:59:59'),
       ]);
 
+      const operatingExpenses = expenses.filter((e) => e.category !== 'Adelanto');
+      const advances = expenses.filter((e) => e.category === 'Adelanto');
+
       const revenue = sales.reduce((sum, s) => sum + s.totalAmount, 0);
-      const expenseTotal = expenses.reduce((sum, e) => sum + e.amount, 0);
+      const expenseTotal = operatingExpenses.reduce((sum, e) => sum + e.amount, 0);
+      const advancesTotal = advances.reduce((sum, e) => sum + e.amount, 0);
       const portions = sales.reduce((sum, s) => sum + s.totalPortions, 0);
 
       // Count unique sale days
@@ -62,19 +67,19 @@ export default function CierresMensualesScreen() {
 
       setTotalIngresos(revenue);
       setTotalEgresos(expenseTotal);
+      setTotalAdelantos(advancesTotal);
       setTotalPortions(portions);
       setTotalSaleDays(uniqueDays.size);
 
-      // Top 5 expense categories
+      // All operating expense categories sorted descending
       const categoryMap: Record<string, number> = {};
-      for (const e of expenses) {
+      for (const e of operatingExpenses) {
         categoryMap[e.category] = (categoryMap[e.category] || 0) + e.amount;
       }
       const sorted = Object.entries(categoryMap)
         .map(([category, total]) => ({ category, total }))
-        .sort((a, b) => b.total - a.total)
-        .slice(0, 5);
-      setTopCategories(sorted);
+        .sort((a, b) => b.total - a.total);
+      setExpenseCategories(sorted);
 
       // Historial de cierres de caja del mes
       try {
@@ -179,13 +184,13 @@ export default function CierresMensualesScreen() {
             <Text variant="bodyMedium" style={{ fontWeight: '700', color: '#F5F0EB' }}>{formatCOP(dailyAvg)}</Text>
           </View>
 
-          {topCategories.length > 0 && (
+          {expenseCategories.length > 0 && (
             <>
               <Divider style={styles.divider} />
               <Text variant="titleSmall" style={{ fontWeight: '600', color: '#F5F0EB', marginBottom: 8 }}>
-                Top Categorias de Gasto
+                Rubros de Gasto Operativo
               </Text>
-              {topCategories.map((cat) => (
+              {expenseCategories.map((cat) => (
                 <View key={cat.category} style={styles.statRow}>
                   <Text variant="bodyMedium" style={{ color: '#F5F0EB', flex: 1 }} numberOfLines={1}>
                     {cat.category}
@@ -195,6 +200,20 @@ export default function CierresMensualesScreen() {
                   </Text>
                 </View>
               ))}
+            </>
+          )}
+
+          {totalAdelantos > 0 && (
+            <>
+              <Divider style={styles.divider} />
+              <View style={styles.statRow}>
+                <Text variant="bodyMedium" style={{ color: '#F57C00', flex: 1 }}>
+                  Adelantos a Personal (Cartera / Activo)
+                </Text>
+                <Text variant="bodyMedium" style={{ fontWeight: '700', color: '#F57C00' }}>
+                  {formatCOP(totalAdelantos)}
+                </Text>
+              </View>
             </>
           )}
         </Card.Content>

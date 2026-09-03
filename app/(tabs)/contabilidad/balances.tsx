@@ -37,6 +37,7 @@ export default function BalancesScreen() {
   const [loading, setLoading] = useState(true);
   const [revenue, setRevenue] = useState(0);
   const [expenses, setExpenses] = useState(0);
+  const [advancesTotal, setAdvancesTotal] = useState(0);
   const [expensesByCategory, setExpensesByCategory] = useState<Record<string, number>>({});
   const [useAllStores, setUseAllStores] = useState(false);
 
@@ -50,6 +51,7 @@ export default function BalancesScreen() {
 
       let totalRev = 0;
       let totalExp = 0;
+      let totalAdv = 0;
       const catMap: Record<string, number> = {};
 
       for (const storeId of storeIds) {
@@ -58,13 +60,18 @@ export default function BalancesScreen() {
 
         const exps = await expenseRepo.getByDateRange(storeId, start, end + 'T23:59:59');
         for (const e of exps) {
-          totalExp += e.amount;
-          catMap[e.category] = (catMap[e.category] ?? 0) + e.amount;
+          if (e.category === 'Adelanto') {
+            totalAdv += e.amount;
+          } else {
+            totalExp += e.amount;
+            catMap[e.category] = (catMap[e.category] ?? 0) + e.amount;
+          }
         }
       }
 
       setRevenue(totalRev);
       setExpenses(totalExp);
+      setAdvancesTotal(totalAdv);
       setExpensesByCategory(catMap);
     } catch {
       // keep defaults
@@ -100,35 +107,40 @@ export default function BalancesScreen() {
         value={useAllStores ? 'all' : 'one'}
         onValueChange={(v) => setUseAllStores(v === 'all')}
         buttons={[
-          { value: 'one', label: 'Este local' },
-          { value: 'all', label: 'Todos los locales' },
+          { value: 'one', label: 'Esta Sede' },
+          { value: 'all', label: 'Consolidado' },
         ]}
         density="small"
-        style={{ marginBottom: 12 }}
+        style={{ marginBottom: 16 }}
       />
 
-      <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 12 }}>
-        {formatDate(start)} — {formatDate(end)}
-      </Text>
-
       {loading ? (
-        <LoadingIndicator message="Calculando balance..." />
+        <LoadingIndicator />
       ) : (
         <>
-          {/* P&L */}
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 12, textAlign: 'center' }}>
+            {formatDate(start)} — {formatDate(end)}
+          </Text>
+
           <Card style={styles.card} mode="elevated">
             <Card.Content>
-              <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 8 }}>
-                Estado de Resultados
+              <Text variant="titleMedium" style={{ fontWeight: '600', marginBottom: 12 }}>
+                Resumen Financiero
               </Text>
               <View style={styles.row}>
-                <Text variant="bodyMedium">Ingresos (Ventas)</Text>
-                <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#388E3C' }}>{formatCOP(revenue)}</Text>
+                <Text variant="bodyMedium">Ingresos Totales</Text>
+                <Text variant="bodyMedium" style={{ fontWeight: '600' }}>{formatCOP(revenue)}</Text>
               </View>
               <View style={styles.row}>
-                <Text variant="bodyMedium">Total Gastos</Text>
+                <Text variant="bodyMedium">Gastos Operativos</Text>
                 <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#D32F2F' }}>{formatCOP(expenses)}</Text>
               </View>
+              {advancesTotal > 0 && (
+                <View style={styles.row}>
+                  <Text variant="bodySmall" style={{ color: '#F57C00' }}>Adelantos nómina (Cartera)</Text>
+                  <Text variant="bodySmall" style={{ fontWeight: '600', color: '#F57C00' }}>{formatCOP(advancesTotal)}</Text>
+                </View>
+              )}
               <Divider style={{ marginVertical: 8 }} />
               <View style={styles.row}>
                 <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>Utilidad Neta</Text>
@@ -139,7 +151,6 @@ export default function BalancesScreen() {
             </Card.Content>
           </Card>
 
-          {/* Expense breakdown */}
           <Card style={styles.card} mode="elevated">
             <Card.Content>
               <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 8 }}>
