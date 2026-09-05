@@ -177,59 +177,44 @@ ALTER TYPE "public"."writeoff_status" OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."add_purchase_to_raw_inventory"() RETURNS "trigger"
-    LANGUAGE "plpgsql"
+    LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
+DECLARE
+  v_is_production_center BOOLEAN;
+  v_supply_category TEXT;
+  v_target_level inventory_level;
 BEGIN
-  INSERT INTO inventory (supply_id, store_id, level, quantity_grams)
-  VALUES (NEW.supply_id, NEW.store_id, 'RAW', NEW.quantity_grams)
+  SELECT is_production_center INTO v_is_production_center
+  FROM stores
+  WHERE id = NEW.store_id;
+
+  SELECT category INTO v_supply_category
+  FROM supplies
+  WHERE id = NEW.supply_id;
+
+  IF COALESCE(v_is_production_center, false) THEN
+    IF v_supply_category = 'RAW' THEN
+      v_target_level := 'RAW'::inventory_level;
+    ELSE
+      v_target_level := 'PROCESSED'::inventory_level;
+    END IF;
+  ELSE
+    v_target_level := 'STORE'::inventory_level;
+  END IF;
+
+  INSERT INTO inventory (store_id, supply_id, level, quantity_grams, last_updated)
+  VALUES (NEW.store_id, NEW.supply_id, v_target_level, NEW.quantity_grams, now())
   ON CONFLICT (supply_id, store_id, level)
-  DO UPDATE SET quantity_grams = inventory.quantity_grams + NEW.quantity_grams,
-               last_updated = now();
+  DO UPDATE SET
+    quantity_grams = inventory.quantity_grams + EXCLUDED.quantity_grams,
+    last_updated = now();
+
   RETURN NEW;
 END;
 $$;
 
 
 ALTER FUNCTION "public"."add_purchase_to_raw_inventory"() OWNER TO "postgres";
-
-
-CREATE OR REPLACE FUNCTION "public"."authenticate_worker"("worker_name" "text", "worker_pin" "text") RETURNS json
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    AS $$
-  DECLARE
-    found_worker RECORD;
-  BEGIN
-    SELECT id, name, username, role, user_role,
-  hourly_rate, phone
-    INTO found_worker
-    FROM workers
-    WHERE LOWER(username) = LOWER(worker_name)
-      AND pin = worker_pin
-      AND is_active = true
-    LIMIT 1;
-
-    IF found_worker IS NULL THEN
-      RETURN json_build_object('success', false, 'error',
-  'Usuario o PIN incorrecto');
-    END IF;
-
-    RETURN json_build_object(
-      'success', true,
-      'user', json_build_object(
-        'id', found_worker.id,
-        'name', found_worker.name,
-        'username', found_worker.username,
-        'role', found_worker.user_role,
-        'worker_role', found_worker.role,
-        'hourly_rate', found_worker.hourly_rate,
-        'phone', found_worker.phone
-      )
-    );
-  END;
-  $$;
-
-
-ALTER FUNCTION "public"."authenticate_worker"("worker_name" "text", "worker_pin" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."can_access_transfer"("from_store" "uuid", "to_store" "uuid") RETURNS boolean
@@ -263,39 +248,6 @@ $$;
 
 
 ALTER FUNCTION "public"."can_access_transfer"("from_store" "uuid", "to_store" "uuid") OWNER TO "postgres";
-
-
-CREATE OR REPLACE FUNCTION "public"."debug_rls_check"("target_store_id" "uuid") RETURNS "text"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'public'
-    AS $$
-DECLARE
-  current_role text;
-  current_worker_id UUID;
-  uid_val UUID;
-  row_count integer;
-BEGIN
-  -- Obtener el UID de la sesión actual
-  uid_val := auth.uid();
-  
-  -- Contar si hay registros visibles en workers con ese UID
-  SELECT COUNT(*) INTO row_count FROM public.workers WHERE auth_user_id = uid_val;
-  
-  -- Buscar el rol y ID
-  SELECT w.user_role::text, w.id INTO current_role, current_worker_id
-  FROM public.workers w
-  WHERE w.auth_user_id = uid_val
-  LIMIT 1;
-  
-  RETURN 'Sesion UID: ' || COALESCE(uid_val::text, 'NULL') || 
-         ' | Filas en workers: ' || COALESCE(row_count::text, '0') || 
-         ' | Rol detectado: ' || COALESCE(current_role, 'NULL') || 
-         ' | Worker ID: ' || COALESCE(current_worker_id::text, 'NULL');
-END;
-$$;
-
-
-ALTER FUNCTION "public"."debug_rls_check"("target_store_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."deduct_inventory_for_sale"("p_sale_id" "uuid") RETURNS "void"
@@ -843,6 +795,9 @@ DECLARE
   v_total_price INTEGER := 0;
   v_credit_id UUID;
   v_today DATE := (now() AT TIME ZONE 'America/Bogota')::DATE;
+  v_is_cp BOOLEAN;
+  v_supply_category TEXT;
+  v_from_level inventory_level;
 BEGIN
   SELECT *
   INTO v_transfer
@@ -867,6 +822,11 @@ BEGIN
     RAISE EXCEPTION 'Destination store % not found', v_transfer.to_store_id;
   END IF;
 
+  SELECT is_production_center
+  INTO v_is_cp
+  FROM stores
+  WHERE id = v_transfer.from_store_id;
+
   FOR v_item IN
     SELECT id, supply_id, bags_to_send
     FROM transfer_items
@@ -879,8 +839,9 @@ BEGIN
       CASE
         WHEN COALESCE(is_billable_to_store, true) THEN COALESCE(commercial_price_cop, 0)
         ELSE 0
-      END
-    INTO v_grams_per_bag, v_unit_cost, v_unit_price
+      END,
+      category
+    INTO v_grams_per_bag, v_unit_cost, v_unit_price, v_supply_category
     FROM supplies
     WHERE id = v_item.supply_id;
 
@@ -892,24 +853,36 @@ BEGIN
     v_line_cost := ROUND((v_item.bags_to_send * v_unit_cost)::NUMERIC, 2);
     v_line_total := v_item.bags_to_send * v_unit_price;
 
+    IF COALESCE(v_is_cp, false) THEN
+      IF v_supply_category = 'RAW' THEN
+        v_from_level := 'RAW'::inventory_level;
+      ELSE
+        v_from_level := 'PROCESSED'::inventory_level;
+      END IF;
+    ELSE
+      v_from_level := 'STORE'::inventory_level;
+    END IF;
+
     SELECT quantity_grams
     INTO v_current_destination_grams
     FROM inventory
     WHERE store_id = v_transfer.to_store_id
       AND supply_id = v_item.supply_id
-      AND level = 'STORE';
+      AND level = 'STORE'::inventory_level;
 
     v_current_destination_grams := COALESCE(v_current_destination_grams, 0);
 
+    -- Descontar en origen
     INSERT INTO inventory (store_id, supply_id, level, quantity_grams, last_updated)
-    VALUES (v_transfer.from_store_id, v_item.supply_id, 'PROCESSED', -v_grams_to_transfer, now())
+    VALUES (v_transfer.from_store_id, v_item.supply_id, v_from_level, -v_grams_to_transfer, now())
     ON CONFLICT (supply_id, store_id, level)
     DO UPDATE SET
       quantity_grams = inventory.quantity_grams + EXCLUDED.quantity_grams,
       last_updated = now();
 
+    -- Sumar en destino
     INSERT INTO inventory (store_id, supply_id, level, quantity_grams, last_updated)
-    VALUES (v_transfer.to_store_id, v_item.supply_id, 'STORE', v_grams_to_transfer, now())
+    VALUES (v_transfer.to_store_id, v_item.supply_id, 'STORE'::inventory_level, v_grams_to_transfer, now())
     ON CONFLICT (supply_id, store_id, level)
     DO UPDATE SET
       quantity_grams = inventory.quantity_grams + EXCLUDED.quantity_grams,
@@ -930,31 +903,45 @@ BEGIN
     v_total_price := v_total_price + v_line_total;
   END LOOP;
 
-  INSERT INTO credit_entries (
-    debtor_name,
-    debtor_type,
-    store_id,
-    transfer_id,
-    concept,
-    amount,
-    balance,
-    is_paid,
-    paid_date,
-    date
-  )
-  VALUES (
-    v_store_name,
-    'LOCAL'::debtor_type,
-    v_transfer.to_store_id,
-    p_transfer_id,
-    'Cobro interno traslado ' || right(p_transfer_id::TEXT, 6),
-    v_total_price,
-    v_total_price,
-    v_total_price = 0,
-    CASE WHEN v_total_price = 0 THEN v_today ELSE NULL END,
-    v_today
-  )
-  RETURNING id INTO v_credit_id;
+  SELECT id INTO v_credit_id
+  FROM credit_entries
+  WHERE transfer_id = p_transfer_id;
+
+  IF v_credit_id IS NOT NULL THEN
+    UPDATE credit_entries
+    SET
+      debtor_name = v_store_name,
+      amount = v_total_price,
+      balance = CASE WHEN is_paid THEN 0 ELSE v_total_price END,
+      concept = 'Cobro interno traslado ' || right(p_transfer_id::TEXT, 6)
+    WHERE id = v_credit_id;
+  ELSE
+    INSERT INTO credit_entries (
+      debtor_name,
+      debtor_type,
+      store_id,
+      transfer_id,
+      concept,
+      amount,
+      balance,
+      is_paid,
+      paid_date,
+      date
+    )
+    VALUES (
+      v_store_name,
+      'LOCAL'::debtor_type,
+      v_transfer.to_store_id,
+      p_transfer_id,
+      'Cobro interno traslado ' || right(p_transfer_id::TEXT, 6),
+      v_total_price,
+      v_total_price,
+      v_total_price = 0,
+      CASE WHEN v_total_price = 0 THEN v_today ELSE NULL END,
+      v_today
+    )
+    RETURNING id INTO v_credit_id;
+  END IF;
 
   UPDATE transfers
   SET
@@ -975,764 +962,7 @@ $$;
 ALTER FUNCTION "public"."receive_transfer_with_billing"("p_transfer_id" "uuid") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_items" "jsonb") RETURNS "void"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'public'
-    AS $$
-DECLARE
-  v_sale sales%ROWTYPE;
-  v_item RECORD;
-  v_addition RECORD;
-  v_recipe_id UUID;
-  v_ingredient RECORD;
-  v_sale_item_id UUID;
-  v_additions JSONB;
-BEGIN
-  IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array' OR jsonb_array_length(p_items) = 0 THEN
-    RAISE EXCEPTION 'Sale % must have at least one item', p_sale_id;
-  END IF;
-
-  SELECT *
-  INTO v_sale
-  FROM sales
-  WHERE id = p_sale_id
-  FOR UPDATE;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Sale % not found', p_sale_id;
-  END IF;
-
-  IF COALESCE(v_sale.is_dispatched, false) THEN
-    RAISE EXCEPTION 'Sale % cannot be edited after dispatch', p_sale_id;
-  END IF;
-
-  -- Restore previous recipe and addition consumption.
-  FOR v_item IN
-    SELECT *
-    FROM sale_items
-    WHERE sale_id = p_sale_id
-  LOOP
-    SELECT r.id
-    INTO v_recipe_id
-    FROM recipes r
-    WHERE r.product_id = v_item.product_id;
-
-    IF v_recipe_id IS NOT NULL THEN
-      FOR v_ingredient IN
-        SELECT ri.supply_id, ri.grams_per_portion
-        FROM recipe_ingredients ri
-        WHERE ri.recipe_id = v_recipe_id
-      LOOP
-        PERFORM deduct_store_inventory(
-          v_sale.store_id,
-          v_ingredient.supply_id,
-          -(v_ingredient.grams_per_portion * v_item.portions)
-        );
-      END LOOP;
-    END IF;
-
-    FOR v_addition IN
-      SELECT sia.supply_id, sia.grams, sia.quantity
-      FROM sale_item_additions sia
-      WHERE sia.sale_item_id = v_item.id
-    LOOP
-      PERFORM deduct_store_inventory(
-        v_sale.store_id,
-        v_addition.supply_id,
-        -(v_addition.grams * v_addition.quantity)
-      );
-    END LOOP;
-  END LOOP;
-
-  IF v_sale.packaging_supply_id IS NOT NULL THEN
-    PERFORM deduct_store_inventory(v_sale.store_id, v_sale.packaging_supply_id, -1);
-  END IF;
-
-  DELETE FROM sale_item_additions
-  WHERE sale_item_id IN (
-    SELECT id FROM sale_items WHERE sale_id = p_sale_id
-  );
-
-  DELETE FROM sale_items
-  WHERE sale_id = p_sale_id;
-
-  UPDATE sales
-  SET
-    payment_method = p_payment_method,
-    total_portions = p_total_portions,
-    total_amount = p_total_amount,
-    cash_amount = p_cash_amount,
-    bank_amount = p_bank_amount,
-    observations = COALESCE(p_observations, ''),
-    is_paid = COALESCE(p_is_paid, false),
-    customer_note = NULLIF(COALESCE(p_customer_note, ''), ''),
-    packaging_supply_id = p_packaging_supply_id
-  WHERE id = p_sale_id;
-
-  FOR v_item IN
-    SELECT value
-    FROM jsonb_array_elements(p_items)
-  LOOP
-    INSERT INTO sale_items (
-      sale_id,
-      product_id,
-      size,
-      format_id,
-      format_name,
-      quantity,
-      portions,
-      unit_price,
-      subtotal,
-      additions_total
-    )
-    VALUES (
-      p_sale_id,
-      (v_item.value->>'product_id')::UUID,
-      CASE
-        WHEN NULLIF(v_item.value->>'size', '') IS NULL THEN NULL
-        ELSE (v_item.value->>'size')::pizza_size
-      END,
-      NULLIF(v_item.value->>'format_id', '')::UUID,
-      NULLIF(COALESCE(v_item.value->>'format_name', ''), ''),
-      COALESCE(NULLIF(v_item.value->>'quantity', '')::INTEGER, 1),
-      COALESCE(NULLIF(v_item.value->>'portions', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'unit_price', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'subtotal', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'additions_total', '')::INTEGER, 0)
-    )
-    RETURNING id INTO v_sale_item_id;
-
-    v_additions := CASE
-      WHEN jsonb_typeof(v_item.value->'additions') = 'array' THEN v_item.value->'additions'
-      ELSE '[]'::jsonb
-    END;
-
-    FOR v_addition IN
-      SELECT value
-      FROM jsonb_array_elements(v_additions)
-    LOOP
-      INSERT INTO sale_item_additions (
-        sale_item_id,
-        addition_catalog_id,
-        supply_id,
-        name,
-        price,
-        grams,
-        quantity
-      )
-      VALUES (
-        v_sale_item_id,
-        (v_addition.value->>'addition_catalog_id')::UUID,
-        (v_addition.value->>'supply_id')::UUID,
-        COALESCE(v_addition.value->>'name', ''),
-        COALESCE(NULLIF(v_addition.value->>'price', '')::INTEGER, 0),
-        COALESCE(NULLIF(v_addition.value->>'grams', '')::NUMERIC, 0),
-        COALESCE(NULLIF(v_addition.value->>'quantity', '')::INTEGER, 1)
-      );
-    END LOOP;
-  END LOOP;
-
-  PERFORM deduct_inventory_for_sale(p_sale_id);
-END;
-$$;
-
-
-ALTER FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_items" "jsonb") OWNER TO "postgres";
-
-
-CREATE OR REPLACE FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_items" "jsonb") RETURNS "void"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'public'
-    AS $$
-DECLARE
-  v_sale sales%ROWTYPE;
-  v_item RECORD;
-  v_addition RECORD;
-  v_recipe_id UUID;
-  v_ingredient RECORD;
-  v_sale_item_id UUID;
-  v_additions JSONB;
-  v_had_item_packaging BOOLEAN;
-BEGIN
-  IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array' OR jsonb_array_length(p_items) = 0 THEN
-    RAISE EXCEPTION 'Sale % must have at least one item', p_sale_id;
-  END IF;
-
-  SELECT *
-  INTO v_sale
-  FROM sales
-  WHERE id = p_sale_id
-  FOR UPDATE;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Sale % not found', p_sale_id;
-  END IF;
-
-  IF COALESCE(v_sale.is_dispatched, false) THEN
-    RAISE EXCEPTION 'Sale % cannot be edited after dispatch', p_sale_id;
-  END IF;
-
-  SELECT EXISTS (
-    SELECT 1
-    FROM sale_items
-    WHERE sale_id = p_sale_id
-      AND packaging_supply_id IS NOT NULL
-      AND COALESCE(packaging_quantity, 0) > 0
-  )
-  INTO v_had_item_packaging;
-
-  FOR v_item IN
-    SELECT *
-    FROM sale_items
-    WHERE sale_id = p_sale_id
-  LOOP
-    SELECT r.id
-    INTO v_recipe_id
-    FROM recipes r
-    WHERE r.product_id = v_item.product_id;
-
-    IF v_recipe_id IS NOT NULL THEN
-      FOR v_ingredient IN
-        SELECT ri.supply_id, ri.grams_per_portion
-        FROM recipe_ingredients ri
-        WHERE ri.recipe_id = v_recipe_id
-      LOOP
-        PERFORM deduct_store_inventory(
-          v_sale.store_id,
-          v_ingredient.supply_id,
-          -(v_ingredient.grams_per_portion * v_item.portions)
-        );
-      END LOOP;
-    END IF;
-
-    FOR v_addition IN
-      SELECT sia.supply_id, sia.grams, sia.quantity
-      FROM sale_item_additions sia
-      WHERE sia.sale_item_id = v_item.id
-    LOOP
-      PERFORM deduct_store_inventory(
-        v_sale.store_id,
-        v_addition.supply_id,
-        -(v_addition.grams * v_addition.quantity)
-      );
-    END LOOP;
-
-    IF v_item.packaging_supply_id IS NOT NULL AND COALESCE(v_item.packaging_quantity, 0) > 0 THEN
-      PERFORM deduct_store_inventory(
-        v_sale.store_id,
-        v_item.packaging_supply_id,
-        -v_item.packaging_quantity
-      );
-    END IF;
-  END LOOP;
-
-  IF v_sale.packaging_supply_id IS NOT NULL AND NOT COALESCE(v_had_item_packaging, false) THEN
-    PERFORM deduct_store_inventory(v_sale.store_id, v_sale.packaging_supply_id, -1);
-  END IF;
-
-  DELETE FROM sale_item_additions
-  WHERE sale_item_id IN (
-    SELECT id FROM sale_items WHERE sale_id = p_sale_id
-  );
-
-  DELETE FROM sale_items
-  WHERE sale_id = p_sale_id;
-
-  UPDATE sales
-  SET
-    payment_method = p_payment_method,
-    total_portions = p_total_portions,
-    total_amount = p_total_amount,
-    packaging_total = COALESCE(p_packaging_total, 0),
-    cash_amount = p_cash_amount,
-    bank_amount = p_bank_amount,
-    observations = COALESCE(p_observations, ''),
-    is_paid = COALESCE(p_is_paid, false),
-    customer_note = NULLIF(COALESCE(p_customer_note, ''), ''),
-    packaging_supply_id = p_packaging_supply_id
-  WHERE id = p_sale_id;
-
-  FOR v_item IN
-    SELECT value
-    FROM jsonb_array_elements(p_items)
-  LOOP
-    INSERT INTO sale_items (
-      sale_id,
-      product_id,
-      size,
-      format_id,
-      format_name,
-      quantity,
-      portions,
-      unit_price,
-      subtotal,
-      additions_total,
-      packaging_supply_id,
-      packaging_label,
-      packaging_unit_price,
-      packaging_quantity,
-      packaging_total
-    )
-    VALUES (
-      p_sale_id,
-      (v_item.value->>'product_id')::UUID,
-      CASE
-        WHEN NULLIF(v_item.value->>'size', '') IS NULL THEN NULL
-        ELSE (v_item.value->>'size')::pizza_size
-      END,
-      NULLIF(v_item.value->>'format_id', '')::UUID,
-      NULLIF(COALESCE(v_item.value->>'format_name', ''), ''),
-      COALESCE(NULLIF(v_item.value->>'quantity', '')::INTEGER, 1),
-      COALESCE(NULLIF(v_item.value->>'portions', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'unit_price', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'subtotal', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'additions_total', '')::INTEGER, 0),
-      NULLIF(v_item.value->>'packaging_supply_id', '')::UUID,
-      NULLIF(COALESCE(v_item.value->>'packaging_label', ''), ''),
-      COALESCE(NULLIF(v_item.value->>'packaging_unit_price', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'packaging_quantity', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'packaging_total', '')::INTEGER, 0)
-    )
-    RETURNING id INTO v_sale_item_id;
-
-    v_additions := CASE
-      WHEN jsonb_typeof(v_item.value->'additions') = 'array' THEN v_item.value->'additions'
-      ELSE '[]'::jsonb
-    END;
-
-    FOR v_addition IN
-      SELECT value
-      FROM jsonb_array_elements(v_additions)
-    LOOP
-      INSERT INTO sale_item_additions (
-        sale_item_id,
-        addition_catalog_id,
-        supply_id,
-        name,
-        price,
-        grams,
-        quantity
-      )
-      VALUES (
-        v_sale_item_id,
-        (v_addition.value->>'addition_catalog_id')::UUID,
-        (v_addition.value->>'supply_id')::UUID,
-        COALESCE(v_addition.value->>'name', ''),
-        COALESCE(NULLIF(v_addition.value->>'price', '')::INTEGER, 0),
-        COALESCE(NULLIF(v_addition.value->>'grams', '')::NUMERIC, 0),
-        COALESCE(NULLIF(v_addition.value->>'quantity', '')::INTEGER, 1)
-      );
-    END LOOP;
-  END LOOP;
-
-  PERFORM deduct_inventory_for_sale(p_sale_id);
-END;
-$$;
-
-
-ALTER FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_items" "jsonb") OWNER TO "postgres";
-
-
-CREATE OR REPLACE FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb") RETURNS "void"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'public'
-    AS $$
-DECLARE
-  v_sale sales%ROWTYPE;
-  v_item RECORD;
-  v_addition RECORD;
-  v_recipe_id UUID;
-  v_ingredient RECORD;
-  v_sale_item_id UUID;
-  v_additions JSONB;
-  v_had_item_packaging BOOLEAN;
-BEGIN
-  IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array' OR jsonb_array_length(p_items) = 0 THEN
-    RAISE EXCEPTION 'Sale % must have at least one item', p_sale_id;
-  END IF;
-
-  SELECT *
-  INTO v_sale
-  FROM sales
-  WHERE id = p_sale_id
-  FOR UPDATE;
-
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Sale % not found', p_sale_id;
-  END IF;
-
-  IF is_accounting_period_locked(v_sale.store_id, (v_sale.created_at AT TIME ZONE 'America/Bogota')::DATE) THEN
-    PERFORM raise_locked_period_error();
-  END IF;
-
-  IF COALESCE(v_sale.is_dispatched, false) THEN
-    RAISE EXCEPTION 'Sale % cannot be edited after dispatch', p_sale_id;
-  END IF;
-
-  SELECT EXISTS (
-    SELECT 1
-    FROM sale_items
-    WHERE sale_id = p_sale_id
-      AND packaging_supply_id IS NOT NULL
-      AND COALESCE(packaging_quantity, 0) > 0
-  )
-  INTO v_had_item_packaging;
-
-  FOR v_item IN
-    SELECT *
-    FROM sale_items
-    WHERE sale_id = p_sale_id
-  LOOP
-    SELECT r.id
-    INTO v_recipe_id
-    FROM recipes r
-    WHERE r.product_id = v_item.product_id;
-
-    IF v_recipe_id IS NOT NULL THEN
-      FOR v_ingredient IN
-        SELECT ri.supply_id, ri.grams_per_portion
-        FROM recipe_ingredients ri
-        WHERE ri.recipe_id = v_recipe_id
-      LOOP
-        PERFORM deduct_store_inventory(
-          v_sale.store_id,
-          v_ingredient.supply_id,
-          -(v_ingredient.grams_per_portion * v_item.portions)
-        );
-      END LOOP;
-    END IF;
-
-    FOR v_addition IN
-      SELECT sia.supply_id, sia.grams, sia.quantity
-      FROM sale_item_additions sia
-      WHERE sia.sale_item_id = v_item.id
-    LOOP
-      PERFORM deduct_store_inventory(
-        v_sale.store_id,
-        v_addition.supply_id,
-        -(v_addition.grams * v_addition.quantity)
-      );
-    END LOOP;
-
-    IF v_item.packaging_supply_id IS NOT NULL AND COALESCE(v_item.packaging_quantity, 0) > 0 THEN
-      PERFORM deduct_store_inventory(
-        v_sale.store_id,
-        v_item.packaging_supply_id,
-        -v_item.packaging_quantity
-      );
-    END IF;
-  END LOOP;
-
-  IF v_sale.packaging_supply_id IS NOT NULL AND NOT COALESCE(v_had_item_packaging, false) THEN
-    PERFORM deduct_store_inventory(v_sale.store_id, v_sale.packaging_supply_id, -1);
-  END IF;
-
-  DELETE FROM sale_item_additions
-  WHERE sale_item_id IN (
-    SELECT id FROM sale_items WHERE sale_id = p_sale_id
-  );
-
-  DELETE FROM sale_items
-  WHERE sale_id = p_sale_id;
-
-  UPDATE sales
-  SET
-    payment_method = p_payment_method,
-    total_portions = p_total_portions,
-    total_amount = p_total_amount,
-    packaging_total = COALESCE(p_packaging_total, 0),
-    total_cost_cop = COALESCE(p_total_cost_cop, 0),
-    gross_margin_cop = COALESCE(p_gross_margin_cop, p_total_amount - COALESCE(p_total_cost_cop, 0)),
-    cash_amount = p_cash_amount,
-    bank_amount = p_bank_amount,
-    observations = COALESCE(p_observations, ''),
-    is_paid = COALESCE(p_is_paid, false),
-    customer_note = NULLIF(COALESCE(p_customer_note, ''), ''),
-    packaging_supply_id = p_packaging_supply_id
-  WHERE id = p_sale_id;
-
-  FOR v_item IN
-    SELECT value
-    FROM jsonb_array_elements(p_items)
-  LOOP
-    INSERT INTO sale_items (
-      sale_id,
-      product_id,
-      size,
-      format_id,
-      format_name,
-      quantity,
-      portions,
-      unit_price,
-      subtotal,
-      additions_total,
-      packaging_supply_id,
-      packaging_label,
-      packaging_unit_price,
-      packaging_quantity,
-      packaging_total,
-      recipe_cost_cop,
-      additions_cost_cop,
-      packaging_cost_cop,
-      total_cost_cop
-    )
-    VALUES (
-      p_sale_id,
-      (v_item.value->>'product_id')::UUID,
-      CASE
-        WHEN NULLIF(v_item.value->>'size', '') IS NULL THEN NULL
-        ELSE (v_item.value->>'size')::pizza_size
-      END,
-      NULLIF(v_item.value->>'format_id', '')::UUID,
-      NULLIF(COALESCE(v_item.value->>'format_name', ''), ''),
-      COALESCE(NULLIF(v_item.value->>'quantity', '')::INTEGER, 1),
-      COALESCE(NULLIF(v_item.value->>'portions', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'unit_price', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'subtotal', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'additions_total', '')::INTEGER, 0),
-      NULLIF(v_item.value->>'packaging_supply_id', '')::UUID,
-      NULLIF(COALESCE(v_item.value->>'packaging_label', ''), ''),
-      COALESCE(NULLIF(v_item.value->>'packaging_unit_price', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'packaging_quantity', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'packaging_total', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'recipe_cost_cop', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'additions_cost_cop', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'packaging_cost_cop', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'total_cost_cop', '')::INTEGER, 0)
-    )
-    RETURNING id INTO v_sale_item_id;
-
-    v_additions := CASE
-      WHEN jsonb_typeof(v_item.value->'additions') = 'array' THEN v_item.value->'additions'
-      ELSE '[]'::jsonb
-    END;
-
-    FOR v_addition IN
-      SELECT value
-      FROM jsonb_array_elements(v_additions)
-    LOOP
-      INSERT INTO sale_item_additions (
-        sale_item_id,
-        addition_catalog_id,
-        supply_id,
-        name,
-        price,
-        grams,
-        quantity
-      )
-      VALUES (
-        v_sale_item_id,
-        (v_addition.value->>'addition_catalog_id')::UUID,
-        (v_addition.value->>'supply_id')::UUID,
-        COALESCE(v_addition.value->>'name', ''),
-        COALESCE(NULLIF(v_addition.value->>'price', '')::INTEGER, 0),
-        COALESCE(NULLIF(v_addition.value->>'grams', '')::NUMERIC, 0),
-        COALESCE(NULLIF(v_addition.value->>'quantity', '')::INTEGER, 1)
-      );
-    END LOOP;
-  END LOOP;
-
-  PERFORM deduct_inventory_for_sale(p_sale_id);
-END;
-$$;
-
-
-ALTER FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb") OWNER TO "postgres";
-
-
-CREATE OR REPLACE FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean DEFAULT false) RETURNS "void"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'public'
-    AS $$
-DECLARE
-  v_sale sales%ROWTYPE;
-  v_item RECORD;
-  v_addition RECORD;
-  v_recipe_id UUID;
-  v_ingredient RECORD;
-  v_sale_item_id UUID;
-  v_additions JSONB;
-  v_had_item_packaging BOOLEAN;
-BEGIN
-  IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array' OR jsonb_array_length(p_items) = 0 THEN
-    RAISE EXCEPTION 'Sale % must have at least one item', p_sale_id;
-  END IF;
-  SELECT *
-  INTO v_sale
-  FROM sales
-  WHERE id = p_sale_id
-  FOR UPDATE;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Sale % not found', p_sale_id;
-  END IF;
-  IF is_accounting_period_locked(v_sale.store_id, (v_sale.created_at AT TIME ZONE 'America/Bogota')::DATE) THEN
-    PERFORM raise_locked_period_error();
-  END IF;
-  IF COALESCE(v_sale.is_dispatched, false) THEN
-    RAISE EXCEPTION 'Sale % cannot be edited after dispatch', p_sale_id;
-  END IF;
-  SELECT EXISTS (
-    SELECT 1
-    FROM sale_items
-    WHERE sale_id = p_sale_id
-      AND packaging_supply_id IS NOT NULL
-      AND COALESCE(packaging_quantity, 0) > 0
-  )
-  INTO v_had_item_packaging;
-  FOR v_item IN
-    SELECT *
-    FROM sale_items
-    WHERE sale_id = p_sale_id
-  LOOP
-    SELECT r.id
-    INTO v_recipe_id
-    FROM recipes r
-    WHERE r.product_id = v_item.product_id;
-    IF v_recipe_id IS NOT NULL THEN
-      FOR v_ingredient IN
-        SELECT ri.supply_id, ri.grams_per_portion
-        FROM recipe_ingredients ri
-        WHERE ri.recipe_id = v_recipe_id
-      LOOP
-        PERFORM deduct_store_inventory(
-          v_sale.store_id,
-          v_ingredient.supply_id,
-          -(v_ingredient.grams_per_portion * v_item.portions)
-        );
-      END LOOP;
-    END IF;
-    FOR v_addition IN
-      SELECT sia.supply_id, sia.grams, sia.quantity
-      FROM sale_item_additions sia
-      WHERE sia.sale_item_id = v_item.id
-    LOOP
-      PERFORM deduct_store_inventory(
-        v_sale.store_id,
-        v_addition.supply_id,
-        -(v_addition.grams * v_addition.quantity)
-      );
-    END LOOP;
-    IF v_item.packaging_supply_id IS NOT NULL AND COALESCE(v_item.packaging_quantity, 0) > 0 THEN
-      PERFORM deduct_store_inventory(
-        v_sale.store_id,
-        v_item.packaging_supply_id,
-        -v_item.packaging_quantity
-      );
-    END IF;
-  END LOOP;
-  IF v_sale.packaging_supply_id IS NOT NULL AND NOT COALESCE(v_had_item_packaging, false) THEN
-    PERFORM deduct_store_inventory(v_sale.store_id, v_sale.packaging_supply_id, -1);
-  END IF;
-  DELETE FROM sale_item_additions
-  WHERE sale_item_id IN (
-    SELECT id FROM sale_items WHERE sale_id = p_sale_id
-  );
-  DELETE FROM sale_items
-  WHERE sale_id = p_sale_id;
-  UPDATE sales
-  SET
-    payment_method = p_payment_method,
-    total_portions = p_total_portions,
-    total_amount = p_total_amount,
-    packaging_total = COALESCE(p_packaging_total, 0),
-    total_cost_cop = COALESCE(p_total_cost_cop, 0),
-    gross_margin_cop = COALESCE(p_gross_margin_cop, p_total_amount - COALESCE(p_total_cost_cop, 0)),
-    cash_amount = p_cash_amount,
-    bank_amount = p_bank_amount,
-    observations = COALESCE(p_observations, ''),
-    is_paid = COALESCE(p_is_paid, false),
-    is_credit = COALESCE(p_is_credit, false),
-    customer_note = NULLIF(COALESCE(p_customer_note, ''), ''),
-    packaging_supply_id = p_packaging_supply_id
-  WHERE id = p_sale_id;
-  FOR v_item IN
-    SELECT value
-    FROM jsonb_array_elements(p_items)
-  LOOP
-    INSERT INTO sale_items (
-      sale_id,
-      product_id,
-      size,
-      format_id,
-      format_name,
-      quantity,
-      portions,
-      unit_price,
-      subtotal,
-      additions_total,
-      packaging_supply_id,
-      packaging_label,
-      packaging_unit_price,
-      packaging_quantity,
-      packaging_total,
-      recipe_cost_cop,
-      additions_cost_cop,
-      packaging_cost_cop,
-      total_cost_cop
-    )
-    VALUES (
-      p_sale_id,
-      (v_item.value->>'product_id')::UUID,
-      CASE
-        WHEN NULLIF(v_item.value->>'size', '') IS NULL THEN NULL
-        ELSE (v_item.value->>'size')::pizza_size
-      END,
-      NULLIF(v_item.value->>'format_id', '')::UUID,
-      NULLIF(COALESCE(v_item.value->>'format_name', ''), ''),
-      COALESCE(NULLIF(v_item.value->>'quantity', '')::INTEGER, 1),
-      COALESCE(NULLIF(v_item.value->>'portions', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'unit_price', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'subtotal', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'additions_total', '')::INTEGER, 0),
-      NULLIF(v_item.value->>'packaging_supply_id', '')::UUID,
-      NULLIF(COALESCE(v_item.value->>'packaging_label', ''), ''),
-      COALESCE(NULLIF(v_item.value->>'packaging_unit_price', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'packaging_quantity', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'packaging_total', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'recipe_cost_cop', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'additions_cost_cop', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'packaging_cost_cop', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'total_cost_cop', '')::INTEGER, 0)
-    )
-    RETURNING id INTO v_sale_item_id;
-    v_additions := CASE
-      WHEN jsonb_typeof(v_item.value->'additions') = 'array' THEN v_item.value->'additions'
-      ELSE '[]'::jsonb
-    END;
-    FOR v_addition IN
-      SELECT value
-      FROM jsonb_array_elements(v_additions)
-    LOOP
-      INSERT INTO sale_item_additions (
-        sale_item_id,
-        addition_catalog_id,
-        supply_id,
-        name,
-        price,
-        grams,
-        quantity
-      )
-      VALUES (
-        v_sale_item_id,
-        (v_addition.value->>'addition_catalog_id')::UUID,
-        (v_addition.value->>'supply_id')::UUID,
-        v_addition.value->>'name',
-        COALESCE(NULLIF(v_addition.value->>'price', '')::INTEGER, 0),
-        COALESCE(NULLIF(v_addition.value->>'grams', '')::NUMERIC, 0),
-        COALESCE(NULLIF(v_addition.value->>'quantity', '')::INTEGER, 1)
-      );
-    END LOOP;
-  END LOOP;
-  -- Descontar inventario ahora que los sale_items y adiciones ya existen
-  PERFORM deduct_inventory_for_sale(p_sale_id);
-END;
-$$;
-
-
-ALTER FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean) OWNER TO "postgres";
-
-
-CREATE OR REPLACE FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid", "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_items" "jsonb") RETURNS "void"
+CREATE OR REPLACE FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer DEFAULT 0, "p_cash_amount" integer DEFAULT 0, "p_bank_amount" integer DEFAULT 0, "p_observations" "text" DEFAULT NULL::"text", "p_is_paid" boolean DEFAULT false, "p_customer_note" "text" DEFAULT NULL::"text", "p_packaging_supply_id" "uuid" DEFAULT NULL::"uuid", "p_total_cost_cop" integer DEFAULT 0, "p_gross_margin_cop" integer DEFAULT 0, "p_items" "jsonb" DEFAULT '[]'::"jsonb", "p_is_credit" boolean DEFAULT false, "p_debtor_name" "text" DEFAULT NULL::"text", "p_debtor_type" "public"."debtor_type" DEFAULT 'TRABAJADOR'::"public"."debtor_type", "p_debtor_worker_id" "uuid" DEFAULT NULL::"uuid", "p_debtor_customer_id" "uuid" DEFAULT NULL::"uuid") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
@@ -1980,202 +1210,6 @@ BEGIN
   END LOOP;
 
   -- Descontar inventario de los nuevos items
-  PERFORM deduct_inventory_for_sale(p_sale_id);
-END;
-$$;
-
-
-ALTER FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid", "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_items" "jsonb") OWNER TO "postgres";
-
-
-CREATE OR REPLACE FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean DEFAULT false, "p_debtor_name" "text" DEFAULT NULL::"text", "p_debtor_type" "public"."debtor_type" DEFAULT NULL::"public"."debtor_type", "p_debtor_worker_id" "uuid" DEFAULT NULL::"uuid", "p_debtor_customer_id" "uuid" DEFAULT NULL::"uuid") RETURNS "void"
-    LANGUAGE "plpgsql" SECURITY DEFINER
-    SET "search_path" TO 'public'
-    AS $$
-DECLARE
-  v_sale sales%ROWTYPE;
-  v_item RECORD;
-  v_addition RECORD;
-  v_recipe_id UUID;
-  v_ingredient RECORD;
-  v_sale_item_id UUID;
-  v_additions JSONB;
-  v_had_item_packaging BOOLEAN;
-BEGIN
-  IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array' OR jsonb_array_length(p_items) = 0 THEN
-    RAISE EXCEPTION 'Sale % must have at least one item', p_sale_id;
-  END IF;
-  SELECT *
-  INTO v_sale
-  FROM sales
-  WHERE id = p_sale_id
-  FOR UPDATE;
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Sale % not found', p_sale_id;
-  END IF;
-  IF is_accounting_period_locked(v_sale.store_id, (v_sale.created_at AT TIME ZONE 'America/Bogota')::DATE) THEN
-    PERFORM raise_locked_period_error();
-  END IF;
-  IF COALESCE(v_sale.is_dispatched, false) THEN
-    RAISE EXCEPTION 'Sale % cannot be edited after dispatch', p_sale_id;
-  END IF;
-  SELECT EXISTS (
-    SELECT 1
-    FROM sale_items
-    WHERE sale_id = p_sale_id
-      AND packaging_supply_id IS NOT NULL
-      AND COALESCE(packaging_quantity, 0) > 0
-  )
-  INTO v_had_item_packaging;
-  FOR v_item IN
-    SELECT *
-    FROM sale_items
-    WHERE sale_id = p_sale_id
-  LOOP
-    SELECT r.id
-    INTO v_recipe_id
-    FROM recipes r
-    WHERE r.product_id = v_item.product_id;
-    IF v_recipe_id IS NOT NULL THEN
-      FOR v_ingredient IN
-        SELECT ri.supply_id, ri.grams_per_portion
-        FROM recipe_ingredients ri
-        WHERE ri.recipe_id = v_recipe_id
-      LOOP
-        PERFORM deduct_store_inventory(
-          v_sale.store_id,
-          v_ingredient.supply_id,
-          -(v_ingredient.grams_per_portion * v_item.portions)
-        );
-      END LOOP;
-    END IF;
-    FOR v_addition IN
-      SELECT sia.supply_id, sia.grams, sia.quantity
-      FROM sale_item_additions sia
-      WHERE sia.sale_item_id = v_item.id
-    LOOP
-      PERFORM deduct_store_inventory(
-        v_sale.store_id,
-        v_addition.supply_id,
-        -(v_addition.grams * v_addition.quantity)
-      );
-    END LOOP;
-    IF v_item.packaging_supply_id IS NOT NULL AND COALESCE(v_item.packaging_quantity, 0) > 0 THEN
-      PERFORM deduct_store_inventory(
-        v_sale.store_id,
-        v_item.packaging_supply_id,
-        -v_item.packaging_quantity
-      );
-    END IF;
-  END LOOP;
-  IF v_sale.packaging_supply_id IS NOT NULL AND NOT COALESCE(v_had_item_packaging, false) THEN
-    PERFORM deduct_store_inventory(v_sale.store_id, v_sale.packaging_supply_id, -1);
-  END IF;
-  DELETE FROM sale_item_additions
-  WHERE sale_item_id IN (
-    SELECT id FROM sale_items WHERE sale_id = p_sale_id
-  );
-  DELETE FROM sale_items
-  WHERE sale_id = p_sale_id;
-  UPDATE sales
-  SET
-    payment_method = p_payment_method,
-    total_portions = p_total_portions,
-    total_amount = p_total_amount,
-    packaging_total = COALESCE(p_packaging_total, 0),
-    total_cost_cop = COALESCE(p_total_cost_cop, 0),
-    gross_margin_cop = COALESCE(p_gross_margin_cop, p_total_amount - COALESCE(p_total_cost_cop, 0)),
-    cash_amount = p_cash_amount,
-    bank_amount = p_bank_amount,
-    observations = COALESCE(p_observations, ''),
-    is_paid = COALESCE(p_is_paid, false),
-    is_credit = COALESCE(p_is_credit, false),
-    debtor_name = p_debtor_name,
-    debtor_type = p_debtor_type,
-    debtor_worker_id = p_debtor_worker_id,
-    debtor_customer_id = p_debtor_customer_id,
-    customer_note = NULLIF(COALESCE(p_customer_note, ''), ''),
-    packaging_supply_id = p_packaging_supply_id
-  WHERE id = p_sale_id;
-  FOR v_item IN
-    SELECT value
-    FROM jsonb_array_elements(p_items)
-  LOOP
-    INSERT INTO sale_items (
-      sale_id,
-      product_id,
-      size,
-      format_id,
-      format_name,
-      quantity,
-      portions,
-      unit_price,
-      subtotal,
-      additions_total,
-      packaging_supply_id,
-      packaging_label,
-      packaging_unit_price,
-      packaging_quantity,
-      packaging_total,
-      recipe_cost_cop,
-      additions_cost_cop,
-      packaging_cost_cop,
-      total_cost_cop
-    )
-    VALUES (
-      p_sale_id,
-      (v_item.value->>'product_id')::UUID,
-      CASE
-        WHEN NULLIF(v_item.value->>'size', '') IS NULL THEN NULL
-        ELSE (v_item.value->>'size')::pizza_size
-      END,
-      NULLIF(v_item.value->>'format_id', '')::UUID,
-      NULLIF(COALESCE(v_item.value->>'format_name', ''), ''),
-      COALESCE(NULLIF(v_item.value->>'quantity', '')::INTEGER, 1),
-      COALESCE(NULLIF(v_item.value->>'portions', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'unit_price', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'subtotal', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'additions_total', '')::INTEGER, 0),
-      NULLIF(v_item.value->>'packaging_supply_id', '')::UUID,
-      NULLIF(COALESCE(v_item.value->>'packaging_label', ''), ''),
-      COALESCE(NULLIF(v_item.value->>'packaging_unit_price', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'packaging_quantity', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'packaging_total', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'recipe_cost_cop', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'additions_cost_cop', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'packaging_cost_cop', '')::INTEGER, 0),
-      COALESCE(NULLIF(v_item.value->>'total_cost_cop', '')::INTEGER, 0)
-    )
-    RETURNING id INTO v_sale_item_id;
-    v_additions := CASE
-      WHEN jsonb_typeof(v_item.value->'additions') = 'array' THEN v_item.value->'additions'
-      ELSE '[]'::jsonb
-    END;
-    FOR v_addition IN
-      SELECT value
-      FROM jsonb_array_elements(v_additions)
-    LOOP
-      INSERT INTO sale_item_additions (
-        sale_item_id,
-        addition_catalog_id,
-        supply_id,
-        name,
-        price,
-        grams,
-        quantity
-      )
-      VALUES (
-        v_sale_item_id,
-        (v_addition.value->>'addition_catalog_id')::UUID,
-        (v_addition.value->>'supply_id')::UUID,
-        v_addition.value->>'name',
-        COALESCE(NULLIF(v_addition.value->>'price', '')::INTEGER, 0),
-        COALESCE(NULLIF(v_addition.value->>'grams', '')::NUMERIC, 0),
-        COALESCE(NULLIF(v_addition.value->>'quantity', '')::INTEGER, 1)
-      );
-    END LOOP;
-  END LOOP;
-  -- Descontar inventario ahora que los sale_items y adiciones ya existen
   PERFORM deduct_inventory_for_sale(p_sale_id);
 END;
 $$;
@@ -2585,7 +1619,7 @@ CREATE TABLE IF NOT EXISTS "public"."transfers" (
     "from_store_id" "uuid" NOT NULL,
     "to_store_id" "uuid" NOT NULL,
     "status" "public"."transfer_status" DEFAULT 'PENDING'::"public"."transfer_status" NOT NULL,
-    "order_date" "date" DEFAULT CURRENT_DATE NOT NULL,
+    "order_date" "date" DEFAULT (("now"() AT TIME ZONE 'America/Bogota'::"text"))::"date" NOT NULL,
     "shipping_date" "date",
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "received_at" timestamp with time zone,
@@ -2653,7 +1687,7 @@ CREATE TABLE IF NOT EXISTS "public"."attendance" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "worker_id" "uuid" NOT NULL,
     "store_id" "uuid" NOT NULL,
-    "date" "date" DEFAULT CURRENT_DATE NOT NULL,
+    "date" "date" DEFAULT (("now"() AT TIME ZONE 'America/Bogota'::"text"))::"date" NOT NULL,
     "scheduled_hours" numeric DEFAULT 0 NOT NULL,
     "actual_hours" numeric DEFAULT 0 NOT NULL,
     "hourly_rate" integer DEFAULT 0 NOT NULL,
@@ -2775,7 +1809,7 @@ CREATE TABLE IF NOT EXISTS "public"."credit_entries" (
     "balance" integer DEFAULT 0 NOT NULL,
     "is_paid" boolean DEFAULT false NOT NULL,
     "paid_date" "date",
-    "date" "date" DEFAULT CURRENT_DATE NOT NULL,
+    "date" "date" DEFAULT (("now"() AT TIME ZONE 'America/Bogota'::"text"))::"date" NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "store_id" "uuid",
     "transfer_id" "uuid",
@@ -2796,7 +1830,7 @@ CREATE TABLE IF NOT EXISTS "public"."credit_payments" (
     "payroll_period_id" "uuid",
     "payroll_entry_id" "uuid",
     "amount" integer NOT NULL,
-    "date" "date" DEFAULT CURRENT_DATE NOT NULL,
+    "date" "date" DEFAULT (("now"() AT TIME ZONE 'America/Bogota'::"text"))::"date" NOT NULL,
     "source" "text" DEFAULT 'PAYROLL'::"text" NOT NULL,
     "notes" "text",
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
@@ -2861,7 +1895,7 @@ ALTER TABLE "public"."demand_estimates" OWNER TO "postgres";
 CREATE TABLE IF NOT EXISTS "public"."expenses" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "store_id" "uuid" NOT NULL,
-    "date" "date" DEFAULT CURRENT_DATE NOT NULL,
+    "date" "date" DEFAULT (("now"() AT TIME ZONE 'America/Bogota'::"text"))::"date" NOT NULL,
     "category" "text" DEFAULT 'Otro'::"text" NOT NULL,
     "description" "text" DEFAULT ''::"text" NOT NULL,
     "amount" integer DEFAULT 0 NOT NULL,
@@ -2878,7 +1912,7 @@ ALTER TABLE "public"."expenses" OWNER TO "postgres";
 CREATE TABLE IF NOT EXISTS "public"."incomes" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "store_id" "uuid" NOT NULL,
-    "date" "date" DEFAULT CURRENT_DATE NOT NULL,
+    "date" "date" DEFAULT (("now"() AT TIME ZONE 'America/Bogota'::"text"))::"date" NOT NULL,
     "category" "text" DEFAULT 'Otro'::"text" NOT NULL,
     "description" "text" DEFAULT ''::"text" NOT NULL,
     "amount" integer DEFAULT 0 NOT NULL,
@@ -3073,7 +2107,9 @@ CREATE TABLE IF NOT EXISTS "public"."production_recipes" (
     "output_grams" numeric NOT NULL,
     "output_bags" integer DEFAULT 1 NOT NULL,
     "is_active" boolean DEFAULT true NOT NULL,
-    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "prep_time_minutes" integer DEFAULT 0,
+    "shelf_life_days" integer DEFAULT 3
 );
 
 
@@ -3096,7 +2132,7 @@ CREATE TABLE IF NOT EXISTS "public"."production_records" (
     "store_id" "uuid" NOT NULL,
     "worker_id" "uuid" NOT NULL,
     "production_recipe_id" "uuid" NOT NULL,
-    "batches" integer DEFAULT 1 NOT NULL,
+    "batches" numeric(10,3) DEFAULT 1 NOT NULL,
     "total_grams_produced" numeric DEFAULT 0 NOT NULL,
     "notes" "text" DEFAULT ''::"text",
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
@@ -3248,7 +2284,7 @@ CREATE TABLE IF NOT EXISTS "public"."shift_portions" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "store_id" "uuid" NOT NULL,
     "product_id" "uuid" NOT NULL,
-    "date" "date" DEFAULT CURRENT_DATE NOT NULL,
+    "date" "date" DEFAULT (("now"() AT TIME ZONE 'America/Bogota'::"text"))::"date" NOT NULL,
     "portions" integer DEFAULT 0 NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
 );
@@ -3324,7 +2360,7 @@ CREATE TABLE IF NOT EXISTS "public"."validations" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "store_id" "uuid" NOT NULL,
     "supply_id" "uuid" NOT NULL,
-    "date" "date" DEFAULT CURRENT_DATE NOT NULL,
+    "date" "date" DEFAULT (("now"() AT TIME ZONE 'America/Bogota'::"text"))::"date" NOT NULL,
     "theoretical_grams" numeric DEFAULT 0 NOT NULL,
     "real_grams" numeric DEFAULT 0 NOT NULL,
     "difference_grams" numeric DEFAULT 0 NOT NULL,
@@ -3337,6 +2373,39 @@ CREATE TABLE IF NOT EXISTS "public"."validations" (
 
 
 ALTER TABLE "public"."validations" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."weekly_production_plan_items" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "plan_id" "uuid" NOT NULL,
+    "recipe_id" "uuid" NOT NULL,
+    "day_of_week" integer NOT NULL,
+    "planned_batches" numeric(10,3) DEFAULT 0 NOT NULL,
+    "planned_bags" numeric(10,3) DEFAULT 0 NOT NULL,
+    "est_minutes" integer DEFAULT 0 NOT NULL,
+    "is_completed" boolean DEFAULT false NOT NULL,
+    "completed_at" timestamp with time zone,
+    "notes" "text" DEFAULT ''::"text",
+    "created_at" timestamp with time zone DEFAULT (("now"() AT TIME ZONE 'America/Bogota'::"text"))::timestamp with time zone NOT NULL
+);
+
+
+ALTER TABLE "public"."weekly_production_plan_items" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."weekly_production_plans" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "store_id" "uuid" NOT NULL,
+    "week_start_date" "date" NOT NULL,
+    "status" "text" DEFAULT 'DRAFT'::"text" NOT NULL,
+    "total_planned_minutes" integer DEFAULT 0 NOT NULL,
+    "notes" "text" DEFAULT ''::"text",
+    "created_at" timestamp with time zone DEFAULT (("now"() AT TIME ZONE 'America/Bogota'::"text"))::timestamp with time zone NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT (("now"() AT TIME ZONE 'America/Bogota'::"text"))::timestamp with time zone NOT NULL
+);
+
+
+ALTER TABLE "public"."weekly_production_plans" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."worker_store_assignments" (
@@ -3659,6 +2728,21 @@ ALTER TABLE ONLY "public"."validations"
 
 
 
+ALTER TABLE ONLY "public"."weekly_production_plan_items"
+    ADD CONSTRAINT "weekly_production_plan_items_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."weekly_production_plans"
+    ADD CONSTRAINT "weekly_production_plans_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."weekly_production_plans"
+    ADD CONSTRAINT "weekly_production_plans_store_id_week_start_date_key" UNIQUE ("store_id", "week_start_date");
+
+
+
 ALTER TABLE ONLY "public"."worker_store_assignments"
     ADD CONSTRAINT "worker_store_assignments_pkey" PRIMARY KEY ("id");
 
@@ -3856,6 +2940,14 @@ CREATE INDEX "idx_transfers_store" ON "public"."transfers" USING "btree" ("to_st
 
 
 CREATE INDEX "idx_validations_store_date" ON "public"."validations" USING "btree" ("store_id", "date");
+
+
+
+CREATE INDEX "idx_weekly_plan_items_plan" ON "public"."weekly_production_plan_items" USING "btree" ("plan_id");
+
+
+
+CREATE INDEX "idx_weekly_plans_store_week" ON "public"."weekly_production_plans" USING "btree" ("store_id", "week_start_date");
 
 
 
@@ -4466,6 +3558,21 @@ ALTER TABLE ONLY "public"."validations"
 
 
 
+ALTER TABLE ONLY "public"."weekly_production_plan_items"
+    ADD CONSTRAINT "weekly_production_plan_items_plan_id_fkey" FOREIGN KEY ("plan_id") REFERENCES "public"."weekly_production_plans"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."weekly_production_plan_items"
+    ADD CONSTRAINT "weekly_production_plan_items_recipe_id_fkey" FOREIGN KEY ("recipe_id") REFERENCES "public"."production_recipes"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."weekly_production_plans"
+    ADD CONSTRAINT "weekly_production_plans_store_id_fkey" FOREIGN KEY ("store_id") REFERENCES "public"."stores"("id") ON DELETE CASCADE;
+
+
+
 ALTER TABLE ONLY "public"."worker_store_assignments"
     ADD CONSTRAINT "worker_store_assignments_store_id_fkey" FOREIGN KEY ("store_id") REFERENCES "public"."stores"("id") ON DELETE CASCADE;
 
@@ -4494,6 +3601,22 @@ CREATE POLICY "Admin manage validations" ON "public"."validations" TO "authentic
 
 
 CREATE POLICY "Admin update writeoffs" ON "public"."inventory_writeoffs" FOR UPDATE TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
+
+
+
+CREATE POLICY "Allow all authenticated users to insert/update weekly_productio" ON "public"."weekly_production_plan_items" TO "authenticated" USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "Allow all authenticated users to insert/update weekly_productio" ON "public"."weekly_production_plans" TO "authenticated" USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "Allow all authenticated users to read weekly_production_plan_it" ON "public"."weekly_production_plan_items" FOR SELECT TO "authenticated" USING (true);
+
+
+
+CREATE POLICY "Allow all authenticated users to read weekly_production_plans" ON "public"."weekly_production_plans" FOR SELECT TO "authenticated" USING (true);
 
 
 
@@ -4534,10 +3657,6 @@ CREATE POLICY "Authenticated insert writeoffs" ON "public"."inventory_writeoffs"
 
 
 
-CREATE POLICY "Authenticated manage cash_audit_entries" ON "public"."cash_audit_entries" TO "authenticated" USING (true) WITH CHECK (true);
-
-
-
 CREATE POLICY "Authenticated manage shift_portions" ON "public"."shift_portions" USING (("auth"."role"() = 'authenticated'::"text")) WITH CHECK (("auth"."role"() = 'authenticated'::"text"));
 
 
@@ -4547,10 +3666,6 @@ CREATE POLICY "Authenticated read accounting_period_locks" ON "public"."accounti
 
 
 CREATE POLICY "Authenticated read addition_catalog" ON "public"."addition_catalog" FOR SELECT TO "authenticated" USING (true);
-
-
-
-CREATE POLICY "Authenticated read cash_audit_entries" ON "public"."cash_audit_entries" FOR SELECT TO "authenticated" USING (true);
 
 
 
@@ -4711,6 +3826,21 @@ CREATE POLICY "attendance_policy" ON "public"."attendance" TO "authenticated" US
 ALTER TABLE "public"."cash_audit_entries" ENABLE ROW LEVEL SECURITY;
 
 
+CREATE POLICY "cash_audit_manage_policy" ON "public"."cash_audit_entries" TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
+
+
+
+CREATE POLICY "cash_audit_select_policy" ON "public"."cash_audit_entries" FOR SELECT TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id"));
+
+
+
+ALTER TABLE "public"."cash_closings" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "cash_closings_policy" ON "public"."cash_closings" TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
+
+
+
 CREATE POLICY "cash_closings_select_policy" ON "public"."cash_closings" FOR SELECT USING (true);
 
 
@@ -4824,11 +3954,22 @@ CREATE POLICY "payroll_periods_policy" ON "public"."payroll_periods" TO "authent
 
 
 
+ALTER TABLE "public"."physical_count_items" ENABLE ROW LEVEL SECURITY;
+
+
 CREATE POLICY "physical_count_items_delete_policy" ON "public"."physical_count_items" FOR DELETE USING (true);
 
 
 
 CREATE POLICY "physical_count_items_insert_policy" ON "public"."physical_count_items" FOR INSERT WITH CHECK (true);
+
+
+
+CREATE POLICY "physical_count_items_policy" ON "public"."physical_count_items" TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."physical_counts" "pc"
+  WHERE (("pc"."id" = "physical_count_items"."physical_count_id") AND "public"."is_admin_or_assigned_local"("pc"."store_id"))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."physical_counts" "pc"
+  WHERE (("pc"."id" = "physical_count_items"."physical_count_id") AND "public"."is_admin_or_assigned_local"("pc"."store_id")))));
 
 
 
@@ -4840,11 +3981,18 @@ CREATE POLICY "physical_count_items_update_policy" ON "public"."physical_count_i
 
 
 
+ALTER TABLE "public"."physical_counts" ENABLE ROW LEVEL SECURITY;
+
+
 CREATE POLICY "physical_counts_delete_policy" ON "public"."physical_counts" FOR DELETE USING (true);
 
 
 
 CREATE POLICY "physical_counts_insert_policy" ON "public"."physical_counts" FOR INSERT WITH CHECK (true);
+
+
+
+CREATE POLICY "physical_counts_policy" ON "public"."physical_counts" TO "authenticated" USING ("public"."is_admin_or_assigned_local"("store_id")) WITH CHECK ("public"."is_admin_or_assigned_local"("store_id"));
 
 
 
@@ -4905,7 +4053,7 @@ CREATE POLICY "production_record_items_insert_policy" ON "public"."production_re
 ALTER TABLE "public"."production_records" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "production_records_insert_policy" ON "public"."production_records" FOR INSERT TO "authenticated" WITH CHECK ((("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'ADMIN_LOCAL'::"public"."user_role"])) OR ("public"."get_worker_role"() = ANY (ARRAY['PREPARADOR'::"public"."worker_role", 'ADMINISTRADOR'::"public"."worker_role", 'COORDINADOR'::"public"."worker_role"]))));
+CREATE POLICY "production_records_insert_policy" ON "public"."production_records" FOR INSERT TO "authenticated" WITH CHECK ((("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'RODY'::"public"."user_role", 'ADMIN_LOCAL'::"public"."user_role", 'PREPARADOR'::"public"."user_role"])) OR ("public"."get_worker_role"() = ANY (ARRAY['PREPARADOR'::"public"."worker_role", 'ADMINISTRADOR'::"public"."worker_role", 'COORDINADOR'::"public"."worker_role", 'ESTIRADOR'::"public"."worker_role", 'HORNERO'::"public"."worker_role"]))));
 
 
 
@@ -5019,11 +4167,29 @@ CREATE POLICY "supplies_policy" ON "public"."supplies" TO "authenticated" USING 
 
 
 
+ALTER TABLE "public"."transfer_items" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "transfer_items_policy" ON "public"."transfer_items" TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."transfers" "t"
+  WHERE (("t"."id" = "transfer_items"."transfer_id") AND "public"."can_access_transfer"("t"."from_store_id", "t"."to_store_id"))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."transfers" "t"
+  WHERE (("t"."id" = "transfer_items"."transfer_id") AND "public"."can_access_transfer"("t"."from_store_id", "t"."to_store_id")))));
+
+
+
 CREATE POLICY "transfer_items_select_policy" ON "public"."transfer_items" FOR SELECT USING (true);
 
 
 
 CREATE POLICY "transfer_items_write_policy" ON "public"."transfer_items" USING (true) WITH CHECK (true);
+
+
+
+ALTER TABLE "public"."transfers" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "transfers_policy" ON "public"."transfers" TO "authenticated" USING ("public"."can_access_transfer"("from_store_id", "to_store_id")) WITH CHECK ("public"."can_access_transfer"("from_store_id", "to_store_id"));
 
 
 
@@ -5036,6 +4202,12 @@ CREATE POLICY "transfers_write_policy" ON "public"."transfers" USING (true) WITH
 
 
 ALTER TABLE "public"."validations" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."weekly_production_plan_items" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."weekly_production_plans" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."worker_store_assignments" ENABLE ROW LEVEL SECURITY;
@@ -5069,6 +4241,10 @@ CREATE POLICY "writeoffs_policy" ON "public"."inventory_writeoffs" TO "authentic
 
 
 ALTER PUBLICATION "supabase_realtime" OWNER TO "postgres";
+
+
+
+
 
 
 GRANT USAGE ON SCHEMA "public" TO "postgres";
@@ -5231,21 +4407,9 @@ GRANT ALL ON FUNCTION "public"."add_purchase_to_raw_inventory"() TO "service_rol
 
 
 
-GRANT ALL ON FUNCTION "public"."authenticate_worker"("worker_name" "text", "worker_pin" "text") TO "anon";
-GRANT ALL ON FUNCTION "public"."authenticate_worker"("worker_name" "text", "worker_pin" "text") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."authenticate_worker"("worker_name" "text", "worker_pin" "text") TO "service_role";
-
-
-
 GRANT ALL ON FUNCTION "public"."can_access_transfer"("from_store" "uuid", "to_store" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."can_access_transfer"("from_store" "uuid", "to_store" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."can_access_transfer"("from_store" "uuid", "to_store" "uuid") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."debug_rls_check"("target_store_id" "uuid") TO "anon";
-GRANT ALL ON FUNCTION "public"."debug_rls_check"("target_store_id" "uuid") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."debug_rls_check"("target_store_id" "uuid") TO "service_role";
 
 
 
@@ -5285,7 +4449,7 @@ GRANT ALL ON FUNCTION "public"."get_worker_role"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."is_accounting_period_locked"("p_store_id" "uuid", "p_date" "date") TO "anon";
+REVOKE ALL ON FUNCTION "public"."is_accounting_period_locked"("p_store_id" "uuid", "p_date" "date") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."is_accounting_period_locked"("p_store_id" "uuid", "p_date" "date") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."is_accounting_period_locked"("p_store_id" "uuid", "p_date" "date") TO "service_role";
 
@@ -5357,7 +4521,7 @@ GRANT ALL ON FUNCTION "public"."prevent_non_admin_supply_commercial_update"() TO
 
 
 
-GRANT ALL ON FUNCTION "public"."raise_locked_period_error"() TO "anon";
+REVOKE ALL ON FUNCTION "public"."raise_locked_period_error"() FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."raise_locked_period_error"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."raise_locked_period_error"() TO "service_role";
 
@@ -5369,37 +4533,7 @@ GRANT ALL ON FUNCTION "public"."receive_transfer_with_billing"("p_transfer_id" "
 
 
 
-GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_items" "jsonb") TO "anon";
-GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_items" "jsonb") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_items" "jsonb") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_items" "jsonb") TO "anon";
-GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_items" "jsonb") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_items" "jsonb") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb") TO "anon";
-GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean) TO "anon";
-GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean) TO "authenticated";
-GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean) TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid", "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_items" "jsonb") TO "anon";
-GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid", "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_items" "jsonb") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid", "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_items" "jsonb") TO "service_role";
-
-
-
-GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid") TO "anon";
+REVOKE ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid") TO "service_role";
 
@@ -5510,7 +4644,6 @@ GRANT ALL ON TABLE "public"."attendance" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."cash_audit_entries" TO "anon";
 GRANT ALL ON TABLE "public"."cash_audit_entries" TO "authenticated";
 GRANT ALL ON TABLE "public"."cash_audit_entries" TO "service_role";
 
@@ -5747,6 +4880,18 @@ GRANT ALL ON TABLE "public"."transfer_items" TO "service_role";
 GRANT ALL ON TABLE "public"."validations" TO "anon";
 GRANT ALL ON TABLE "public"."validations" TO "authenticated";
 GRANT ALL ON TABLE "public"."validations" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."weekly_production_plan_items" TO "anon";
+GRANT ALL ON TABLE "public"."weekly_production_plan_items" TO "authenticated";
+GRANT ALL ON TABLE "public"."weekly_production_plan_items" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."weekly_production_plans" TO "anon";
+GRANT ALL ON TABLE "public"."weekly_production_plans" TO "authenticated";
+GRANT ALL ON TABLE "public"."weekly_production_plans" TO "service_role";
 
 
 

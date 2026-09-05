@@ -143,7 +143,7 @@ export default function BalancesScreen() {
               )}
               <Divider style={{ marginVertical: 8 }} />
               <View style={styles.row}>
-                <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>Utilidad Neta</Text>
+                <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>Flujo Neto de Caja</Text>
                 <Text variant="titleMedium" style={{ fontWeight: 'bold', color: margin >= 0 ? '#388E3C' : '#D32F2F' }}>
                   {formatCOP(margin)}
                 </Text>

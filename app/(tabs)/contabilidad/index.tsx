@@ -9,9 +9,9 @@ import { LoadingIndicator } from '../../../src/components/common/LoadingIndicato
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
-import { Sale, Expense, Purchase, Transfer, CashClosing, CashAuditEntry, DenominationCount, Income } from '../../../src/domain/entities';
+import { Sale, Expense, Purchase, Transfer, CashClosing, CashAuditEntry, DenominationCount, Income, Supply } from '../../../src/domain/entities';
 import { DenominationCounter } from '../../../src/components/ventas/DenominationCounter';
-import { InventoryLevel, PaymentMethod, ClosingStatus } from '../../../src/domain/enums';
+import { InventoryLevel, PaymentMethod, ClosingStatus, UserRole } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate, formatDateTime, toISODate, toISODateTZ, todayColombia } from '../../../src/utils/dates';
 import { supabase } from '../../../src/lib/supabase';
@@ -62,6 +62,16 @@ interface CashAuditRow {
   bankTotal: number;
   cartera: number;
 }
+
+export interface StoreStockValuation {
+  storeId: string;
+  storeName: string;
+  isProductionCenter: boolean;
+  itemCount: number;
+  totalValueCop: number;
+}
+
+export type ContabilidadView = 'general' | 'diaria' | 'rentabilidad' | 'cierres';
 
 type ExcelCell = string | number | null | { value: string | number | null; style?: string };
 
@@ -188,13 +198,15 @@ export default function ContabilidadScreen() {
   } = useDI();
   const { selectedStoreId, stores, userRole, setSelectedStore } = useAppStore();
   const selectedStore = stores.find((s) => s.id === selectedStoreId);
-  const isGerente = userRole === 'GERENTE';
+  const isGerente = userRole === UserRole.GERENTE;
+  const isAdminLocal = userRole === UserRole.ADMIN_LOCAL;
+  const canViewPL = isGerente || isAdminLocal;
 
   type ContaPeriod = 'hoy' | 'ayer' | 'semana' | 'mes' | 'año' | 'rango';
   const [period, setPeriod] = useState<ContaPeriod>('año');
   const [filterPeriod, setFilterPeriod] = useState<ContaPeriod>('año');
   const [appliedStoreId, setAppliedStoreId] = useState(
-    userRole === 'GERENTE' ? 'consolidado' : selectedStoreId
+    userRole === UserRole.GERENTE ? 'consolidado' : selectedStoreId
   );
   const appliedStore = stores.find((s) => s.id === appliedStoreId) ?? selectedStore;
   const isProductionCenter = appliedStore?.isProductionCenter ?? false;
@@ -203,7 +215,37 @@ export default function ContabilidadScreen() {
   const [rangeEndDraft, setRangeEndDraft] = useState(initialRange.end);
   const [rangeStartDate, setRangeStartDate] = useState(initialRange.start);
   const [rangeEndDate, setRangeEndDate] = useState(initialRange.end);
-  const [activeView, setActiveView] = useState<'general' | 'diaria' | 'rentabilidad'>('general');
+  const now = new Date();
+  const MONTH_NAMES = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+  ];
+  const [closingMonth, setClosingMonth] = useState(now.getMonth());
+  const [closingYear, setClosingYear] = useState(now.getFullYear());
+
+  const goToPreviousClosingMonth = () => {
+    if (closingMonth === 0) {
+      setClosingMonth(11);
+      setClosingYear((y) => y - 1);
+    } else {
+      setClosingMonth((m) => m - 1);
+    }
+  };
+
+  const goToNextClosingMonth = () => {
+    if (closingMonth === 11) {
+      setClosingMonth(0);
+      setClosingYear((y) => y + 1);
+    } else {
+      setClosingMonth((m) => m + 1);
+    }
+  };
+
+  const isClosingMonthFuture =
+    closingYear > now.getFullYear() ||
+    (closingYear === now.getFullYear() && closingMonth >= now.getMonth());
+
+  const [activeView, setActiveView] = useState<ContabilidadView>('general');
 
   const [ingresos, setIngresos] = useState(0);
   const [egresos, setEgresos] = useState(0);
@@ -231,6 +273,17 @@ export default function ContabilidadScreen() {
   const [reportPurchases, setReportPurchases] = useState<Purchase[]>([]);
   const [reportIncomingTransfers, setReportIncomingTransfers] = useState<Transfer[]>([]);
   const [reportOutgoingTransfers, setReportOutgoingTransfers] = useState<Transfer[]>([]);
+  const [reportClosings, setReportClosings] = useState<CashClosing[]>([]);
+  const [storeStockValuations, setStoreStockValuations] = useState<StoreStockValuation[]>([]);
+  const [advancesTotal, setAdvancesTotal] = useState(0);
+  const [cashSalesSum, setCashSalesSum] = useState(0);
+  const [bankSalesSum, setBankSalesSum] = useState(0);
+  const [otherIncomesSum, setOtherIncomesSum] = useState(0);
+  const [suppliesExpensesSum, setSuppliesExpensesSum] = useState(0);
+  const [payrollExpensesSum, setPayrollExpensesSum] = useState(0);
+  const [operationsExpensesSum, setOperationsExpensesSum] = useState(0);
+  const [cashFlowExpensesByCategory, setCashFlowExpensesByCategory] = useState<{ category: string; total: number }[]>([]);
+  const [operatingExpensesByCategory, setOperatingExpensesByCategory] = useState<{ category: string; total: number }[]>([]);
   const [inventoryValuationRows, setInventoryValuationRows] = useState<InventoryValuationRow[]>([]);
   const [writeoffValuationRows, setWriteoffValuationRows] = useState<WriteoffValuationRow[]>([]);
   const [cashAuditRows, setCashAuditRows] = useState<CashAuditRow[]>([]);
@@ -272,7 +325,6 @@ export default function ContabilidadScreen() {
   const [auditCartera, setAuditCartera] = useState(0);
   const [dbCartera, setDbCartera] = useState(0);
   const [dbCuentasPorPagar, setDbCuentasPorPagar] = useState(0);
-  const [reportClosings, setReportClosings] = useState<CashClosing[]>([]);
   const [openingsMap, setOpeningsMap] = useState<Record<string, number>>({});
 
   // States for general cash breakdown
@@ -328,7 +380,12 @@ export default function ContabilidadScreen() {
       let startDate: string;
       let endDate: string;
 
-      if (period === 'hoy') {
+      if (activeView === 'cierres') {
+        const firstDay = new Date(closingYear, closingMonth, 1);
+        const lastDay = new Date(closingYear, closingMonth + 1, 0);
+        startDate = toISODate(firstDay);
+        endDate = toISODate(lastDay);
+      } else if (period === 'hoy') {
         startDate = today;
         endDate = today;
       } else if (period === 'ayer') {
@@ -364,16 +421,24 @@ export default function ContabilidadScreen() {
       let outgoingTransfers: Transfer[] = [];
       let storeInventory: any[] = [];
       let approvedWriteoffs: any[] = [];
+      let loadedClosings: CashClosing[] = [];
 
       if (appliedStoreId === 'consolidado') {
         const fetchPromises = stores.map(async (store) => {
+          const invPromise = store.isProductionCenter
+            ? Promise.all([
+                inventoryRepo.getByStore(store.id, InventoryLevel.RAW),
+                inventoryRepo.getByStore(store.id, InventoryLevel.PROCESSED),
+              ]).then(([r, p]) => [...r, ...p])
+            : inventoryRepo.getByStore(store.id, InventoryLevel.STORE);
+
           const [s, e, p, inc, out, inv, wo, closings, audits, inco] = await Promise.all([
             saleService.getSalesByDateRange(store.id, startDate, endDateTime),
             expenseRepo.getByDateRange(store.id, startDate, endDateTime),
             purchaseRepo.getByDateRange(startDate, endDateTime, store.id),
             transferRepo.getReceivedByDestination(store.id, startDate, endDate),
             transferRepo.getReceivedByOrigin(store.id, startDate, endDate),
-            inventoryRepo.getByStore(store.id, InventoryLevel.STORE),
+            invPromise,
             writeoffRepo.getApprovedByStoreAndDateRange(store.id, startDate, endDate),
             cashClosingService.getClosingsByDateRange(store.id, startDate, endDate),
             cashAuditRepo.getByDateRange(store.id, startDate, endDate),
@@ -394,15 +459,23 @@ export default function ContabilidadScreen() {
           storeInventory = [...storeInventory, ...res.inv];
           approvedWriteoffs = [...approvedWriteoffs, ...res.wo];
           allIncomes = [...allIncomes, ...res.inco];
+          loadedClosings = [...loadedClosings, ...res.closings];
         }
       } else {
+        const invPromise = isProductionCenter
+          ? Promise.all([
+              inventoryRepo.getByStore(appliedStoreId, InventoryLevel.RAW),
+              inventoryRepo.getByStore(appliedStoreId, InventoryLevel.PROCESSED),
+            ]).then(([r, p]) => [...r, ...p])
+          : inventoryRepo.getByStore(appliedStoreId, InventoryLevel.STORE);
+
         const [s, e, p, inc, out, inv, wo, closings, audits, inco] = await Promise.all([
           saleService.getSalesByDateRange(appliedStoreId, startDate, endDateTime),
           expenseRepo.getByDateRange(appliedStoreId, startDate, endDateTime),
           purchaseRepo.getByDateRange(startDate, endDateTime, appliedStoreId),
           transferRepo.getReceivedByDestination(appliedStoreId, startDate, endDate),
           transferRepo.getReceivedByOrigin(appliedStoreId, startDate, endDate),
-          inventoryRepo.getByStore(appliedStoreId, InventoryLevel.STORE),
+          invPromise,
           writeoffRepo.getApprovedByStoreAndDateRange(appliedStoreId, startDate, endDate),
           cashClosingService.getClosingsByDateRange(appliedStoreId, startDate, endDate),
           cashAuditRepo.getByDateRange(appliedStoreId, startDate, endDate),
@@ -416,7 +489,13 @@ export default function ContabilidadScreen() {
         storeInventory = inv;
         approvedWriteoffs = wo;
         allIncomes = inco;
+        loadedClosings = closings;
       }
+
+      const rawAllExpenses = [...allExpenses];
+      const advancesOnly = rawAllExpenses.filter((exp) => exp.category === 'Adelanto');
+      const totalAdv = advancesOnly.reduce((sum, e) => sum + e.amount, 0);
+      setAdvancesTotal(totalAdv);
 
       allExpenses = allExpenses.filter((exp) => exp.category !== 'Adelanto');
 
@@ -438,29 +517,38 @@ export default function ContabilidadScreen() {
       const suppliesById = new Map(supplies.map((supply) => [supply.id, supply]));
       const productsById = new Map(products.map((product) => [product.id, product]));
 
+      const getSupplyUnitPrice = (supply: Supply | undefined, forStoreIsProd: boolean) => {
+        if (!supply) return 0;
+        if (forStoreIsProd) {
+          return supply.productionCostCop > 0 ? supply.productionCostCop : supply.commercialPriceCop;
+        }
+        return supply.commercialPriceCop > 0 ? supply.commercialPriceCop : supply.productionCostCop;
+      };
+
       const valueQuantityAtStorePrice = (supplyId: string | undefined, quantity: number) => {
         if (!supplyId || quantity <= 0) return 0;
         const supply = suppliesById.get(supplyId);
-        if (!supply?.isBillableToStore || supply.gramsPerBag <= 0 || supply.commercialPriceCop <= 0) {
-          return 0;
-        }
-        return (quantity / supply.gramsPerBag) * supply.commercialPriceCop;
+        if (!supply || supply.gramsPerBag <= 0) return 0;
+        const unitPrice = getSupplyUnitPrice(supply, isProductionCenter);
+        if (unitPrice <= 0) return 0;
+        return (quantity / supply.gramsPerBag) * unitPrice;
       };
 
       const currentInventoryValue = storeInventory.reduce((sum, item) => {
         const supply = suppliesById.get(item.supplyId);
-        if (!supply?.isBillableToStore || supply.gramsPerBag <= 0 || supply.commercialPriceCop <= 0) {
-          return sum;
-        }
+        if (!supply || supply.gramsPerBag <= 0) return sum;
+        const unitPrice = getSupplyUnitPrice(supply, isProductionCenter);
+        if (unitPrice <= 0) return sum;
         const equivalentBags = Math.max(item.quantityGrams, 0) / supply.gramsPerBag;
-        return sum + equivalentBags * supply.commercialPriceCop;
+        return sum + equivalentBags * unitPrice;
       }, 0);
+
       const currentInventoryRows = storeInventory
         .map((item): InventoryValuationRow | null => {
           const supply = suppliesById.get(item.supplyId);
-          if (!supply?.isBillableToStore || supply.gramsPerBag <= 0 || supply.commercialPriceCop <= 0) {
-            return null;
-          }
+          if (!supply || supply.gramsPerBag <= 0) return null;
+          const unitPrice = getSupplyUnitPrice(supply, isProductionCenter);
+          if (unitPrice <= 0) return null;
           const positiveGrams = Math.max(item.quantityGrams, 0);
           const equivalentBags = positiveGrams / supply.gramsPerBag;
           return {
@@ -468,15 +556,15 @@ export default function ContabilidadScreen() {
             quantityGrams: positiveGrams,
             gramsPerBag: supply.gramsPerBag,
             equivalentBags,
-            unitPriceCop: supply.commercialPriceCop,
-            totalValueCop: equivalentBags * supply.commercialPriceCop,
+            unitPriceCop: unitPrice,
+            totalValueCop: equivalentBags * unitPrice,
           };
         })
         .filter((row): row is InventoryValuationRow => !!row && row.quantityGrams > 0)
         .sort((a, b) => b.totalValueCop - a.totalValueCop);
 
       const recipesByProductId = new Map(recipes.map((recipe) => [recipe.productId, recipe]));
-      const totalSoldInventoryCost = sales.reduce((saleSum, sale) => {
+      const salesSoldCost = sales.reduce((saleSum, sale) => {
         if ((sale.totalCostCop ?? 0) > 0) {
           return saleSum + (sale.totalCostCop ?? 0);
         }
@@ -513,7 +601,25 @@ export default function ContabilidadScreen() {
         return saleSum + itemCost + legacyPackagingCost;
       }, 0);
 
-      const currentWriteoffRows = approvedWriteoffs
+      const outgoingTransfersCost = outgoingTransfers.reduce((sum, t) => {
+        if ((t.totalCostCop ?? 0) > 0) return sum + t.totalCostCop!;
+        const itemsCost = (t.items ?? []).reduce((iSum, item) => {
+          if ((item.totalCostCopSnapshot ?? 0) > 0) return iSum + item.totalCostCopSnapshot!;
+          const sup = suppliesById.get(item.supplyId);
+          const uCost = (sup?.productionCostCop ?? 0) > 0 ? sup!.productionCostCop : (sup?.commercialPriceCop ?? 0);
+          return iSum + (item.bagsToSend * uCost);
+        }, 0);
+        return sum + itemsCost;
+      }, 0);
+
+      const totalSoldInventoryCost = isProductionCenter
+        ? outgoingTransfersCost
+        : salesSoldCost;
+
+      const cpStore = stores.find((s) => s.isProductionCenter);
+      const cpStoreId = cpStore?.id;
+
+      const currentWriteoffRows = (appliedStoreId === 'consolidado' ? approvedWriteoffs.filter(w => w.storeId !== cpStoreId) : approvedWriteoffs)
         .map((writeoff): WriteoffValuationRow => {
           let supplyName = 'Insumo';
           let totalValueCop = 0;
@@ -552,8 +658,13 @@ export default function ContabilidadScreen() {
         0,
       );
 
-      const periodIncome = totalRevenue + totalOutgoingTransfers;
-      const periodExpenses = totalExpenses + totalPurchases + totalIncomingTransfers;
+      const periodIncome = isProductionCenter
+        ? (totalOutgoingTransfers + allIncomes.filter(i => i.category !== 'Traslado' && i.category !== 'Abono Cartera').reduce((sum, inc) => sum + inc.amount, 0))
+        : (totalRevenue + allIncomes.filter(i => i.category !== 'Traslado' && i.category !== 'Abono Cartera').reduce((sum, inc) => sum + inc.amount, 0));
+
+      const periodExpenses = appliedStoreId === 'consolidado'
+        ? allExpenses.filter(e => e.category !== 'Traslado').reduce((sum, e) => sum + e.amount, 0)
+        : totalExpenses;
       const auditYear = String(new Date(`${endDate}T12:00:00`).getFullYear());
       const auditYearStart = `${auditYear}-01-01`;
       let auditRows: CashAuditRow[] = [];
@@ -866,9 +977,115 @@ export default function ContabilidadScreen() {
         }
         auditRows = calculatedAudits;
       } else {
+        // Soporte Consolidado Global para Caja General
+        const allCredits = await creditRepo.getAll();
+        const totalCarteraConsolidada = allCredits.reduce((sum, c) => sum + (c.balance > 0 ? c.balance : 0), 0);
+        setDbCartera(totalCarteraConsolidada);
+        setDbCuentasPorPagar(0);
         setGeneralIngresos(periodIncome);
         setGeneralEgresos(periodExpenses);
+
+        const auditsRes = await supabase
+          .from('cash_audit_entries')
+          .select('*')
+          .gte('date', startDate)
+          .lte('date', endDate)
+          .order('date', { ascending: false });
+
+        const rawAudits = (auditsRes.data || []) as any[];
+        const auditsByDateMap = new Map<string, CashAuditRow>();
+        for (const a of rawAudits) {
+          const prev = auditsByDateMap.get(a.date);
+          if (prev) {
+            prev.actualTotal += a.actual_total ?? 0;
+            prev.bankTotal += a.bank_total ?? 0;
+            prev.cartera += a.cartera ?? 0;
+            prev.openingBase += a.opening_base ?? 0;
+            prev.expectedTotal += a.expected_total ?? 0;
+            prev.expenses += a.expenses ?? 0;
+            prev.theoreticalTotal += a.theoretical_total ?? 0;
+            prev.discrepancy += a.discrepancy ?? 0;
+            prev.bills100k += a.bills_100k ?? 0;
+            prev.bills50k += a.bills_50k ?? 0;
+            prev.bills20k += a.bills_20k ?? 0;
+            prev.bills10k += a.bills_10k ?? 0;
+            prev.bills5k += a.bills_5k ?? 0;
+            prev.bills2k += a.bills_2k ?? 0;
+            prev.coins += a.coins ?? 0;
+          } else {
+            auditsByDateMap.set(a.date, {
+              date: a.date,
+              status: 'AUDIT',
+              source: 'MANUAL',
+              openingBase: a.opening_base ?? 0,
+              expectedTotal: a.expected_total ?? 0,
+              expenses: a.expenses ?? 0,
+              theoreticalTotal: a.theoretical_total ?? 0,
+              actualTotal: a.actual_total ?? 0,
+              discrepancy: a.discrepancy ?? 0,
+              notes: 'Consolidado',
+              bills100k: a.bills_100k ?? 0,
+              bills50k: a.bills_50k ?? 0,
+              bills20k: a.bills_20k ?? 0,
+              bills10k: a.bills_10k ?? 0,
+              bills5k: a.bills_5k ?? 0,
+              bills2k: a.bills_2k ?? 0,
+              coins: a.coins ?? 0,
+              bankTotal: a.bank_total ?? 0,
+              cartera: a.cartera ?? 0,
+            });
+          }
+        }
+        auditRows = Array.from(auditsByDateMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+        const latestAudit = auditRows[auditRows.length - 1];
+        if (latestAudit) {
+          setLatestTheoreticalCash(Math.max(0, latestAudit.actualTotal - latestAudit.bankTotal - latestAudit.cartera));
+          setLatestTheoreticalBank(latestAudit.bankTotal);
+          setLatestTheoreticalCartera(totalCarteraConsolidada);
+          setLatestTheoreticalBase(latestAudit.openingBase);
+        } else {
+          setLatestTheoreticalCash(Math.max(0, periodIncome - periodExpenses));
+          setLatestTheoreticalBank(0);
+          setLatestTheoreticalCartera(totalCarteraConsolidada);
+          setLatestTheoreticalBase(300000);
+        }
       }
+
+      // Flujo de Entradas estructurado
+      const cashSales = sales.reduce((sum, s) => sum + (s.cashAmount || (s.paymentMethod === PaymentMethod.EFECTIVO ? s.totalAmount : 0)), 0);
+      const bankSales = sales.reduce((sum, s) => sum + (s.bankAmount || (s.paymentMethod !== PaymentMethod.EFECTIVO ? s.totalAmount : 0)), 0);
+      const otherIncomes = allIncomes
+        .filter((inc) => inc.category !== 'Traslado' && inc.category !== 'Abono Cartera')
+        .reduce((sum, inc) => sum + inc.amount, 0);
+      const cpTransferIncomes = isProductionCenter ? outgoingTransfers.reduce((sum, t) => sum + (t.totalPriceCop ?? 0), 0) : 0;
+      setCashSalesSum(cashSales);
+      setBankSalesSum(bankSales + cpTransferIncomes);
+      setOtherIncomesSum(otherIncomes);
+
+      // Flujo de Salidas estructurado
+      const isPayrollCat = (cat: string) => {
+        const c = (cat || '').toLowerCase();
+        return c.includes('nómina') || c.includes('nomina') || c.includes('turno') || c.includes('sueldo') || c.includes('salario') || c.includes('propina');
+      };
+      const isSupplyCat = (cat: string) => {
+        const c = (cat || '').toLowerCase();
+        return c.includes('insumo') || c.includes('compra') || c.includes('traslado') || c.includes('materia prima') || c.includes('proveedor');
+      };
+
+      const supplyExp = appliedStoreId === 'consolidado'
+        ? rawAllExpenses.filter(e => isSupplyCat(e.category) && e.category !== 'Traslado' && e.category !== 'Adelanto').reduce((sum, e) => sum + e.amount, 0)
+        : rawAllExpenses.filter(e => isSupplyCat(e.category) && e.category !== 'Adelanto').reduce((sum, e) => sum + e.amount, 0);
+
+      const payrollExp = rawAllExpenses.filter(e => isPayrollCat(e.category) && e.category !== 'Adelanto').reduce((sum, e) => sum + e.amount, 0);
+
+      const opsExp = appliedStoreId === 'consolidado'
+        ? rawAllExpenses.filter(e => !isSupplyCat(e.category) && !isPayrollCat(e.category) && e.category !== 'Traslado' && e.category !== 'Adelanto').reduce((sum, e) => sum + e.amount, 0)
+        : rawAllExpenses.filter(e => !isSupplyCat(e.category) && !isPayrollCat(e.category) && e.category !== 'Adelanto').reduce((sum, e) => sum + e.amount, 0);
+
+      setSuppliesExpensesSum(supplyExp);
+      setPayrollExpensesSum(payrollExp);
+      setOperationsExpensesSum(opsExp);
 
       const isStockOrSupplyExpense = (category: string) => {
         const cat = (category || '').trim().toLowerCase();
@@ -882,11 +1099,68 @@ export default function ContabilidadScreen() {
         );
       };
 
-      const operationalExpensesList = allExpenses.filter((e) => !isStockOrSupplyExpense(e.category));
+      const operationalExpensesList = appliedStoreId === 'consolidado'
+        ? allExpenses.filter((e) => !isStockOrSupplyExpense(e.category) && e.storeId !== cpStoreId)
+        : allExpenses.filter((e) => !isStockOrSupplyExpense(e.category));
       const fixed = operationalExpensesList.filter((e) => e.isFixed).reduce((sum, e) => sum + e.amount, 0);
       const variable = operationalExpensesList.filter((e) => !e.isFixed).reduce((sum, e) => sum + e.amount, 0);
       setFixedExpenses(fixed);
       setVariableExpenses(variable);
+
+      // Desglose de todos los egresos para la vista Cierres
+      const cashFlowCatMap: Record<string, number> = {};
+      for (const e of rawAllExpenses.filter((e) => e.category !== 'Adelanto')) {
+        cashFlowCatMap[e.category] = (cashFlowCatMap[e.category] || 0) + e.amount;
+      }
+      const sortedCashFlowCats = Object.entries(cashFlowCatMap)
+        .map(([category, total]) => ({ category, total }))
+        .sort((a, b) => b.total - a.total);
+      setCashFlowExpensesByCategory(sortedCashFlowCats);
+
+      // Desglose de gastos operativos para la vista Rentabilidad
+      const opCatMap: Record<string, number> = {};
+      for (const e of operationalExpensesList) {
+        opCatMap[e.category] = (opCatMap[e.category] || 0) + e.amount;
+      }
+      const sortedOpCats = Object.entries(opCatMap)
+        .map(([category, total]) => ({ category, total }))
+        .sort((a, b) => b.total - a.total);
+      setOperatingExpensesByCategory(sortedOpCats);
+
+      // Valorización de inventario para todas las sedes (Vista Balances & Stock)
+      try {
+        const allInventoryItems = await inventoryRepo.getAll();
+        const valuationsMap: Record<string, { count: number; total: number }> = {};
+        for (const invItem of allInventoryItems) {
+          if (!valuationsMap[invItem.storeId]) {
+            valuationsMap[invItem.storeId] = { count: 0, total: 0 };
+          }
+          const sup = suppliesById.get(invItem.supplyId);
+          if (sup && sup.isActive !== false && sup.gramsPerBag > 0 && invItem.quantityGrams > 0) {
+            const isCP = stores.find((st) => st.id === invItem.storeId)?.isProductionCenter ?? false;
+            const uPrice = getSupplyUnitPrice(sup, isCP);
+            if (uPrice > 0) {
+              valuationsMap[invItem.storeId].count += 1;
+              valuationsMap[invItem.storeId].total += (invItem.quantityGrams / sup.gramsPerBag) * uPrice;
+            }
+          }
+        }
+
+        const allStoreStockList: StoreStockValuation[] = stores
+          .filter((st) => st.isActive)
+          .map((st) => ({
+            storeId: st.id,
+            storeName: st.name,
+            isProductionCenter: st.isProductionCenter,
+            itemCount: valuationsMap[st.id]?.count ?? 0,
+            totalValueCop: Math.round(valuationsMap[st.id]?.total ?? 0),
+          }))
+          .sort((a, b) => (b.isProductionCenter ? 1 : 0) - (a.isProductionCenter ? 1 : 0));
+
+        setStoreStockValuations(allStoreStockList);
+      } catch (err) {
+        console.warn('Error calculando valorización de todas las sedes:', err);
+      }
 
       setSalesIncome(totalRevenue);
       setInternalTransferIncome(totalOutgoingTransfers);
@@ -905,6 +1179,7 @@ export default function ContabilidadScreen() {
       setReportPurchases(purchases);
       setReportIncomingTransfers(incomingTransfers);
       setReportOutgoingTransfers(isProductionCenter || appliedStoreId === 'consolidado' ? outgoingTransfers : []);
+      setReportClosings(loadedClosings.sort((a: CashClosing, b: CashClosing) => b.date.localeCompare(a.date)));
       setInventoryValuationRows(currentInventoryRows);
       setWriteoffValuationRows(currentWriteoffRows);
       setCashAuditRows([...auditRows].reverse());
@@ -936,14 +1211,16 @@ export default function ContabilidadScreen() {
           setClosingActual(closing?.actualTotal ?? null);
         } catch { /* ignore */ }
       }
-    } catch {
-      // keep defaults
+    } catch (err) {
+      console.error('Error loading contabilidad data:', err);
     } finally {
       setLoading(false);
     }
   }, [
     appliedStoreId,
     isProductionCenter,
+    stores,
+    productRepo,
     saleService,
     expenseRepo,
     cashClosingService,
@@ -958,7 +1235,14 @@ export default function ContabilidadScreen() {
     period,
     rangeStartDate,
     rangeEndDate,
+    closingMonth,
+    closingYear,
+    activeView,
   ]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   useFocusEffect(
     useCallback(() => {
@@ -967,21 +1251,23 @@ export default function ContabilidadScreen() {
   );
 
   useEffect(() => {
-    if (selectedStoreId && selectedStoreId !== appliedStoreId) {
+    if (!isGerente && appliedStoreId === 'consolidado') {
+      setAppliedStoreId(selectedStoreId || stores[0]?.id || '');
+    } else if (selectedStoreId && appliedStoreId !== 'consolidado' && selectedStoreId !== appliedStoreId) {
       setAppliedStoreId(selectedStoreId);
     }
-  }, [selectedStoreId, appliedStoreId]);
+  }, [selectedStoreId, appliedStoreId, isGerente, stores]);
 
   useEffect(() => {
-    if (!isGerente && activeView === 'rentabilidad') {
+    if (!canViewPL && activeView === 'rentabilidad') {
       setActiveView('general');
     }
-  }, [activeView, isGerente]);
+  }, [activeView, canViewPL]);
 
   const utilidad = ingresos - egresos;
   const flujoConInventario = utilidad + inventoryAssetValue;
   
-  const totalIncomeForMargin = salesIncome + (isProductionCenter ? internalTransferIncome : 0);
+  const totalIncomeForMargin = isProductionCenter ? internalTransferIncome : salesIncome;
 
   // Margen bruto: Ventas a clientes - Costo de recetas, masas y empaques consumidos
   const margenBruto = totalIncomeForMargin - soldInventoryCost;
@@ -1007,10 +1293,7 @@ export default function ContabilidadScreen() {
     (max, row) => Math.max(max, Math.abs(row.discrepancy)),
     0,
   );
-  const hasPendingFilter = !hasAppliedFilter
-    || selectedStoreId !== appliedStoreId
-    || filterPeriod !== period
-    || (filterPeriod === 'rango' && (rangeStartDraft !== rangeStartDate || rangeEndDraft !== rangeEndDate));
+  const hasPendingRangeDraft = filterPeriod === 'rango' && (rangeStartDraft !== rangeStartDate || rangeEndDraft !== rangeEndDate);
 
   const handleDeleteSale = useCallback((sale: Sale) => {
     const confirmMsg = `¿Seguro que deseas eliminar esta venta de ${formatCOP(sale.totalAmount)}?`;
@@ -1416,6 +1699,9 @@ export default function ContabilidadScreen() {
       setRangeEndDraft(period === 'rango' ? rangeEndDate : monthToDate.end);
       return;
     }
+
+    setPeriod(nextPeriod);
+    setHasAppliedFilter(true);
   }, [period, rangeStartDate, rangeEndDate]);
 
   const handleApplyFilter = useCallback(() => {
@@ -1433,9 +1719,8 @@ export default function ContabilidadScreen() {
     }
 
     setHasAppliedFilter(true);
-    setAppliedStoreId(selectedStoreId);
     setPeriod(filterPeriod);
-  }, [filterPeriod, rangeStartDraft, rangeEndDraft, selectedStoreId]);
+  }, [filterPeriod, rangeStartDraft, rangeEndDraft]);
 
   const getStoreName = useCallback((storeId: string) => {
     return stores.find((s) => s.id === storeId)?.name ?? 'Local';
@@ -1700,27 +1985,6 @@ export default function ContabilidadScreen() {
         >
           Bancos
         </Button>
-        <Button
-          mode="outlined"
-          compact
-          icon="calendar-check"
-          style={{ marginRight: 8, height: 32 }}
-          labelStyle={{ fontSize: 12, marginVertical: 4 }}
-          onPress={() => router.push('/(tabs)/contabilidad/cierres')}
-        >
-          Cierres
-        </Button>
-
-        <Button
-          mode="outlined"
-          compact
-          icon="scale-balance"
-          style={{ marginRight: 8, height: 32 }}
-          labelStyle={{ fontSize: 12, marginVertical: 4 }}
-          onPress={() => router.push('/(tabs)/contabilidad/balances')}
-        >
-          Balances
-        </Button>
       </ScrollView>
 
       {/* Period filter */}
@@ -1765,44 +2029,20 @@ export default function ContabilidadScreen() {
           >
             Aplicar
           </Button>
-          {hasPendingFilter && (
+          {hasPendingRangeDraft && (
             <Text variant="bodySmall" style={styles.rangeHint}>
-              {hasAppliedFilter
-                ? `Filtro listo para consultar. Presiona Aplicar para recalcular; datos cargados: ${periodLabel || 'sin periodo'}.`
-                : 'Reporte sin cargar. Presiona Aplicar para consultar este rango.'}
-            </Text>
-          )}
-        </View>
-      )}
-      {filterPeriod !== 'rango' && (
-        <View style={styles.applyRow}>
-          <Button mode="contained" compact onPress={handleApplyFilter}>
-            Aplicar
-          </Button>
-          {hasPendingFilter && (
-            <Text variant="bodySmall" style={styles.rangeHint}>
-              {hasAppliedFilter
-                ? `Filtro listo para consultar. Presiona Aplicar para recalcular; datos cargados: ${periodLabel || 'sin periodo'}.`
-                : 'Reporte sin cargar. Presiona Aplicar para consultar.'}
+              Presiona Aplicar para recalcular el rango seleccionado.
             </Text>
           )}
         </View>
       )}
 
-      {!hasAppliedFilter ? (
-        <Card style={styles.txCard} mode="elevated">
-          <Card.Content>
-            <Text variant="titleMedium" style={{ fontWeight: '600', marginBottom: 6 }}>
-              Reporte pendiente
-            </Text>
-            <Text variant="bodySmall" style={styles.txInfoText}>
-              El modulo no consultara la base de datos hasta que apliques el filtro. Por defecto queda listo el rango del mes actual para revisar antes de cargar.
-            </Text>
-          </Card.Content>
-        </Card>
-      ) : (
-        <>
-          <View style={styles.viewTabs}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ marginVertical: 8, paddingHorizontal: 16, maxHeight: 40 }}
+        contentContainerStyle={{ gap: 8 }}
+      >
             <Chip
               selected={activeView === 'general'}
               onPress={() => setActiveView('general')}
@@ -1810,7 +2050,7 @@ export default function ContabilidadScreen() {
               icon="cash-register"
               style={activeView === 'general' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
             >
-              Caja General (Safe/Bank)
+              Caja General
             </Chip>
             <Chip
               selected={activeView === 'diaria'}
@@ -1819,9 +2059,9 @@ export default function ContabilidadScreen() {
               icon="cash"
               style={activeView === 'diaria' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
             >
-              Caja Diaria (Ventas)
+              Caja Diaria
             </Chip>
-            {isGerente && (
+            {canViewPL && (
               <Chip
                 selected={activeView === 'rentabilidad'}
                 onPress={() => setActiveView('rentabilidad')}
@@ -1829,10 +2069,19 @@ export default function ContabilidadScreen() {
                 icon="chart-line"
                 style={activeView === 'rentabilidad' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
               >
-                Rentabilidad (P&L)
+                Rentabilidad (P&L) & Stock
               </Chip>
             )}
-          </View>
+            <Chip
+              selected={activeView === 'cierres'}
+              onPress={() => setActiveView('cierres')}
+              mode={activeView === 'cierres' ? 'flat' : 'outlined'}
+              icon="calendar-check"
+              style={activeView === 'cierres' ? { backgroundColor: theme.colors.primaryContainer } : undefined}
+            >
+              Cierres Mensuales (Flujo de Caja)
+            </Chip>
+          </ScrollView>
 
           {activeView === 'general' ? (
             <>
@@ -2042,7 +2291,9 @@ export default function ContabilidadScreen() {
                     <Card.Content>
                       <View style={styles.txRow}>
                         <View style={{ flex: 1, marginRight: 8 }}>
-                          <Text variant="bodyMedium" style={{ fontWeight: '600' }}>{formatDate(closing.date)}</Text>
+                          <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
+                            {appliedStoreId === 'consolidado' ? `${getStoreName(closing.storeId)} · ` : ''}{formatDate(closing.date)}
+                          </Text>
                           <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
                             Base: {formatCOP(closingOpeningBase)} | Ventas: {formatCOP(closing.expectedTotal)}
                           </Text>
@@ -2082,7 +2333,7 @@ export default function ContabilidadScreen() {
                 );
               })}
             </>
-          ) : (
+          ) : activeView === 'rentabilidad' ? (
             <>
           {/* KPI Cards de Rentabilidad P&L */}
           <Text variant="titleSmall" style={styles.kpiSectionTitle}>
@@ -2129,6 +2380,16 @@ export default function ContabilidadScreen() {
           </Text>
 
           {/* Estado de Resultados en Cascada */}
+          {appliedStoreId === 'consolidado' && (
+            <Card style={[styles.txCard, { backgroundColor: '#1A222D', borderColor: '#1976D2', borderWidth: 1, marginBottom: 10 }]} mode="outlined">
+              <Card.Content style={{ paddingVertical: 10 }}>
+                <Text variant="bodySmall" style={{ color: '#90CAF9', lineHeight: 18 }}>
+                  ℹ️ <Text style={{ fontWeight: 'bold' }}>Consolidación de Puntos de Venta (Ventas a Clientes Externos):</Text> Esta vista computa la rentabilidad operativa comercial de todos los locales ({formatCOP(salesIncome)}), valorizando los insumos consumidos a precios de tienda y descontando los gastos operativos de los locales. La operación, facturación interna y costos del <Text style={{ fontWeight: 'bold' }}>Centro de Producción</Text> se consultan exclusivamente en su filtro individual.
+                </Text>
+              </Card.Content>
+            </Card>
+          )}
+
           <Card style={styles.txCard} mode="elevated">
             <Card.Content>
               <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 4 }}>
@@ -2138,23 +2399,28 @@ export default function ContabilidadScreen() {
                 Informe económico del periodo. Descuenta insumos consumidos por recetas/formatos y gastos de funcionamiento.
               </Text>
 
-              <View style={[styles.txRow, { marginTop: 8 }]}>
-                <Text variant="bodySmall">Ventas a clientes</Text>
-                <Text variant="bodySmall" style={{ fontWeight: '600', color: '#388E3C' }}>
-                  +{formatCOP(salesIncome)}
-                </Text>
-              </View>
-              {(isProductionCenter || internalTransferIncome > 0) && (
-                <View style={styles.txRow}>
-                  <Text variant="bodySmall">Facturación interna por traslados</Text>
+              {isProductionCenter ? (
+                <View style={[styles.txRow, { marginTop: 8 }]}>
+                  <Text variant="bodySmall">Facturación interna por traslados a locales</Text>
                   <Text variant="bodySmall" style={{ fontWeight: '600', color: '#388E3C' }}>
                     +{formatCOP(internalTransferIncome)}
+                  </Text>
+                </View>
+              ) : (
+                <View style={[styles.txRow, { marginTop: 8 }]}>
+                  <Text variant="bodySmall">Ventas a clientes</Text>
+                  <Text variant="bodySmall" style={{ fontWeight: '600', color: '#388E3C' }}>
+                    +{formatCOP(salesIncome)}
                   </Text>
                 </View>
               )}
 
               <View style={styles.txRow}>
-                <Text variant="bodySmall">Costo de insumos consumidos (Recetas + Masas + Empaques)</Text>
+                <Text variant="bodySmall">
+                  {isProductionCenter
+                    ? 'Costo de materia prima de traslados despachados'
+                    : 'Costo de insumos consumidos (Recetas + Masas + Empaques)'}
+                </Text>
                 <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
                   -{formatCOP(soldInventoryCost)}
                 </Text>
@@ -2176,15 +2442,17 @@ export default function ContabilidadScreen() {
 
               <Divider style={{ marginVertical: 8 }} />
 
-              <View style={styles.txRow}>
-                <Text variant="bodySmall">Bajas y mermas aprobadas</Text>
-                <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
-                  -{formatCOP(writeoffInventoryCost)}
-                </Text>
-              </View>
+              {writeoffInventoryCost > 0 && (
+                <View style={styles.txRow}>
+                  <Text variant="bodySmall">Bajas y mermas de insumos aprobadas</Text>
+                  <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
+                    -{formatCOP(writeoffInventoryCost)}
+                  </Text>
+                </View>
+              )}
 
               <View style={styles.txRow}>
-                <Text variant="bodySmall">Gastos fijos de operación (Arriendos, nómina, servicios)</Text>
+                <Text variant="bodySmall">Gastos fijos de operación (Nómina, arriendo, servicios, software)</Text>
                 <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
                   -{formatCOP(fixedExpenses)}
                 </Text>
@@ -2213,21 +2481,100 @@ export default function ContabilidadScreen() {
             </Card.Content>
           </Card>
 
-          {/* Inventario como Activo Patrimonial */}
-          <Card style={styles.txCard} mode="outlined">
+          {/* Tarjeta de Conciliación P&L vs Flujo de Caja */}
+          <Card style={[styles.txCard, { borderColor: '#E63946', borderWidth: 1 }]} mode="elevated">
             <Card.Content>
-              <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 4 }}>
-                📦 Inventario Disponible en Sede (Activo)
+              <Text variant="titleSmall" style={{ fontWeight: '700', color: '#F5F0EB', marginBottom: 4 }}>
+                🔍 Conciliación: Utilidad P&L vs Flujo Neto de Caja
               </Text>
               <Text variant="bodySmall" style={styles.txInfoText}>
-                Materia prima disponible en bodega para generar ventas futuras. No se deduce como gasto en el P&L actual.
+                Explica por qué la utilidad económica y el dinero en caja son diferentes:
               </Text>
+
               <View style={[styles.txRow, { marginTop: 8 }]}>
-                <Text variant="bodyMedium" style={{ fontWeight: '600' }}>Stock físico valorizado</Text>
-                <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#1976D2' }}>
-                  +{formatCOP(inventoryAssetValue)}
+                <Text variant="bodySmall">1. Utilidad Operacional Neta (P&L del periodo):</Text>
+                <Text variant="bodySmall" style={{ fontWeight: '700', color: resultadoOperativo >= 0 ? '#388E3C' : '#D32F2F' }}>
+                  {formatCOP(resultadoOperativo)}
                 </Text>
               </View>
+
+              <View style={styles.txRow}>
+                <Text variant="bodySmall">2. Flujo Neto de Caja (Dinero líquido del periodo):</Text>
+                <Text variant="bodySmall" style={{ fontWeight: '700', color: (generalIngresos - generalEgresos) >= 0 ? '#1976D2' : '#D32F2F' }}>
+                  {formatCOP(generalIngresos - generalEgresos)}
+                </Text>
+              </View>
+
+              <View style={styles.txRow}>
+                <Text variant="bodySmall">3. Variación neta reinvertida en Stock en este periodo (1 - 2):</Text>
+                <Text variant="bodySmall" style={{ fontWeight: '700', color: '#F57C00' }}>
+                  {formatCOP(Math.max(0, resultadoOperativo - (generalIngresos - generalEgresos)))}
+                </Text>
+              </View>
+
+              <Divider style={{ marginVertical: 8 }} />
+              <View style={styles.txRow}>
+                <Text variant="bodySmall" style={{ fontWeight: '600', color: '#aaa' }}>📦 Stock Total Físico en Bodega Hoy (Saldo Acumulado):</Text>
+                <Text variant="bodySmall" style={{ fontWeight: 'bold', color: '#4CAF50' }}>
+                  {formatCOP(inventoryAssetValue)}
+                </Text>
+              </View>
+              <Text variant="bodySmall" style={{ color: '#888', fontStyle: 'italic', marginTop: 4 }}>
+                💡 En este periodo se compró y pagó en caja más inventario del que se consumió (+{formatCOP(Math.max(0, resultadoOperativo - (generalIngresos - generalEgresos)))}), el cual se sumó al saldo de meses anteriores ({formatCOP(Math.max(0, inventoryAssetValue - Math.max(0, resultadoOperativo - (generalIngresos - generalEgresos))))}) dando el Stock Total de {formatCOP(inventoryAssetValue)}.
+              </Text>
+            </Card.Content>
+          </Card>
+
+          {/* Tarjeta de Stock Valorizado */}
+          <Card style={styles.txCard} mode="elevated">
+            <Card.Content>
+              <Text variant="titleSmall" style={{ fontWeight: '700', color: '#F5F0EB', marginBottom: 4 }}>
+                📦 {appliedStoreId === 'consolidado' ? 'Stock Valorizado por Sede' : `Stock Valorizado (${appliedStore?.name ?? 'Sede'})`}
+              </Text>
+              <Text variant="bodySmall" style={[styles.txInfoText, { marginBottom: 12 }]}>
+                Valor monetario real de los insumos y materias primas disponibles en bodega:
+              </Text>
+
+              {appliedStoreId === 'consolidado' ? (
+                <>
+                  {storeStockValuations.map((st) => (
+                    <View key={st.storeId} style={[styles.txRow, { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#2A2A2A' }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#F5F0EB' }}>
+                          {st.isProductionCenter ? '🏭' : '🍕'} {st.storeName}
+                        </Text>
+                        <Text variant="bodySmall" style={{ color: '#888' }}>
+                          {st.itemCount} insumos registrados
+                        </Text>
+                      </View>
+                      <Text variant="titleSmall" style={{ fontWeight: '700', color: '#4CAF50' }}>
+                        {formatCOP(st.totalValueCop)}
+                      </Text>
+                    </View>
+                  ))}
+                  <Divider style={{ marginVertical: 8 }} />
+                  <View style={[styles.txRow, styles.txSubtotalRow]}>
+                    <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>
+                      Total Inventario Empresa
+                    </Text>
+                    <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#4CAF50' }}>
+                      {formatCOP(storeStockValuations.reduce((sum, s) => sum + s.totalValueCop, 0))}
+                    </Text>
+                  </View>
+                </>
+              ) : (
+                <View style={[styles.txRow, styles.txSubtotalRow]}>
+                  <View style={{ flex: 1 }}>
+                    <Text variant="bodyMedium" style={{ fontWeight: '600' }}>Stock Físico en Bodega</Text>
+                    <Text variant="bodySmall" style={{ color: '#888' }}>
+                      {inventoryValuationRows.length} insumos con existencias activas
+                    </Text>
+                  </View>
+                  <Text variant="titleMedium" style={{ fontWeight: 'bold', color: '#4CAF50' }}>
+                    {formatCOP(inventoryAssetValue)}
+                  </Text>
+                </View>
+              )}
             </Card.Content>
           </Card>
 
@@ -2263,23 +2610,38 @@ export default function ContabilidadScreen() {
             <Text variant="bodySmall">- Egresos Efectivo</Text>
             <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>{formatCOP(todayCashExpenses)}</Text>
           </View>
-          <View style={[styles.txRow, { borderTopWidth: 1, borderTopColor: '#333', paddingTop: 6, marginTop: 4 }]}>
-            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Saldo Teorico</Text>
-            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.primary }}>
+          <Divider style={{ marginVertical: 8 }} />
+          <View style={[styles.txRow, styles.txSubtotalRow]}>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Esperado en Caja</Text>
+            <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#1976D2' }}>
               {formatCOP(openingBase + todayCashSales - todayCashExpenses)}
             </Text>
           </View>
           {closingActual !== null && (
-            <View style={styles.txRow}>
-              <Text variant="bodySmall">Conteo Fisico (cierre)</Text>
-              <Text variant="bodySmall" style={{ fontWeight: '600' }}>{formatCOP(closingActual)}</Text>
-            </View>
+            <>
+              <View style={styles.txRow}>
+                <Text variant="bodySmall">Real (Cierre)</Text>
+                <Text variant="bodySmall" style={{ fontWeight: '600' }}>{formatCOP(closingActual)}</Text>
+              </View>
+              <View style={[styles.txRow, styles.txSubtotalRow]}>
+                <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Diferencia</Text>
+                <Text
+                  variant="bodyMedium"
+                  style={{
+                    fontWeight: 'bold',
+                    color: (closingActual - (openingBase + todayCashSales - todayCashExpenses)) === 0 ? '#388E3C' : '#D32F2F',
+                  }}
+                >
+                  {formatCOP(closingActual - (openingBase + todayCashSales - todayCashExpenses))}
+                </Text>
+              </View>
+            </>
           )}
         </Card.Content>
       </Card>}
 
       {/* Recent transactions */}
-      <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600' }]}>
+      <Text variant="titleSmall" style={[styles.kpiSectionTitle, { marginTop: 16 }]}>
         Transacciones Recientes
       </Text>
 
@@ -2287,9 +2649,11 @@ export default function ContabilidadScreen() {
         <Card key={sale.id} style={styles.txCard} mode="elevated">
           <Card.Content style={styles.txRow}>
             <View style={{ flex: 1, marginRight: 8 }}>
-              <Text variant="bodyMedium" style={{ fontWeight: '600' }}>Venta</Text>
-              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                {formatDateTime(sale.timestamp)}
+              <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
+                {sale.customerNote ? `Venta: ${sale.customerNote}` : (sale.debtorName ? `Venta crédito: ${sale.debtorName}` : 'Venta general')}
+              </Text>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }} numberOfLines={2}>
+                {formatDateTime(sale.timestamp)} · {sale.paymentMethod}
               </Text>
             </View>
             <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#388E3C', flexShrink: 0, marginRight: 4 }}>
@@ -2391,9 +2755,228 @@ export default function ContabilidadScreen() {
         </Card>
       ))}
             </>
+          ) : (
+            <>
+              {/* Selector de Mes para Cierres Mensuales */}
+              <View style={[styles.txRow, { justifyContent: 'center', alignItems: 'center', marginVertical: 8 }]}>
+                <IconButton icon="chevron-left" onPress={goToPreviousClosingMonth} />
+                <Text variant="titleLarge" style={{ fontWeight: 'bold', color: '#F5F0EB', marginHorizontal: 8 }}>
+                  {MONTH_NAMES[closingMonth]} {closingYear}
+                </Text>
+                <IconButton
+                  icon="chevron-right"
+                  onPress={goToNextClosingMonth}
+                  disabled={isClosingMonthFuture}
+                />
+              </View>
+
+              {/* Cierres Mensuales: Estado de Flujo de Efectivo */}
+              <Text variant="titleSmall" style={styles.kpiSectionTitle}>
+                Estado de Flujo de Efectivo Mensual ({MONTH_NAMES[closingMonth]} {closingYear})
+              </Text>
+
+              {appliedStoreId === 'consolidado' && (
+                <Card style={[styles.txCard, { backgroundColor: '#1A2A3A', borderColor: '#1976D2', borderWidth: 1, marginBottom: 12 }]} mode="elevated">
+                  <Card.Content>
+                    <Text variant="bodySmall" style={{ color: '#90CAF9', lineHeight: 18 }}>
+                      ℹ️ <Text style={{ fontWeight: 'bold', color: '#90CAF9' }}>Flujo de Caja Consolidado:</Text> Muestra la liquidez neta real transaccionada con terceros (clientes, proveedores, nóminas y arrendadores). Los pagos inter-sede de insumos han sido neteados para evitar duplicidades contables.
+                    </Text>
+                  </Card.Content>
+                </Card>
+              )}
+              <View style={styles.kpiRow}>
+                <KpiCard
+                  icon="cash-plus"
+                  label="Total Entradas"
+                  value={formatCOP(cashSalesSum + bankSalesSum + otherIncomesSum)}
+                  color="#388E3C"
+                />
+                <KpiCard
+                  icon="cash-minus"
+                  label="Total Salidas"
+                  value={formatCOP(suppliesExpensesSum + payrollExpensesSum + operationsExpensesSum)}
+                  color="#D32F2F"
+                />
+              </View>
+              <View style={styles.kpiRow}>
+                <KpiCard
+                  icon="scale-balance"
+                  label="Flujo Neto de Caja"
+                  value={formatCOP((cashSalesSum + bankSalesSum + otherIncomesSum) - (suppliesExpensesSum + payrollExpensesSum + operationsExpensesSum))}
+                  color={((cashSalesSum + bankSalesSum + otherIncomesSum) - (suppliesExpensesSum + payrollExpensesSum + operationsExpensesSum)) >= 0 ? '#388E3C' : '#D32F2F'}
+                />
+                {advancesTotal > 0 && (
+                  <KpiCard
+                    icon="account-cash"
+                    label="Adelantos (Cartera)"
+                    value={formatCOP(advancesTotal)}
+                    color="#F57C00"
+                  />
+                )}
+              </View>
+
+              {/* Tarjeta 1: Entradas de Dinero */}
+              <Card style={styles.txCard} mode="elevated">
+                <Card.Content>
+                  <Text variant="titleSmall" style={{ fontWeight: '700', color: '#388E3C', marginBottom: 8 }}>
+                    📥 Flujo de Entradas de Dinero (Cobros del Período)
+                  </Text>
+                  <View style={styles.txRow}>
+                    <Text variant="bodySmall">Ventas en Efectivo</Text>
+                    <Text variant="bodySmall" style={{ fontWeight: '600', color: '#388E3C' }}>
+                      +{formatCOP(cashSalesSum)}
+                    </Text>
+                  </View>
+                  <View style={styles.txRow}>
+                    <Text variant="bodySmall">Ventas por Banco / Transferencias / Datáfono</Text>
+                    <Text variant="bodySmall" style={{ fontWeight: '600', color: '#1976D2' }}>
+                      +{formatCOP(bankSalesSum)}
+                    </Text>
+                  </View>
+                  {otherIncomesSum > 0 && (
+                    <View style={styles.txRow}>
+                      <Text variant="bodySmall">Otros Ingresos Registrados</Text>
+                      <Text variant="bodySmall" style={{ fontWeight: '600', color: '#388E3C' }}>
+                        +{formatCOP(otherIncomesSum)}
+                      </Text>
+                    </View>
+                  )}
+                  <Divider style={{ marginVertical: 8 }} />
+                  <View style={[styles.txRow, styles.txSubtotalRow]}>
+                    <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Total Dinero Ingresado</Text>
+                    <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#388E3C' }}>
+                      +{formatCOP(cashSalesSum + bankSalesSum + otherIncomesSum)}
+                    </Text>
+                  </View>
+                </Card.Content>
+              </Card>
+
+              {/* Tarjeta 2: Salidas de Dinero */}
+              <Card style={styles.txCard} mode="elevated">
+                <Card.Content>
+                  <Text variant="titleSmall" style={{ fontWeight: '700', color: '#D32F2F', marginBottom: 8 }}>
+                    📤 Flujo de Salidas de Dinero (Pagos Efectuados)
+                  </Text>
+                  <View style={styles.txRow}>
+                    <Text variant="bodySmall">Insumos, Compras y Traslados</Text>
+                    <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
+                      -{formatCOP(suppliesExpensesSum)}
+                    </Text>
+                  </View>
+                  <View style={styles.txRow}>
+                    <Text variant="bodySmall">Nómina y Turnos de Personal</Text>
+                    <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
+                      -{formatCOP(payrollExpensesSum)}
+                    </Text>
+                  </View>
+                  <View style={styles.txRow}>
+                    <Text variant="bodySmall">Gastos Operativos (Arriendos, Servicios, Aseo, Mantenimiento)</Text>
+                    <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
+                      -{formatCOP(operationsExpensesSum)}
+                    </Text>
+                  </View>
+                  <Divider style={{ marginVertical: 8 }} />
+                  <View style={[styles.txRow, styles.txSubtotalRow]}>
+                    <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Total Dinero Egresado</Text>
+                    <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#D32F2F' }}>
+                      -{formatCOP(suppliesExpensesSum + payrollExpensesSum + operationsExpensesSum)}
+                    </Text>
+                  </View>
+                </Card.Content>
+              </Card>
+
+              {/* Tarjeta 3: Resultado de Liquidez */}
+              <Card style={[styles.txCard, { borderColor: '#1976D2', borderWidth: 1 }]} mode="elevated">
+                <Card.Content>
+                  <View style={styles.txRow}>
+                    <Text variant="titleMedium" style={{ fontWeight: 'bold' }}>
+                      Flujo Neto de Caja del Mes
+                    </Text>
+                    <Text
+                      variant="titleMedium"
+                      style={{
+                        fontWeight: 'bold',
+                        color: ((cashSalesSum + bankSalesSum + otherIncomesSum) - (suppliesExpensesSum + payrollExpensesSum + operationsExpensesSum)) >= 0 ? '#388E3C' : '#D32F2F',
+                      }}
+                    >
+                      {formatCOP((cashSalesSum + bankSalesSum + otherIncomesSum) - (suppliesExpensesSum + payrollExpensesSum + operationsExpensesSum))}
+                    </Text>
+                  </View>
+                  <Text variant="bodySmall" style={{ color: '#aaa', fontStyle: 'italic', marginTop: 4 }}>
+                    {((cashSalesSum + bankSalesSum + otherIncomesSum) - (suppliesExpensesSum + payrollExpensesSum + operationsExpensesSum)) >= 0
+                      ? '💡 Superávit de efectivo: En este período ingresó más dinero líquido a caja y bancos del que se gastó.'
+                      : '💡 Déficit de efectivo: En este período los egresos pagados superaron los ingresos cobrados (por compras extraordinarias de insumos o reinversión en inventario).'}
+                  </Text>
+                </Card.Content>
+              </Card>
+
+              {/* Tarjeta 4: Cartera / Adelantos */}
+              {advancesTotal > 0 && (
+                <Card style={styles.txCard} mode="outlined">
+                  <Card.Content>
+                    <View style={styles.txRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#F57C00' }}>
+                          Adelantos a Personal (Bolsillo Cartera)
+                        </Text>
+                        <Text variant="bodySmall" style={{ color: '#aaa' }}>
+                          Dinero entregado a trabajadores pendiente de descuento en nómina (activo circulante, no gasto).
+                        </Text>
+                      </View>
+                      <Text variant="titleSmall" style={{ fontWeight: '700', color: '#F57C00' }}>
+                        {formatCOP(advancesTotal)}
+                      </Text>
+                    </View>
+                  </Card.Content>
+                </Card>
+              )}
+
+              {/* Tarjeta 5: Historial de Cierres Diarios */}
+              {reportClosings.length > 0 && (
+                <Card style={styles.txCard} mode="elevated">
+                  <Card.Content>
+                    <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 12 }}>
+                      Historial de Cierres Diarios de Caja ({reportClosings.length})
+                    </Text>
+                    {reportClosings.map((closing) => {
+                      const statusColor = closing.status === ClosingStatus.APPROVED ? '#388E3C'
+                        : closing.status === ClosingStatus.CONFIRMED ? '#1976D2' : '#F57C00';
+                      const statusLabel = closing.status === ClosingStatus.APPROVED ? 'Aprobado'
+                        : closing.status === ClosingStatus.CONFIRMED ? 'Confirmado' : 'Borrador';
+                      const discColor = Math.abs(closing.discrepancy) < 1000 ? '#388E3C' : '#D32F2F';
+
+                      return (
+                        <View key={closing.id} style={{ borderBottomWidth: 1, borderBottomColor: '#333', paddingVertical: 8 }}>
+                          <View style={styles.txRow}>
+                            <Text variant="bodyMedium" style={{ color: '#F5F0EB', fontWeight: '600' }}>
+                              {appliedStoreId === 'consolidado' ? `${getStoreName(closing.storeId)} · ` : ''}{formatDate(closing.date)}
+                            </Text>
+                            <Text variant="labelSmall" style={{ color: statusColor, fontWeight: '700' }}>
+                              {statusLabel}
+                            </Text>
+                          </View>
+                          <View style={styles.txRow}>
+                            <Text variant="bodySmall" style={{ color: '#999' }}>Esperado en Caja:</Text>
+                            <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>{formatCOP(closing.expectedTotal)}</Text>
+                          </View>
+                          <View style={styles.txRow}>
+                            <Text variant="bodySmall" style={{ color: '#999' }}>Real en Caja:</Text>
+                            <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>{formatCOP(closing.actualTotal)}</Text>
+                          </View>
+                          <View style={styles.txRow}>
+                            <Text variant="bodySmall" style={{ color: '#999' }}>Diferencia:</Text>
+                            <Text variant="bodySmall" style={{ color: discColor, fontWeight: '700' }}>
+                              {formatCOP(closing.discrepancy)}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </Card.Content>
+                </Card>
+              )}
+            </>
           )}
-        </>
-      )}
 
       <View style={{ height: 100 }} />
 

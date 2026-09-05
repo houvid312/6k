@@ -13,6 +13,7 @@ import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
 import { InventoryLevel, UserRole } from '../../../src/domain/enums';
 import { InventorySummaryItem } from '../../../src/services/InventoryService';
+import { formatCOP } from '../../../src/utils/currency';
 import { supabase } from '../../../src/lib/supabase';
 
 interface NavItem {
@@ -289,10 +290,26 @@ export default function InventarioScreen() {
     });
   }, [storeItems, workflowMinimums, supplyMap]);
 
+  const totalStockValue = useMemo(() => {
+    if (isProductionCenter) {
+      const rawVal = rawItems.reduce((sum, i) => sum + (i.totalValueCop ?? 0), 0);
+      const procVal = processedItems.reduce((sum, i) => sum + (i.totalValueCop ?? 0), 0);
+      return rawVal + procVal;
+    }
+    return storeItems.reduce((sum, i) => sum + (i.totalValueCop ?? 0), 0);
+  }, [isProductionCenter, rawItems, processedItems, storeItems]);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <View style={styles.topSection}>
         <StoreSelector />
+
+        {totalStockValue > 0 && (
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#1E1E1E', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, marginVertical: 6 }}>
+            <Text variant="bodySmall" style={{ color: '#aaa' }}>📦 Valor Total Inventario Sede:</Text>
+            <Text variant="titleSmall" style={{ color: '#4CAF50', fontWeight: 'bold' }}>{formatCOP(totalStockValue)}</Text>
+          </View>
+        )}
         
         <SegmentedButtons
           value={activeTab}
@@ -353,16 +370,18 @@ export default function InventarioScreen() {
                 Insumos
               </Button>
             )}
-            <Button
-              mode="outlined"
-              compact
-              icon="calendar-clock"
-              style={{ marginRight: 8, height: 32, borderColor: '#4CAF50' }}
-              labelStyle={{ fontSize: 11, marginVertical: 4, color: '#4CAF50' }}
-              onPress={() => router.push('/(tabs)/inventario/planificador' as any)}
-            >
-              Planificador Semanal
-            </Button>
+            {isProductionCenter && userRole !== UserRole.ADMIN_LOCAL && (
+              <Button
+                mode="outlined"
+                compact
+                icon="calendar-clock"
+                style={{ marginRight: 8, height: 32, borderColor: '#4CAF50' }}
+                labelStyle={{ fontSize: 11, marginVertical: 4, color: '#4CAF50' }}
+                onPress={() => router.push('/(tabs)/inventario/planificador' as any)}
+              >
+                Planificador Semanal
+              </Button>
+            )}
             <Button
               mode="outlined"
               compact
@@ -507,15 +526,17 @@ export default function InventarioScreen() {
                   >
                     Registrar Producción
                   </Button>
-                  <Button
-                    mode="outlined"
-                    onPress={() => router.push('/(tabs)/inventario/planificador' as any)}
-                    style={styles.actionBtnSecondary}
-                    textColor="#4CAF50"
-                    icon="calendar-clock"
-                  >
-                    Plan Semanal
-                  </Button>
+                  {userRole !== UserRole.ADMIN_LOCAL && (
+                    <Button
+                      mode="outlined"
+                      onPress={() => router.push('/(tabs)/inventario/planificador' as any)}
+                      style={styles.actionBtnSecondary}
+                      textColor="#4CAF50"
+                      icon="calendar-clock"
+                    >
+                      Plan Semanal
+                    </Button>
+                  )}
                   {canManageRecipesAndSupplies && (
                     <Button
                       mode="outlined"

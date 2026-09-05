@@ -19,6 +19,7 @@ import { EmptyState } from '../../../src/components/common/EmptyState';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useSnackbar } from '../../../src/hooks';
+import { UserRole } from '../../../src/domain/enums';
 import {
   WeeklyPlanCalculationResult,
   PlannedRecipeRequirement,
@@ -87,8 +88,20 @@ function getDefaultPlanningWeekMonday(todayStr: string): string {
 export default function PlanificadorSemanalScreen() {
   const theme = useTheme();
   const { productionPlanningService, storeRepo } = useDI();
-  const { selectedStoreId } = useAppStore();
+  const { selectedStoreId, userRole } = useAppStore();
   const { showSuccess, showError } = useSnackbar();
+
+  if (userRole === UserRole.ADMIN_LOCAL) {
+    return (
+      <ScreenContainer>
+        <EmptyState
+          icon="lock-alert"
+          title="Acceso Restringido"
+          subtitle="El Planificador Semanal es de uso exclusivo del Centro de Producción."
+        />
+      </ScreenContainer>
+    );
+  }
 
   const [currentWeekMonday, setCurrentWeekMonday] = useState(() => getDefaultPlanningWeekMonday(todayColombia()));
   const [tab, setTab] = useState<'mps' | 'raw' | 'schedule'>('mps');

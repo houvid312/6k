@@ -9,6 +9,8 @@ export interface InventorySummaryItem {
   bags: number;
   looseGrams: number;
   gramsPerBag: number;
+  unitPriceCop?: number;
+  totalValueCop?: number;
 }
 
 export class InventoryService {
@@ -73,6 +75,10 @@ export class InventoryService {
       const gramsPerBag = supply.gramsPerBag || 1;
       const bags = Math.floor(quantityGrams / gramsPerBag);
       const looseGrams = Math.round((quantityGrams % gramsPerBag) * 100) / 100;
+      const unitPrice = level === InventoryLevel.STORE
+        ? (supply.commercialPriceCop > 0 ? supply.commercialPriceCop : supply.productionCostCop)
+        : (supply.productionCostCop > 0 ? supply.productionCostCop : supply.commercialPriceCop);
+      const totalValueCop = Math.max(0, quantityGrams / gramsPerBag) * (unitPrice || 0);
 
       return {
         supplyId: supply.id,
@@ -81,6 +87,8 @@ export class InventoryService {
         bags,
         looseGrams,
         gramsPerBag,
+        unitPriceCop: unitPrice || 0,
+        totalValueCop: Math.round(totalValueCop),
       };
     });
   }

@@ -155,8 +155,8 @@ export default function CierresMensualesScreen() {
       </View>
       <View style={styles.kpiRow}>
         <KpiCard
-          icon="chart-line"
-          label="Utilidad Neta"
+          icon="scale-balance"
+          label="Flujo Neto de Caja"
           value={formatCOP(utilidad)}
           color={utilidad >= 0 ? '#388E3C' : '#D32F2F'}
         />

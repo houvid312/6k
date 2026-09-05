@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
 import { Text, TextInput, Button, Portal, Modal } from 'react-native-paper';
 import { InventorySummaryItem } from '../../services/InventoryService';
+import { formatCOP } from '../../utils/currency';
 
 interface Props {
   item: InventorySummaryItem;
@@ -88,6 +89,15 @@ export function InventoryLevelCard({ item, minimumGrams = 0, onSetMinimum }: Pro
           </Text>
           <Text style={styles.unitLabel}>g total</Text>
         </View>
+
+        {(item.totalValueCop ?? 0) > 0 && (
+          <View style={[styles.quantities, { minWidth: 70, alignItems: 'flex-end' }]}>
+            <Text variant="titleSmall" style={{ color: '#4CAF50', fontWeight: '700' }}>
+              {formatCOP(item.totalValueCop!)}
+            </Text>
+            <Text style={styles.unitLabel}>valor</Text>
+          </View>
+        )}
       </Pressable>
 
       <Portal>
