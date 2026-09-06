@@ -272,4 +272,12 @@ export class SupabaseCreditRepository implements ICreditRepository {
     }
     return paymentToEntity(data as CreditPaymentRow);
   }
+
+  async deletePayment(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('credit_payments')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+  }
 }

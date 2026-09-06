@@ -219,6 +219,19 @@ export default function DebtorDetailScreen() {
     }
   }, [creditService, loadData, showSuccess, showError]);
 
+  const handleDeleteRejectedPayment = useCallback(async (paymentId: string) => {
+    setSubmitting(true);
+    try {
+      await creditService.deleteRejectedPayment(paymentId);
+      showSuccess('Registro de abono rechazado eliminado del historial.');
+      loadData();
+    } catch (err: any) {
+      showError(err instanceof Error ? err.message : 'No se pudo eliminar el registro');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [creditService, loadData, showSuccess, showError]);
+
   if (loading) {
     return <LoadingIndicator message="Cargando deuda..." />;
   }
@@ -416,6 +429,22 @@ export default function DebtorDetailScreen() {
                         disabled={submitting}
                       >
                         Rechazar
+                      </Button>
+                    </View>
+                  )}
+
+                  {/* Actions when status is REJECTED (allows cleaning up failed/rejected payment attempt) */}
+                  {isRejected && (isProduction || userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL) && (
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
+                      <Button
+                        mode="text"
+                        compact
+                        icon="trash-can-outline"
+                        textColor="#D32F2F"
+                        onPress={() => handleDeleteRejectedPayment(p.id)}
+                        disabled={submitting}
+                      >
+                        Descartar Registro
                       </Button>
                     </View>
                   )}

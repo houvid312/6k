@@ -131,11 +131,16 @@ export default function BancosScreen() {
         const entry = p.credit_entries;
         if (!entry) continue;
 
+        // Omitir abonos no confirmados (pendientes o rechazados)
+        const isConfirmed = p.status === 'CONFIRMED';
+        if (!isConfirmed) continue;
+
         const pDate = p.date;
         const isCpCredit = entry.debtor_type === 'LOCAL';
+        const isCash = p.payment_method === 'EFECTIVO' || (p.notes?.toLowerCase().includes('efectivo') ?? false);
 
         if (isProd) {
-          if (isCpCredit) {
+          if (isCpCredit && !isCash) {
             // El ingreso por traslado al CP ya fue contabilizado en Ingreso Bancario (incomes con categoría 'Traslado').
             // Solo se suma si el pago NO tiene un registro de income asociado para evitar la doble suma.
             if (!p.income_id && !p.incomeId) {
@@ -154,7 +159,6 @@ export default function BancosScreen() {
               // El egreso de traslado ya fue contabilizado en Gasto Bancario (ledgerExpenses con categoría 'Traslado').
               // No se resta por segunda vez aquí para evitar el doble cobro en bancos.
             } else {
-              const isCash = p.payment_method === 'EFECTIVO' || (p.notes?.toLowerCase().includes('efectivo') ?? false);
               if (!isCash && !p.income_id && !p.incomeId) {
                 allMovements.push({
                   id: `pay-in-${p.id}`,

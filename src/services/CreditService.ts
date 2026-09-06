@@ -246,4 +246,20 @@ export class CreditService {
 
     return updatedPayment;
   }
+
+  /**
+   * Deletes a payment that was previously rejected, cleaning up the history.
+   */
+  async deleteRejectedPayment(paymentId: string): Promise<void> {
+    const payment = await this.creditRepo.getPaymentById(paymentId);
+    if (!payment) {
+      throw new Error(`Payment '${paymentId}' not found`);
+    }
+
+    if (payment.status !== 'REJECTED') {
+      throw new Error('Solo se pueden eliminar abonos que hayan sido rechazados');
+    }
+
+    await this.creditRepo.deletePayment(paymentId);
+  }
 }

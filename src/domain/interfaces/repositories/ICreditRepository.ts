@@ -16,4 +16,5 @@ export interface ICreditRepository {
     incomeId?: string,
   ): Promise<CreditPayment>;
   getPaymentById(id: string): Promise<CreditPayment | null>;
+  deletePayment(id: string): Promise<void>;
 }
