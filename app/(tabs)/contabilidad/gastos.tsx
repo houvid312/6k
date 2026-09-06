@@ -3,6 +3,7 @@ import { View, StyleSheet, Platform, Alert, Pressable } from 'react-native';
 import { TextInput, Button, Text, Card, Menu, Divider, Portal, Snackbar, useTheme, Chip, IconButton } from 'react-native-paper';
 import { useFocusEffect } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
+import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { PaymentMethodPicker } from '../../../src/components/ventas/PaymentMethodPicker';
 import { CalendarPickerModal } from '../../../src/components/common/CalendarPickerModal';
@@ -140,6 +141,10 @@ export default function GastosScreen() {
 
   return (
     <ScreenContainer>
+      <View style={{ marginBottom: 12 }}>
+        <StoreSelector />
+      </View>
+
       <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600' }]}>
         Registrar Gasto
       </Text>

@@ -208,8 +208,9 @@ export default function ContabilidadScreen() {
   const [appliedStoreId, setAppliedStoreId] = useState(
     userRole === UserRole.GERENTE ? 'consolidado' : selectedStoreId
   );
-  const appliedStore = stores.find((s) => s.id === appliedStoreId) ?? selectedStore;
-  const isProductionCenter = appliedStore?.isProductionCenter ?? false;
+  const isConsolidado = appliedStoreId === 'consolidado';
+  const appliedStore = isConsolidado ? undefined : (stores.find((s) => s.id === appliedStoreId) ?? selectedStore);
+  const isProductionCenter = !isConsolidado && (appliedStore?.isProductionCenter ?? false);
   const initialRange = getYearToDateRange();
   const [rangeStartDraft, setRangeStartDraft] = useState(initialRange.start);
   const [rangeEndDraft, setRangeEndDraft] = useState(initialRange.end);

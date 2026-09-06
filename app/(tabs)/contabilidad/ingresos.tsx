@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, Alert, Platform } from 'react-native';
 import { TextInput, Button, Text, Card, Menu, Divider, Portal, Snackbar, useTheme, IconButton } from 'react-native-paper';
+import { useFocusEffect } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
+import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
 import { PaymentMethodPicker } from '../../../src/components/ventas/PaymentMethodPicker';
 import { EmptyState } from '../../../src/components/common/EmptyState';
@@ -38,9 +40,11 @@ export default function IngresosScreen() {
     }
   }, [selectedStoreId, incomeRepo]);
 
-  useEffect(() => {
-    loadIncomes();
-  }, [loadIncomes]);
+  useFocusEffect(
+    useCallback(() => {
+      loadIncomes();
+    }, [loadIncomes])
+  );
 
   const handleSubmit = useCallback(async () => {
     if (!category) {
@@ -98,6 +102,10 @@ export default function IngresosScreen() {
 
   return (
     <ScreenContainer>
+      <View style={{ marginBottom: 12 }}>
+        <StoreSelector />
+      </View>
+
       <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600' }]}>
         Registrar Ingreso (No Operacional)
       </Text>
@@ -179,8 +187,8 @@ export default function IngresosScreen() {
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: theme.colors.primary, marginRight: 8 }}>
-                  {formatCOP(income.amount)}
+                <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#388E3C', marginRight: 8 }}>
+                  +{formatCOP(income.amount)}
                 </Text>
                 <IconButton
                   icon="delete-outline"
