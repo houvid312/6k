@@ -98,13 +98,14 @@ export default function BancosScreen() {
 
       // 3. Bank Expenses
       for (const exp of ledgerExpenses) {
-        const isRegister = exp.category === 'Compra Turno' || exp.category === 'Adelanto';
-        if (!isRegister && exp.paymentMethod !== PaymentMethod.EFECTIVO) {
+        const isTurno = exp.category === 'Compra Turno';
+        const isCashAdvance = exp.category === 'Adelanto' && exp.paymentMethod === PaymentMethod.EFECTIVO;
+        if (!isTurno && !isCashAdvance && exp.paymentMethod !== PaymentMethod.EFECTIVO) {
           const expDate = getColombiaDateString(exp.date);
           allMovements.push({
             id: `exp-${exp.id}`,
             date: expDate,
-            type: 'Gasto Bancario',
+            type: exp.category === 'Adelanto' ? 'Adelanto Bancario' : 'Gasto Bancario',
             concept: `${exp.category} - ${exp.description}`,
             amount: -exp.amount,
           });

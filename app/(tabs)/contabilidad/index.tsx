@@ -888,16 +888,17 @@ export default function ContabilidadScreen() {
           const theoreticalBaseToday = registeredOpening !== undefined ? registeredOpening : (isApproved ? openingBaseVal : runningBaseLocal);
 
           const generalBankIncomeToday = bankIncomesByDate.get(date) ?? 0;
-          const revenueCashIncomeToday = revenueCashIncomesByDate.get(date) ?? 0;
-          const revenueBankIncomeToday = revenueBankIncomesByDate.get(date) ?? 0;
+          const totalCashIncomeToday = cashIncomesByDate.get(date) ?? 0;
+          const totalBankIncomeToday = bankIncomesByDate.get(date) ?? 0;
           const cpTransferInflowToday = isProd ? (bankPaymentsByDate.get(date) ?? 0) : 0;
+          const bankAdvancesToday = bankAdvancesByDate.get(date) ?? 0;
 
-          const grossInflowToday = (isApproved ? closing.expectedTotal : 0) + revenueCashIncomeToday + revenueBankIncomeToday + cpTransferInflowToday;
-          const grossOutflowToday = (isApproved ? closing.expenses : 0) + generalCashExp + generalBankExp + cpOutflowPayToday;
+          const grossInflowToday = (isApproved ? closing.expectedTotal : 0) + totalCashIncomeToday + totalBankIncomeToday + cpTransferInflowToday;
+          const grossOutflowToday = (isApproved ? closing.expenses : 0) + generalCashExp + generalBankExp + bankAdvancesToday + cpOutflowPayToday;
 
           cumInflow += grossInflowToday;
           cumOutflow += grossOutflowToday;
-          cumBank += salesTransferBank + generalBankIncomeToday - generalBankExp + bankPayToday - cpOutflowPayToday;
+          cumBank += salesTransferBank + generalBankIncomeToday - generalBankExp - bankAdvancesToday + bankPayToday - cpOutflowPayToday;
 
           if (date >= startDate) {
             sumIngresosGral += grossInflowToday;
@@ -1475,9 +1476,7 @@ export default function ContabilidadScreen() {
 
       const approvedClosings = closings.filter(c => c.status === ClosingStatus.APPROVED || c.status === ClosingStatus.CONFIRMED);
       const salesInflow = approvedClosings.reduce((sum, c) => sum + c.expectedTotal, 0);
-      const nonAssetSwapIncomes = ledgerIncomes
-        .filter(inc => inc.category !== 'Abono Cartera')
-        .reduce((sum, inc) => sum + inc.amount, 0);
+      const totalIncomes = ledgerIncomes.reduce((sum, inc) => sum + inc.amount, 0);
 
       let cpTransferPaymentsInflow = 0;
       if (isProd) {
@@ -1488,15 +1487,18 @@ export default function ContabilidadScreen() {
         }
       }
 
-      const totalInflow = salesInflow + nonAssetSwapIncomes + cpTransferPaymentsInflow;
+      const totalInflow = salesInflow + totalIncomes + cpTransferPaymentsInflow;
 
       const closingExpenses = approvedClosings.reduce((sum, c) => sum + c.expenses, 0);
       const filteredExpenses = ledgerExpenses
         .filter(exp => exp.category !== 'Adelanto' && exp.category !== 'Compra Turno')
         .reduce((sum, exp) => sum + exp.amount, 0);
+      const bankAdvances = ledgerExpenses
+        .filter(exp => exp.category === 'Adelanto' && exp.paymentMethod !== PaymentMethod.EFECTIVO)
+        .reduce((sum, exp) => sum + exp.amount, 0);
       const directPurchases = ledgerPurchases.reduce((sum, p) => sum + p.priceCOP, 0);
 
-      const totalOutflow = closingExpenses + filteredExpenses + directPurchases;
+      const totalOutflow = closingExpenses + filteredExpenses + bankAdvances + directPurchases;
       const baseValue = openingsRes.data?.total ?? (latestTheoreticalBase > 0 ? latestTheoreticalBase : 0);
 
       return (totalInflow - totalOutflow) + baseValue;
