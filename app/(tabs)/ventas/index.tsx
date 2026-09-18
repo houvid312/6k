@@ -98,6 +98,8 @@ export default function VentasScreen() {
   const [cashAmount, setCashAmount] = useState(0);
   const [bankAmount, setBankAmount] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
+  const lastSubmitTimeRef = useRef(0);
   const [readyToConfirm, setReadyToConfirm] = useState(false);
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
   const [isPaid, setIsPaid] = useState(false);
@@ -975,13 +977,23 @@ export default function VentasScreen() {
   }, [saleToCartItems, scrollToTop, setCart]);
 
   const handleSubmitSale = useCallback(async () => {
+    const now = Date.now();
+    if (now - lastSubmitTimeRef.current < 2500) {
+      isSubmittingRef.current = false;
+      return;
+    }
+    lastSubmitTimeRef.current = now;
+    isSubmittingRef.current = true;
+
     if (!isPaid && isCredit) {
       if (debtorType === 'TRABAJADOR' && !debtorWorkerId) {
         setSnackbar({ visible: true, success: false, message: 'Por favor selecciona el trabajador a quien se le fía' });
+        isSubmittingRef.current = false;
         return;
       }
       if (debtorType === 'CLIENTE' && !debtorCustomerId) {
         setSnackbar({ visible: true, success: false, message: 'Por favor selecciona el cliente a quien se le fía' });
+        isSubmittingRef.current = false;
         return;
       }
     }
@@ -1097,10 +1109,13 @@ export default function VentasScreen() {
       });
     } finally {
       setSubmitting(false);
+      isSubmittingRef.current = false;
     }
   }, [applyPortionDelta, cart, cartPackagingSupplyId, clearCart, editingSale, isPaid, isCredit, debtorType, debtorWorkerId, debtorCustomerId, debtorName, loadPendingSales, loadSoldPortions, normalizeMixedPayment, observations, paymentMethod, saleService, selectedStoreId, totalAmount]);
 
   const handleFabPress = useCallback(() => {
+    if (isSubmittingRef.current || submitting) return;
+
     if (cart.length === 0) {
       Alert.alert('Error', 'Agrega productos al carrito primero');
       return;
@@ -1113,9 +1128,10 @@ export default function VentasScreen() {
       return;
     }
 
-    // Second press: confirm and submit
+    // Second press: confirm and submit (synchronous lock)
+    isSubmittingRef.current = true;
     handleSubmitSale();
-  }, [cart, readyToConfirm, scrollToTop, handleSubmitSale]);
+  }, [cart, readyToConfirm, scrollToTop, handleSubmitSale, submitting]);
 
   const updatePendingSale = useCallback((saleId: string, updates: Partial<Sale>): boolean => {
     const merged = pendingSales.map((s) => s.id === saleId ? { ...s, ...updates } : s);
@@ -1778,6 +1794,7 @@ export default function VentasScreen() {
             }
             onPress={handleFabPress}
             loading={submitting}
+            disabled={submitting}
             style={[styles.fab, { backgroundColor: readyToConfirm ? '#388E3C' : theme.colors.primary }]}
             color="#FFFFFF"
           />

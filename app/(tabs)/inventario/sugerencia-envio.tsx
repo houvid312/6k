@@ -58,6 +58,7 @@ export default function SugerenciaEnvioScreen() {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [calculated, setCalculated] = useState(false);
+  const isCreatingRef = React.useRef(false);
 
   React.useEffect(() => {
     if (userRole === UserRole.RODY) {
@@ -137,6 +138,8 @@ export default function SugerenciaEnvioScreen() {
   }, [selectedStoreId, selectedDays, demandEstimationService, showSuccess, showError]);
 
   const handleCreateTransfer = useCallback(async () => {
+    if (isCreatingRef.current || creating) return;
+
     if (!selectedStoreId) {
       showError('Selecciona un local');
       return;
@@ -160,17 +163,20 @@ export default function SugerenciaEnvioScreen() {
       return;
     }
 
+    isCreatingRef.current = true;
     setCreating(true);
     try {
       await transferService.createTransferOrderFromBags(productionCenter.id, selectedStoreId, items);
       showSuccess('Orden de traslado creada');
       setTimeout(() => router.push('/(tabs)/inventario/traslados'), 1500);
-    } catch {
-      showError('Error al crear orden de traslado');
-    } finally {
+      // Mantener isCreatingRef.current = true y creating = true durante la ventana de redirección
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error al crear orden de traslado';
+      showError(msg);
+      isCreatingRef.current = false;
       setCreating(false);
     }
-  }, [stores, selectedStoreId, requirements, editableBags, transferService, showSuccess, showError]);
+  }, [stores, selectedStoreId, requirements, editableBags, transferService, showSuccess, showError, creating]);
 
   return (
     <ScreenContainer scrollable padded>

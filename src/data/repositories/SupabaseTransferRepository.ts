@@ -123,35 +123,69 @@ export class SupabaseTransferRepository implements ITransferRepository {
   }
 
   async create(transfer: Omit<Transfer, 'id'>): Promise<Transfer> {
-    const { data, error } = await supabase
-      .from('transfers')
-      .insert({
-        order_date: transfer.orderDate,
-        shipping_date: transfer.shippingDate || null,
-        from_store_id: transfer.fromStoreId,
-        to_store_id: transfer.toStoreId,
-        status: transfer.status,
-      })
-      .select()
-      .single();
-    if (error) throw error;
-
-    const row = data as TransferRow;
-
-    const itemRows = transfer.items.map((item) => ({
-      transfer_id: row.id,
-      supply_id: item.supplyId,
-      target_grams: item.targetGrams,
-      current_inventory_grams: item.currentInventoryGrams,
-      bags_to_send: item.bagsToSend,
+    const rpcItems = transfer.items.map((item) => ({
+      supplyId: item.supplyId,
+      targetGrams: item.targetGrams,
+      currentInventoryGrams: item.currentInventoryGrams,
+      bagsToSend: item.bagsToSend,
     }));
 
-    const { error: itemsError } = await supabase
-      .from('transfer_items')
-      .insert(itemRows);
-    if (itemsError) throw itemsError;
+    const { data: transferId, error: rpcError } = await supabase.rpc(
+      'create_transfer_order_atomic',
+      {
+        p_from_store_id: transfer.fromStoreId,
+        p_to_store_id: transfer.toStoreId,
+        p_order_date: transfer.orderDate,
+        p_shipping_date: transfer.shippingDate || null,
+        p_items: rpcItems,
+      },
+    );
 
-    return this.getById(row.id) as Promise<Transfer>;
+    if (!rpcError && transferId) {
+      const created = await this.getById(transferId as string);
+      if (created) return created;
+    }
+
+    if (rpcError) {
+      // If RPC doesn't exist yet in environment, fallback to sequential
+      if (rpcError.code === '42883' || rpcError.message?.includes('function') || rpcError.message?.includes('not found')) {
+        console.warn('RPC create_transfer_order_atomic not found, falling back to sequential insert:', rpcError);
+        const { data, error } = await supabase
+          .from('transfers')
+          .insert({
+            order_date: transfer.orderDate,
+            shipping_date: transfer.shippingDate || null,
+            from_store_id: transfer.fromStoreId,
+            to_store_id: transfer.toStoreId,
+            status: transfer.status,
+          })
+          .select()
+          .single();
+        if (error) throw error;
+
+        const row = data as TransferRow;
+
+        const itemRows = transfer.items.map((item) => ({
+          transfer_id: row.id,
+          supply_id: item.supplyId,
+          target_grams: item.targetGrams,
+          current_inventory_grams: item.currentInventoryGrams,
+          bags_to_send: item.bagsToSend,
+        }));
+
+        const { error: itemsError } = await supabase
+          .from('transfer_items')
+          .insert(itemRows);
+        if (itemsError) throw itemsError;
+
+        const createdFallback = await this.getById(row.id);
+        if (!createdFallback) throw new Error('No se pudo obtener el traslado creado');
+        return createdFallback;
+      }
+      throw rpcError;
+    }
+
+    throw new Error('No se pudo crear el traslado');
   }
 
   async updateStatus(id: string, status: TransferStatus): Promise<Transfer> {
