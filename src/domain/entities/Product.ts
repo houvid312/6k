@@ -6,4 +6,5 @@ export interface Product {
   category: ProductCategory;
   isActive: boolean;
   hasRecipe: boolean;
+  icon?: string;
 }

@@ -40,6 +40,8 @@ const CATEGORY_LABELS: Record<ProductCategory, string> = {
   OTRO: 'Otro',
 };
 
+const COMMON_ICONS = ['🍕', '🔶', '🫓', '🥤', '💧', '🧃', '🥓', '🍍', '🧀', '🌶️', '🍄', '🍅', '🍔', '🌮', '🥟', '🥐', '🍰', '☕'];
+
 export default function ProductosScreen() {
   const theme = useTheme();
   const { productRepo, productFormatRepo, productStoreAssignmentRepo, recipeRepo, additionCatalogRepo } = useDI();
@@ -93,6 +95,7 @@ export default function ProductosScreen() {
   const [newName, setNewName] = useState('');
   const [newCategory, setNewCategory] = useState<ProductCategory>('PIZZA');
   const [newHasRecipe, setNewHasRecipe] = useState(false);
+  const [newIcon, setNewIcon] = useState('🍕');
   const [saving, setSaving] = useState(false);
 
   // New format modal
@@ -109,6 +112,7 @@ export default function ProductosScreen() {
   const [editProductName, setEditProductName] = useState('');
   const [editProductCategory, setEditProductCategory] = useState<ProductCategory>('PIZZA');
   const [editProductHasRecipe, setEditProductHasRecipe] = useState(false);
+  const [editProductIcon, setEditProductIcon] = useState('🍕');
   const [savingProductEdit, setSavingProductEdit] = useState(false);
 
   const handleOpenEditProduct = (product: Product) => {
@@ -116,6 +120,7 @@ export default function ProductosScreen() {
     setEditProductName(product.name);
     setEditProductCategory(product.category);
     setEditProductHasRecipe(product.hasRecipe);
+    setEditProductIcon(product.icon || (product.category === 'BEBIDA' ? '🥤' : '🍕'));
   };
 
   const handleSaveProductEdit = async () => {
@@ -131,6 +136,7 @@ export default function ProductosScreen() {
         name,
         category: editProductCategory,
         hasRecipe: editProductHasRecipe,
+        icon: editProductIcon.trim() || undefined,
       });
       await loadProducts();
       await refreshMasterData();
@@ -498,7 +504,12 @@ export default function ProductosScreen() {
     if (!newName.trim()) { showError('Ingresa un nombre'); return; }
     setSaving(true);
     try {
-      const product = await productRepo.create({ name: newName.trim(), category: newCategory, hasRecipe: newHasRecipe });
+      const product = await productRepo.create({
+        name: newName.trim(),
+        category: newCategory,
+        hasRecipe: newHasRecipe,
+        icon: newIcon.trim() || undefined,
+      });
       // Assign to all stores by default
       if (stores.length > 0) {
         await productStoreAssignmentRepo.bulkAssign(product.id, stores.map((s) => s.id));
@@ -514,6 +525,7 @@ export default function ProductosScreen() {
       setNewName('');
       setNewCategory('PIZZA');
       setNewHasRecipe(false);
+      setNewIcon('🍕');
       showSuccess(`Producto "${product.name}" creado`);
     } catch {
       showError('Error creando producto');
@@ -751,7 +763,7 @@ export default function ProductosScreen() {
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: '600', flex: 1 }}>
-                      {product.name}
+                      {product.icon ? `${product.icon} ` : ''}{product.name}
                     </Text>
                     {isGlobalRole && (
                       <IconButton
@@ -1217,6 +1229,8 @@ export default function ProductosScreen() {
               const cat = v as ProductCategory;
               setNewCategory(cat);
               setNewHasRecipe(cat === 'PIZZA');
+              if (cat === 'BEBIDA' && newIcon === '🍕') setNewIcon('🥤');
+              if (cat === 'PIZZA' && newIcon === '🥤') setNewIcon('🍕');
             }}
             buttons={[
               { value: 'PIZZA', label: 'Pizza' },
@@ -1225,6 +1239,49 @@ export default function ProductosScreen() {
             ]}
             style={{ marginBottom: 12 }}
           />
+
+          <Text variant="bodySmall" style={{ color: '#999', marginBottom: 6 }}>
+            Ícono (Emoji)
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <View style={{
+              width: 44,
+              height: 44,
+              borderRadius: 8,
+              backgroundColor: '#2A2A2A',
+              justifyContent: 'center',
+              alignItems: 'center',
+              borderWidth: 1,
+              borderColor: '#444',
+            }}>
+              <Text style={{ fontSize: 24 }}>{newIcon || '🍕'}</Text>
+            </View>
+            <TextInput
+              value={newIcon}
+              onChangeText={setNewIcon}
+              placeholder="Emoji"
+              mode="outlined"
+              outlineColor="#333"
+              activeOutlineColor="#E63946"
+              textColor="#F5F0EB"
+              style={{ flex: 1, backgroundColor: '#1E1E1E' }}
+              dense
+            />
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12, maxHeight: 40 }} contentContainerStyle={{ gap: 6 }}>
+            {COMMON_ICONS.map((emoji) => (
+              <Chip
+                key={emoji}
+                compact
+                selected={newIcon === emoji}
+                onPress={() => setNewIcon(emoji)}
+                style={{ backgroundColor: newIcon === emoji ? '#E63946' : '#2A2A2A' }}
+                textStyle={{ fontSize: 16 }}
+              >
+                {emoji}
+              </Chip>
+            ))}
+          </ScrollView>
 
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
             <Text variant="bodyMedium" style={{ color: '#F5F0EB', flex: 1 }}>
@@ -1373,7 +1430,12 @@ export default function ProductosScreen() {
           </Text>
           <SegmentedButtons
             value={editProductCategory}
-            onValueChange={(v) => setEditProductCategory(v as ProductCategory)}
+            onValueChange={(v) => {
+              const cat = v as ProductCategory;
+              setEditProductCategory(cat);
+              if (cat === 'BEBIDA' && editProductIcon === '🍕') setEditProductIcon('🥤');
+              if (cat === 'PIZZA' && editProductIcon === '🥤') setEditProductIcon('🍕');
+            }}
             buttons={[
               { value: 'PIZZA', label: 'Pizza' },
               { value: 'BEBIDA', label: 'Bebida' },
@@ -1381,6 +1443,49 @@ export default function ProductosScreen() {
             ]}
             style={{ marginBottom: 12 }}
           />
+
+          <Text variant="labelSmall" style={{ color: '#999', marginBottom: 4 }}>
+            Ícono (Emoji)
+          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <View style={{
+              width: 44,
+              height: 44,
+              borderRadius: 8,
+              backgroundColor: '#2A2A2A',
+              justifyContent: 'center',
+              alignItems: 'center',
+              borderWidth: 1,
+              borderColor: '#444',
+            }}>
+              <Text style={{ fontSize: 24 }}>{editProductIcon || '🍕'}</Text>
+            </View>
+            <TextInput
+              value={editProductIcon}
+              onChangeText={setEditProductIcon}
+              placeholder="Emoji"
+              mode="outlined"
+              outlineColor="#333"
+              activeOutlineColor="#E63946"
+              textColor="#F5F0EB"
+              style={{ flex: 1, backgroundColor: '#1E1E1E' }}
+              dense
+            />
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12, maxHeight: 40 }} contentContainerStyle={{ gap: 6 }}>
+            {COMMON_ICONS.map((emoji) => (
+              <Chip
+                key={emoji}
+                compact
+                selected={editProductIcon === emoji}
+                onPress={() => setEditProductIcon(emoji)}
+                style={{ backgroundColor: editProductIcon === emoji ? '#E63946' : '#2A2A2A' }}
+                textStyle={{ fontSize: 16 }}
+              >
+                {emoji}
+              </Chip>
+            ))}
+          </ScrollView>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: 8 }}>
             <Text variant="bodyMedium" style={{ color: '#F5F0EB' }}>
               ¿Tiene Receta?

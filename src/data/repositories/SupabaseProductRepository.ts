@@ -8,6 +8,7 @@ interface ProductRow {
   category: string;
   is_active: boolean;
   has_recipe: boolean;
+  icon: string | null;
 }
 
 function toEntity(row: ProductRow): Product {
@@ -17,6 +18,7 @@ function toEntity(row: ProductRow): Product {
     category: row.category as ProductCategory,
     isActive: row.is_active,
     hasRecipe: row.has_recipe ?? false,
+    icon: row.icon ?? undefined,
   };
 }
 
@@ -49,10 +51,15 @@ export class SupabaseProductRepository implements IProductRepository {
     return (data as ProductRow[]).map(toEntity);
   }
 
-  async create(data: { name: string; category: ProductCategory; hasRecipe: boolean }): Promise<Product> {
+  async create(data: { name: string; category: ProductCategory; hasRecipe: boolean; icon?: string }): Promise<Product> {
     const { data: row, error } = await supabase
       .from('products')
-      .insert({ name: data.name, category: data.category, has_recipe: data.hasRecipe })
+      .insert({
+        name: data.name,
+        category: data.category,
+        has_recipe: data.hasRecipe,
+        icon: data.icon ?? null,
+      })
       .select()
       .single();
     if (error) throw error;
@@ -61,13 +68,14 @@ export class SupabaseProductRepository implements IProductRepository {
 
   async update(
     id: string,
-    updates: Partial<Pick<Product, 'name' | 'category' | 'hasRecipe' | 'isActive'>>,
+    updates: Partial<Pick<Product, 'name' | 'category' | 'hasRecipe' | 'isActive' | 'icon'>>,
   ): Promise<void> {
     const row: Record<string, unknown> = {};
     if (updates.name !== undefined) row.name = updates.name;
     if (updates.category !== undefined) row.category = updates.category;
     if (updates.hasRecipe !== undefined) row.has_recipe = updates.hasRecipe;
     if (updates.isActive !== undefined) row.is_active = updates.isActive;
+    if (updates.icon !== undefined) row.icon = updates.icon || null;
 
     const { error } = await supabase.from('products').update(row).eq('id', id);
     if (error) throw error;
