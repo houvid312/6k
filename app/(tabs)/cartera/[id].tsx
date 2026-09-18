@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { Card, Text, Button, Divider, Chip, Portal, Snackbar, useTheme } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { CurrencyInput } from '../../../src/components/common/CurrencyInput';
@@ -8,7 +9,7 @@ import { LoadingIndicator } from '../../../src/components/common/LoadingIndicato
 import { useDI } from '../../../src/di/providers';
 import { useSnackbar } from '../../../src/hooks';
 import { useAppStore } from '../../../src/stores/useAppStore';
-import { CreditEntry, Expense } from '../../../src/domain/entities';
+import { CreditEntry } from '../../../src/domain/entities';
 import { PaymentMethod, UserRole } from '../../../src/domain/enums';
 import { formatCOP } from '../../../src/utils/currency';
 import { formatDate } from '../../../src/utils/dates';
@@ -42,8 +43,8 @@ function getNextFollowUp(dateStr: string): { daysUntil: number; label: string } 
   const daysUntil = nextMultiple - days;
 
   if (daysUntil === 0) return { daysUntil: 0, label: 'Hoy' };
-  if (daysUntil === 1) return { daysUntil: 1, label: 'Manana' };
-  return { daysUntil, label: `En ${daysUntil} dias` };
+  if (daysUntil === 1) return { daysUntil: 1, label: 'Mañana' };
+  return { daysUntil, label: `En ${daysUntil} días` };
 }
 
 export default function DebtorDetailScreen() {
@@ -55,10 +56,13 @@ export default function DebtorDetailScreen() {
 
   const [credit, setCredit] = useState<CreditEntry | null>(null);
   const [relatedCredits, setRelatedCredits] = useState<CreditEntry[]>([]);
+  const [selectedCreditIds, setSelectedCreditIds] = useState<Set<string>>(new Set());
+
   const [paymentAmount, setPaymentAmount] = useState(0);
-  const [paymentMethod, setPaymentMethod] = useState<'EFECTIVO' | 'TRANSFERENCIA' | 'MIXTO'>('TRANSFERENCIA');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PaymentMethod.TRANSFERENCIA);
   const [cashPart, setCashPart] = useState(0);
   const [bankPart, setBankPart] = useState(0);
+
   const [creditPayments, setCreditPayments] = useState<any[]>([]);
   const [creditMethods, setCreditMethods] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -66,7 +70,7 @@ export default function DebtorDetailScreen() {
 
   const isProduction = useMemo(() => {
     if (!selectedStoreId) return false;
-    const currentStore = stores.find(s => s.id === selectedStoreId);
+    const currentStore = stores.find((s) => s.id === selectedStoreId);
     return currentStore?.isProductionCenter ?? false;
   }, [selectedStoreId, stores]);
 
@@ -81,7 +85,13 @@ export default function DebtorDetailScreen() {
         const related = await creditService.getCreditsByDebtor(found.debtorName);
         setRelatedCredits(related);
 
-        const payments = await creditService.getPaymentsByCredit(found.id);
+        // Pre-seleccionar todos los créditos con saldo pendiente por defecto
+        const unpaid = related.filter((c) => !c.isPaid && c.balance > 0);
+        setSelectedCreditIds(new Set(unpaid.map((c) => c.id)));
+
+        // Cargar todos los pagos de todos los créditos de este deudor
+        const allIds = related.map((c) => c.id);
+        const payments = await creditService.getPaymentsByCreditIds(allIds);
         setCreditPayments(payments);
 
         // Fetch payment methods for related credits
@@ -119,18 +129,69 @@ export default function DebtorDetailScreen() {
     loadData();
   }, [loadData]);
 
-  const handlePayment = useCallback(async () => {
-    if (!credit) return;
+  // Créditos pendientes vs pagados
+  const pendingCredits = useMemo(
+    () => relatedCredits.filter((c) => !c.isPaid && c.balance > 0),
+    [relatedCredits]
+  );
 
-    const isLocal = credit.debtorType === 'LOCAL';
+  const paidCredits = useMemo(
+    () => relatedCredits.filter((c) => c.isPaid || c.balance <= 0),
+    [relatedCredits]
+  );
+
+  const selectedCredits = useMemo(
+    () => pendingCredits.filter((c) => selectedCreditIds.has(c.id)),
+    [pendingCredits, selectedCreditIds]
+  );
+
+  const selectedTotalBalance = useMemo(
+    () => selectedCredits.reduce((sum, c) => sum + c.balance, 0),
+    [selectedCredits]
+  );
+
+  const totalBalance = useMemo(
+    () => pendingCredits.reduce((sum, c) => sum + c.balance, 0),
+    [pendingCredits]
+  );
+
+  // Alternar selección de un crédito
+  const toggleSelectCredit = (creditId: string) => {
+    setSelectedCreditIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(creditId)) {
+        next.delete(creditId);
+      } else {
+        next.add(creditId);
+      }
+      return next;
+    });
+  };
+
+  const selectAllPending = () => {
+    setSelectedCreditIds(new Set(pendingCredits.map((c) => c.id)));
+  };
+
+  const clearSelection = () => {
+    setSelectedCreditIds(new Set());
+  };
+
+  const handlePayment = useCallback(async () => {
+    if (selectedCredits.length === 0) {
+      showError('Selecciona al menos un traslado o crédito para pagar');
+      return;
+    }
+
+    const isLocal = credit?.debtorType === 'LOCAL';
+    const totalToPay = paymentMethod === 'MIXTO' ? cashPart + bankPart : paymentAmount;
 
     if (paymentMethod === 'MIXTO') {
       if (cashPart <= 0 && bankPart <= 0) {
-        showError('Por favor ingresa montos válidos para pago mixto.');
+        showError('Por favor ingresa montos válidos para pago mixto');
         return;
       }
-      if (cashPart + bankPart > credit.balance) {
-        showError(`El total del abono (${formatCOP(cashPart + bankPart)}) supera el saldo pendiente del crédito (${formatCOP(credit.balance)})`);
+      if (totalToPay > selectedTotalBalance) {
+        showError(`El total del abono (${formatCOP(totalToPay)}) supera el saldo seleccionado (${formatCOP(selectedTotalBalance)})`);
         return;
       }
     } else {
@@ -138,60 +199,46 @@ export default function DebtorDetailScreen() {
         showError('Ingresa un monto válido');
         return;
       }
-      if (paymentAmount > credit.balance) {
-        showError(`El abono (${formatCOP(paymentAmount)}) supera el saldo pendiente del crédito (${formatCOP(credit.balance)})`);
+      if (paymentAmount > selectedTotalBalance) {
+        showError(`El abono (${formatCOP(paymentAmount)}) supera el saldo seleccionado (${formatCOP(selectedTotalBalance)})`);
         return;
       }
     }
 
     setSubmitting(true);
     try {
+      const creditIds = selectedCredits.map((c) => c.id);
+
       if (isLocal) {
-        // Local transfer billing payment flow (Generates pending payment & local expense)
-        if (paymentMethod === 'EFECTIVO') {
-          await creditService.registerLocalPayment(credit.id, paymentAmount, PaymentMethod.EFECTIVO, 'Abono de traslado en Efectivo (Pendiente)');
-          showSuccess(`Pago de ${formatCOP(paymentAmount)} en Efectivo registrado. Pendiente de confirmación.`);
-        } else if (paymentMethod === 'TRANSFERENCIA') {
-          await creditService.registerLocalPayment(credit.id, paymentAmount, PaymentMethod.TRANSFERENCIA, 'Abono de traslado por Transferencia (Pendiente)');
-          showSuccess(`Pago de ${formatCOP(paymentAmount)} por Transferencia registrado. Pendiente de confirmación.`);
-        } else {
-          if (cashPart > 0) {
-            await creditService.registerLocalPayment(credit.id, cashPart, PaymentMethod.EFECTIVO, 'Abono de traslado en Efectivo (Parte de pago Mixto, Pendiente)');
-          }
-          if (bankPart > 0) {
-            await creditService.registerLocalPayment(credit.id, bankPart, PaymentMethod.TRANSFERENCIA, 'Abono de traslado por Transferencia (Parte de pago Mixto, Pendiente)');
-          }
-          showSuccess(`Pago mixto de ${formatCOP(cashPart + bankPart)} registrado. Pendiente de confirmación.`);
-        }
+        await creditService.registerMultipleLocalPayments({
+          creditIds,
+          paymentMethod,
+          paymentAmount,
+          cashPart,
+          bankPart,
+        });
+        showSuccess(`Pago de ${formatCOP(totalToPay)} registrado para ${selectedCredits.length} traslado(s). Pendiente de confirmación.`);
       } else {
-        // Standard credit payment flow (Directly applies and updates balance)
-        if (paymentMethod === 'EFECTIVO') {
-          await creditService.registerPayment(credit.id, paymentAmount, PaymentMethod.EFECTIVO, 'Abono manual en Efectivo');
-          showSuccess(`${formatCOP(paymentAmount)} en Efectivo aplicado a ${credit.debtorName}`);
-        } else if (paymentMethod === 'TRANSFERENCIA') {
-          await creditService.registerPayment(credit.id, paymentAmount, PaymentMethod.TRANSFERENCIA, 'Abono manual por Transferencia');
-          showSuccess(`${formatCOP(paymentAmount)} por Transferencia aplicado a ${credit.debtorName}`);
-        } else {
-          if (cashPart > 0) {
-            await creditService.registerPayment(credit.id, cashPart, PaymentMethod.EFECTIVO, 'Abono manual en Efectivo (Parte de pago Mixto)');
-          }
-          if (bankPart > 0) {
-            await creditService.registerPayment(credit.id, bankPart, PaymentMethod.TRANSFERENCIA, 'Abono manual por Transferencia (Parte de pago Mixto)');
-          }
-          showSuccess(`Abono mixto de ${formatCOP(cashPart + bankPart)} aplicado a ${credit.debtorName}`);
-        }
+        await creditService.registerMultiplePayments({
+          creditIds,
+          paymentMethod,
+          paymentAmount,
+          cashPart,
+          bankPart,
+        });
+        showSuccess(`Abono de ${formatCOP(totalToPay)} aplicado a ${selectedCredits.length} crédito(s)`);
       }
 
       setPaymentAmount(0);
       setCashPart(0);
       setBankPart(0);
-      loadData();
+      await loadData();
     } catch (err: any) {
       showError(err instanceof Error ? err.message : 'No se pudo registrar el pago');
     } finally {
       setSubmitting(false);
     }
-  }, [credit, paymentAmount, paymentMethod, cashPart, bankPart, creditService, loadData, showSuccess, showError]);
+  }, [selectedCredits, selectedTotalBalance, credit, paymentMethod, paymentAmount, cashPart, bankPart, creditService, loadData, showSuccess, showError]);
 
   const handleConfirmPayment = useCallback(async (paymentId: string) => {
     setSubmitting(true);
@@ -205,6 +252,24 @@ export default function DebtorDetailScreen() {
       setSubmitting(false);
     }
   }, [creditService, loadData, showSuccess, showError]);
+
+  const handleConfirmAllPending = useCallback(async () => {
+    const pendingIds = creditPayments
+      .filter((p) => p.status === 'PENDING')
+      .map((p) => p.id);
+    if (pendingIds.length === 0) return;
+
+    setSubmitting(true);
+    try {
+      await creditService.confirmMultipleLocalPayments(pendingIds);
+      showSuccess(`${pendingIds.length} abono(s) confirmado(s) exitosamente.`);
+      loadData();
+    } catch (err: any) {
+      showError(err instanceof Error ? err.message : 'No se pudieron confirmar los abonos');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [creditPayments, creditService, loadData, showSuccess, showError]);
 
   const handleRejectPayment = useCallback(async (paymentId: string) => {
     setSubmitting(true);
@@ -239,33 +304,38 @@ export default function DebtorDetailScreen() {
   if (!credit) {
     return (
       <ScreenContainer>
-        <Text variant="bodyLarge">Credito no encontrado</Text>
+        <Text variant="bodyLarge">Crédito no encontrado</Text>
         <Button onPress={() => router.back()}>Volver</Button>
       </ScreenContainer>
     );
   }
-
-  const totalBalance = relatedCredits
-    .filter((c) => !c.isPaid)
-    .reduce((sum, c) => sum + c.balance, 0);
 
   const isLocalDebt = credit.debtorType === 'LOCAL';
   const displayName = isLocalDebt && !isProduction 
     ? 'Centro de Producción' 
     : credit.debtorName;
 
+  const pendingPaymentsCount = creditPayments.filter((p) => p.status === 'PENDING').length;
+
   return (
     <ScreenContainer>
       {/* Debtor info */}
       <Card style={styles.card} mode="elevated">
         <Card.Content>
-          <Text variant="headlineSmall" style={{ fontWeight: 'bold' }}>
-            {displayName}
-          </Text>
-          <View style={styles.chipRow}>
-            <Chip compact style={isLocalDebt && { backgroundColor: 'rgba(230, 57, 70, 0.15)' }}>
-              {isLocalDebt && !isProduction ? 'CUENTA POR PAGAR' : credit.debtorType}
-            </Chip>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <View style={{ flex: 1 }}>
+              <Text variant="headlineSmall" style={{ fontWeight: 'bold' }}>
+                {displayName}
+              </Text>
+              <View style={styles.chipRow}>
+                <Chip compact style={isLocalDebt && { backgroundColor: 'rgba(230, 57, 70, 0.15)' }}>
+                  {isLocalDebt && !isProduction ? 'CUENTA POR PAGAR' : credit.debtorType}
+                </Chip>
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, alignSelf: 'center', marginLeft: 8 }}>
+                  {relatedCredits.length} traslado{relatedCredits.length !== 1 ? 's' : ''} en total
+                </Text>
+              </View>
+            </View>
           </View>
           <Divider style={styles.divider} />
           <View style={styles.balanceRow}>
@@ -280,16 +350,53 @@ export default function DebtorDetailScreen() {
       </Card>
 
       {/* Register payment */}
-      {!credit.isPaid && (!isLocalDebt || !isProduction) && (
+      {totalBalance > 0 && (!isLocalDebt || !isProduction) && (
         <Card style={styles.card} mode="elevated">
           <Card.Content>
-            <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 12 }}>
-              {isLocalDebt ? 'Registrar Pago al Centro de Producción' : 'Registrar Pago'}
-            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <Text variant="titleSmall" style={{ fontWeight: '700' }}>
+                {isLocalDebt ? 'Registrar Pago al Centro de Producción' : 'Registrar Pago'}
+              </Text>
+              {selectedCredits.length > 0 && (
+                <Chip compact style={{ backgroundColor: '#2A2A2A' }} textStyle={{ color: '#FFB74D', fontSize: 11 }}>
+                  {selectedCredits.length} seleccionado{selectedCredits.length !== 1 ? 's' : ''}
+                </Chip>
+              )}
+            </View>
+
+            {/* Quick Summary & Fill button */}
+            <View style={{ backgroundColor: '#252020', borderRadius: 8, padding: 10, marginBottom: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View>
+                <Text variant="labelSmall" style={{ color: '#AAA' }}>
+                  Total a pagar seleccionado:
+                </Text>
+                <Text variant="titleMedium" style={{ fontWeight: 'bold', color: '#E63946' }}>
+                  {formatCOP(selectedTotalBalance)}
+                </Text>
+              </View>
+              {selectedTotalBalance > 0 && (
+                <Button
+                  mode="outlined"
+                  compact
+                  textColor="#FFB74D"
+                  style={{ borderColor: '#FFB74D', borderRadius: 6 }}
+                  onPress={() => {
+                    if (paymentMethod === 'MIXTO') {
+                      setBankPart(selectedTotalBalance);
+                      setCashPart(0);
+                    } else {
+                      setPaymentAmount(selectedTotalBalance);
+                    }
+                  }}
+                >
+                  Copiar Total
+                </Button>
+              )}
+            </View>
 
             {/* Medio de Pago Selector */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-around', marginBottom: 16 }}>
-              {(['TRANSFERENCIA', 'EFECTIVO', 'MIXTO'] as const).map((method) => (
+              {[PaymentMethod.TRANSFERENCIA, PaymentMethod.EFECTIVO, PaymentMethod.MIXTO].map((method) => (
                 <Chip
                   key={method}
                   selected={paymentMethod === method}
@@ -301,7 +408,7 @@ export default function DebtorDetailScreen() {
                   textStyle={{ color: '#FFF', fontSize: 11 }}
                   showSelectedOverlay={false}
                 >
-                  {method === 'TRANSFERENCIA' ? 'Bancos' : method === 'EFECTIVO' ? 'Efectivo' : 'Mixto'}
+                  {method === PaymentMethod.TRANSFERENCIA ? 'Bancos' : method === PaymentMethod.EFECTIVO ? 'Efectivo' : 'Mixto'}
                 </Chip>
               ))}
             </View>
@@ -332,29 +439,167 @@ export default function DebtorDetailScreen() {
               mode="contained"
               onPress={handlePayment}
               loading={submitting}
-              disabled={submitting}
+              disabled={submitting || selectedCredits.length === 0}
               style={styles.payBtn}
               icon="cash"
             >
-              {isLocalDebt ? 'Enviar Pago para Confirmación' : 'Registrar Pago'}
+              {selectedCredits.length === 0
+                ? 'Selecciona al menos un traslado'
+                : isLocalDebt
+                ? `Enviar Pago (${formatCOP(paymentMethod === 'MIXTO' ? cashPart + bankPart : paymentAmount)})`
+                : `Registrar Pago (${formatCOP(paymentMethod === 'MIXTO' ? cashPart + bankPart : paymentAmount)})`}
             </Button>
           </Card.Content>
         </Card>
       )}
 
+      {/* Traslados / Créditos Pendientes con Checkboxes */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 10 }}>
+        <Text variant="titleMedium" style={{ fontWeight: '700', color: '#F5F0EB' }}>
+          {isLocalDebt ? 'Traslados Pendientes de Pago' : 'Créditos Pendientes'} ({pendingCredits.length})
+        </Text>
+        {pendingCredits.length > 0 && (
+          <View style={{ flexDirection: 'row', gap: 6 }}>
+            <Button
+              mode="text"
+              compact
+              onPress={selectedCreditIds.size === pendingCredits.length ? clearSelection : selectAllPending}
+              textColor="#64B5F6"
+              style={{ margin: 0 }}
+            >
+              {selectedCreditIds.size === pendingCredits.length ? 'Deseleccionar' : 'Seleccionar Todos'}
+            </Button>
+          </View>
+        )}
+      </View>
+
+      {pendingCredits.length === 0 ? (
+        <Card style={styles.historyCard} mode="elevated">
+          <Card.Content style={{ paddingVertical: 14, alignItems: 'center' }}>
+            <MaterialCommunityIcons name="check-circle-outline" size={32} color="#4CAF50" />
+            <Text variant="bodyMedium" style={{ color: '#4CAF50', fontWeight: '600', marginTop: 4 }}>
+              ¡No hay traslados ni créditos pendientes de pago!
+            </Text>
+          </Card.Content>
+        </Card>
+      ) : (
+        pendingCredits.map((c) => {
+          const isSelected = selectedCreditIds.has(c.id);
+          const days = daysSince(c.date);
+          const daysColor = getDaysColor(days);
+          const daysBgColor = getDaysBgColor(days);
+          const followUp = getNextFollowUp(c.date);
+
+          return (
+            <TouchableOpacity
+              key={c.id}
+              activeOpacity={0.7}
+              onPress={() => toggleSelectCredit(c.id)}
+            >
+              <Card
+                style={[
+                  styles.historyCard,
+                  isSelected && {
+                    borderColor: '#E63946',
+                    borderWidth: 1.5,
+                    backgroundColor: '#261C1D',
+                  },
+                ]}
+                mode="elevated"
+              >
+                <Card.Content style={{ paddingVertical: 10 }}>
+                  <View style={styles.historyRow}>
+                    <View style={{ marginRight: 10, justifyContent: 'center' }}>
+                      <MaterialCommunityIcons
+                        name={isSelected ? 'checkbox-marked-circle' : 'checkbox-blank-circle-outline'}
+                        size={24}
+                        color={isSelected ? '#E63946' : '#666'}
+                      />
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <Text variant="bodyMedium" style={{ fontWeight: '700', color: isSelected ? '#FFFFFF' : '#F5F0EB' }}>
+                        {c.concept}
+                      </Text>
+                      <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                        Fecha: {formatDate(c.date)}
+                      </Text>
+                      {c.transferId && (
+                        <Text variant="labelSmall" style={{ color: '#FFB74D', marginTop: 2, fontWeight: '600' }}>
+                          Traslado #{c.transferId.slice(-6).toUpperCase()}
+                        </Text>
+                      )}
+
+                      <View style={styles.indicatorRow}>
+                        <Chip
+                          compact
+                          textStyle={{ fontSize: 10, color: daysColor }}
+                          style={{ backgroundColor: daysBgColor }}
+                        >
+                          {`${days} día${days !== 1 ? 's' : ''} pendiente`}
+                        </Chip>
+
+                        {followUp && (
+                          <Chip
+                            compact
+                            icon="calendar-clock"
+                            textStyle={{ fontSize: 10, color: '#F5F0EB' }}
+                            style={{ backgroundColor: 'rgba(245, 240, 235, 0.1)' }}
+                          >
+                            {followUp.label}
+                          </Chip>
+                        )}
+                      </View>
+                    </View>
+
+                    <View style={{ alignItems: 'flex-end', marginLeft: 8, justifyContent: 'center' }}>
+                      <Text variant="bodySmall" style={{ color: '#888' }}>
+                        Total: {formatCOP(c.amount)}
+                      </Text>
+                      <Text variant="bodyMedium" style={{ color: '#E63946', fontWeight: '800' }}>
+                        Debe: {formatCOP(c.balance)}
+                      </Text>
+                    </View>
+                  </View>
+                </Card.Content>
+              </Card>
+            </TouchableOpacity>
+          );
+        })
+      )}
+
       {/* Extracto de Abonos (Credit extract) */}
-      <Card style={styles.card} mode="elevated">
+      <Card style={[styles.card, { marginTop: 16 }]} mode="elevated">
         <Card.Content>
-          <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 12 }}>
-            Extracto de Abonos a este Crédito
-          </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <Text variant="titleSmall" style={{ fontWeight: '700' }}>
+              Extracto de Abonos ({creditPayments.length})
+            </Text>
+
+            {/* Acción de confirmación masiva para CP o Gerente */}
+            {isLocalDebt && (isProduction || userRole === UserRole.GERENTE) && pendingPaymentsCount > 1 && (
+              <Button
+                mode="contained"
+                compact
+                icon="check-all"
+                buttonColor="#388E3C"
+                textColor="#FFF"
+                onPress={handleConfirmAllPending}
+                disabled={submitting}
+                style={{ borderRadius: 6 }}
+              >
+                Confirmar Todos ({pendingPaymentsCount})
+              </Button>
+            )}
+          </View>
+
           {creditPayments.length === 0 ? (
             <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontStyle: 'italic' }}>
-              No se han registrado abonos para este crédito aún.
+              No se han registrado abonos para este deudor aún.
             </Text>
           ) : (
             creditPayments.map((p) => {
-              const isLocal = credit.debtorType === 'LOCAL';
+              const isLocal = isLocalDebt;
               const isPending = p.status === 'PENDING';
               const isConfirmed = p.status === 'CONFIRMED';
               const isRejected = p.status === 'REJECTED';
@@ -376,10 +621,10 @@ export default function DebtorDetailScreen() {
                 <View key={p.id} style={{ borderBottomWidth: 1, borderBottomColor: '#222', paddingVertical: 12 }}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                     <View style={{ flex: 1 }}>
-                      <Text variant="bodyMedium" style={{ fontWeight: '500', color: '#F5F0EB' }}>
+                      <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#F5F0EB' }}>
                         {p.notes || 'Abono manual'}
                       </Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
                         <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontSize: 11 }}>
                           Fecha: {formatDate(p.date)}
                         </Text>
@@ -403,7 +648,7 @@ export default function DebtorDetailScreen() {
                       +{formatCOP(p.amount)}
                     </Text>
                   </View>
-                  
+
                   {/* Actions for CP or GERENTE when status is PENDING */}
                   {isLocal && isPending && (isProduction || userRole === UserRole.GERENTE) && (
                     <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
@@ -433,7 +678,7 @@ export default function DebtorDetailScreen() {
                     </View>
                   )}
 
-                  {/* Actions when status is REJECTED (allows cleaning up failed/rejected payment attempt) */}
+                  {/* Actions when status is REJECTED */}
                   {isRejected && (isProduction || userRole === UserRole.GERENTE || userRole === UserRole.ADMIN_LOCAL) && (
                     <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
                       <Button
@@ -455,103 +700,86 @@ export default function DebtorDetailScreen() {
         </Card.Content>
       </Card>
 
-      {/* Credit history */}
-      <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '600' }]}>
-        Historial de Creditos
-      </Text>
+      {/* Historial de Créditos Pagados (si existen) */}
+      {paidCredits.length > 0 && (
+        <>
+          <Text variant="titleMedium" style={[styles.sectionTitle, { fontWeight: '700', marginTop: 16 }]}>
+            Historial de Traslados Pagados ({paidCredits.length})
+          </Text>
 
-      {relatedCredits.map((c) => {
-        const days = daysSince(c.date);
-        const daysColor = getDaysColor(days);
-        const daysBgColor = getDaysBgColor(days);
-        const followUp = !c.isPaid ? getNextFollowUp(c.date) : null;
+          {paidCredits.map((c) => {
+            const method = creditMethods[c.id];
+            let mediumLabel = '';
+            let mediumColor = '#555';
+            if (method === 'EFECTIVO') {
+              mediumLabel = 'Efectivo';
+              mediumColor = '#E2B13C';
+            } else if (method === 'TRANSFERENCIA') {
+              mediumLabel = 'Transferencia';
+              mediumColor = '#1976D2';
+            } else if (method === 'VENTA') {
+              mediumLabel = 'Venta';
+              mediumColor = '#E63946';
+            } else if (method === 'TRASLADO') {
+              mediumLabel = 'Traslado';
+              mediumColor = '#8E24AA';
+            } else if (method === 'MANUAL') {
+              mediumLabel = 'Manual';
+              mediumColor = '#757575';
+            }
 
-        const method = creditMethods[c.id];
-        let mediumLabel = '';
-        let mediumColor = '#555';
-        if (method === 'EFECTIVO') {
-          mediumLabel = 'Efectivo';
-          mediumColor = '#E2B13C';
-        } else if (method === 'TRANSFERENCIA') {
-          mediumLabel = 'Transferencia';
-          mediumColor = '#1976D2';
-        } else if (method === 'VENTA') {
-          mediumLabel = 'Venta';
-          mediumColor = '#E63946';
-        } else if (method === 'TRASLADO') {
-          mediumLabel = 'Traslado';
-          mediumColor = '#8E24AA';
-        } else if (method === 'MANUAL') {
-          mediumLabel = 'Manual';
-          mediumColor = '#757575';
-        }
+            return (
+              <Card key={c.id} style={styles.historyCard} mode="elevated">
+                <Card.Content style={{ paddingVertical: 10 }}>
+                  <View style={styles.historyRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#AAA' }}>
+                        {c.concept}
+                      </Text>
+                      <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                        Fecha: {formatDate(c.date)}
+                      </Text>
+                      {c.transferId && (
+                        <Text variant="labelSmall" style={{ color: '#888', marginTop: 2 }}>
+                          Traslado #{c.transferId.slice(-6).toUpperCase()}
+                        </Text>
+                      )}
 
-        return (
-          <Card key={c.id} style={styles.historyCard} mode="elevated">
-            <Card.Content>
-              <View style={styles.historyRow}>
-                <View style={{ flex: 1 }}>
-                  <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
-                    {c.concept}
-                  </Text>
-                  <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                    {formatDate(c.date)}
-                  </Text>
-                  {c.transferId && (
-                    <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
-                      Traslado {c.transferId.slice(-6)}
-                    </Text>
-                  )}
+                      <View style={styles.indicatorRow}>
+                        {mediumLabel && (
+                          <Chip
+                            compact
+                            textStyle={{ fontSize: 10, color: '#FFF' }}
+                            style={{ backgroundColor: mediumColor }}
+                          >
+                            {mediumLabel}
+                          </Chip>
+                        )}
+                        <Chip
+                          compact
+                          textStyle={{ fontSize: 10, color: '#388E3C' }}
+                          style={{ backgroundColor: '#E8F5E9' }}
+                        >
+                          Pagado
+                        </Chip>
+                      </View>
+                    </View>
 
-                  {/* Days pending indicator */}
-                  <View style={styles.indicatorRow}>
-                    {mediumLabel && (
-                      <Chip
-                        compact
-                        textStyle={{ fontSize: 10, color: '#FFF' }}
-                        style={{ backgroundColor: mediumColor }}
-                      >
-                        {mediumLabel}
-                      </Chip>
-                    )}
-
-                    <Chip
-                      compact
-                      textStyle={{ fontSize: 10, color: c.isPaid ? '#388E3C' : daysColor }}
-                      style={{ backgroundColor: c.isPaid ? '#E8F5E9' : daysBgColor }}
-                    >
-                      {c.isPaid ? 'Pagado' : `${days} dia${days !== 1 ? 's' : ''} pendiente`}
-                    </Chip>
-
-                    {/* Next follow-up indicator */}
-                    {followUp && (
-                      <Chip
-                        compact
-                        icon="calendar-clock"
-                        textStyle={{ fontSize: 10, color: '#F5F0EB' }}
-                        style={{ backgroundColor: 'rgba(245, 240, 235, 0.1)' }}
-                      >
-                        {followUp.label}
-                      </Chip>
-                    )}
+                    <View style={{ alignItems: 'flex-end', marginLeft: 8, justifyContent: 'center' }}>
+                      <Text variant="bodyMedium" style={{ fontWeight: '600', color: '#888' }}>
+                        {formatCOP(c.amount)}
+                      </Text>
+                      <Text variant="labelSmall" style={{ color: '#388E3C', fontWeight: '700' }}>
+                        Saldo: $0
+                      </Text>
+                    </View>
                   </View>
-                </View>
-
-                <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
-                  <Text variant="bodyMedium" style={{ fontWeight: '600' }}>
-                    {formatCOP(c.amount)}
-                  </Text>
-                  {!c.isPaid && (
-                    <Text variant="labelSmall" style={{ color: '#D32F2F' }}>
-                      Debe: {formatCOP(c.balance)}
-                    </Text>
-                  )}
-                </View>
-              </View>
-            </Card.Content>
-          </Card>
-        );
-      })}
+                </Card.Content>
+              </Card>
+            );
+          })}
+        </>
+      )}
 
       <View style={{ height: 100 }} />
 
@@ -589,7 +817,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   sectionTitle: {
-    marginBottom: 12,
+    marginBottom: 10,
   },
   historyCard: {
     borderRadius: 8,
@@ -598,7 +826,7 @@ const styles = StyleSheet.create({
   historyRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
   },
   indicatorRow: {
     flexDirection: 'row',

@@ -240,6 +240,17 @@ export class SupabaseCreditRepository implements ICreditRepository {
     return (data as CreditPaymentRow[]).map(paymentToEntity);
   }
 
+  async getPaymentsByCreditIds(creditIds: string[]): Promise<CreditPayment[]> {
+    if (!creditIds || creditIds.length === 0) return [];
+    const { data, error } = await supabase
+      .from('credit_payments')
+      .select('*')
+      .in('credit_entry_id', creditIds)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    return (data as CreditPaymentRow[]).map(paymentToEntity);
+  }
+
   async updatePaymentStatus(
     paymentId: string,
     status: 'CONFIRMED' | 'REJECTED',

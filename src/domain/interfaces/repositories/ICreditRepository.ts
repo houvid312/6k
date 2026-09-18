@@ -10,6 +10,7 @@ export interface ICreditRepository {
   applyPayment(input: Omit<CreditPayment, 'id' | 'createdAt'>): Promise<CreditPayment>;
   getPaymentsByStoreDateRange(storeId: string, from: string, to: string): Promise<CreditPayment[]>;
   getPaymentsByCredit(creditId: string): Promise<CreditPayment[]>;
+  getPaymentsByCreditIds(creditIds: string[]): Promise<CreditPayment[]>;
   updatePaymentStatus(
     paymentId: string,
     status: 'CONFIRMED' | 'REJECTED',
