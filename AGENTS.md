@@ -111,6 +111,17 @@ supabase/
   implementación Supabase -> servicio -> registro en `container.ts` -> pantalla
   en `app/(tabs)/`.
 
+## Principios Contables (Partida Doble)
+
+Para evitar descuadres, faltantes/sobrantes ficticios y proteger el "Debe Haber" (Patrimonio Teórico), respeta siempre estas reglas de oro:
+
+1. **Permutas de Activos:** Los préstamos (`Adelanto`) y los pagos de deudas (`Abono Cartera` / `Traslado`) son intercambios entre Efectivo, Bancos y Cartera. **NO son ingresos ni egresos patrimoniales.**
+2. **Caja Diaria (ventas/cierre-caja.tsx):** A nivel físico, la cajera **SÍ** debe registrar los Adelantos como egresos (`closing.expenses`) para que el Efectivo esperado de su turno (Expected Cash) baje y su caja física le cuadre.
+3. **Caja General / P&L (contabilidad/index.tsx):** A nivel patrimonial, el sistema **DEBE** revertir ese efecto para no desangrar el Patrimonio Teórico.
+   - En la variable `grossOutflowToday`, se deben excluir/restar los adelantos (`cashAdvancesByDate`) que venían sumados dentro de `closing.expenses`.
+   - En la variable `grossInflowToday`, se deben excluir los ingresos marcados como `Abono Cartera` y `Traslado` (usando `revenueCashIncomesByDate` en lugar de `cashIncomesByDate`).
+4. **Matemática del Efectivo:** El sistema calcula el efectivo final de la sede como: `Efectivo = (Debe Haber) - Bancos - Cartera`. Si permites que una permuta modifique el `Debe Haber`, alterarás el resultado del Efectivo y generarás un descuadre automático.
+
 ## Supabase
 
 - Migraciones en `supabase/migrations/` (001-016).
