@@ -250,6 +250,70 @@ $$;
 ALTER FUNCTION "public"."can_access_transfer"("from_store" "uuid", "to_store" "uuid") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."create_transfer_order_atomic"("p_from_store_id" "uuid", "p_to_store_id" "uuid", "p_order_date" "text", "p_shipping_date" "text", "p_items" "jsonb") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_transfer_id UUID;
+  v_item JSONB;
+  v_order_date DATE;
+  v_shipping_date DATE;
+BEGIN
+  IF p_items IS NULL OR jsonb_array_length(p_items) = 0 THEN
+    RAISE EXCEPTION 'No hay insumos para la orden de traslado';
+  END IF;
+
+  v_order_date := CASE 
+    WHEN p_order_date IS NULL OR p_order_date = '' THEN (now() AT TIME ZONE 'America/Bogota')::DATE
+    ELSE p_order_date::DATE
+  END;
+
+  v_shipping_date := CASE 
+    WHEN p_shipping_date IS NULL OR p_shipping_date = '' THEN NULL
+    ELSE p_shipping_date::DATE
+  END;
+
+  INSERT INTO transfers (
+    from_store_id,
+    to_store_id,
+    order_date,
+    shipping_date,
+    status
+  ) VALUES (
+    p_from_store_id,
+    p_to_store_id,
+    v_order_date,
+    v_shipping_date,
+    'PENDING'
+  )
+  RETURNING id INTO v_transfer_id;
+
+  FOR v_item IN SELECT * FROM jsonb_array_elements(p_items)
+  LOOP
+    INSERT INTO transfer_items (
+      transfer_id,
+      supply_id,
+      target_grams,
+      current_inventory_grams,
+      bags_to_send
+    ) VALUES (
+      v_transfer_id,
+      (v_item->>'supplyId')::UUID,
+      COALESCE((v_item->>'targetGrams')::NUMERIC, 0),
+      COALESCE((v_item->>'currentInventoryGrams')::NUMERIC, 0),
+      COALESCE((v_item->>'bagsToSend')::NUMERIC, 0)
+    );
+  END LOOP;
+
+  RETURN v_transfer_id;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."create_transfer_order_atomic"("p_from_store_id" "uuid", "p_to_store_id" "uuid", "p_order_date" "text", "p_shipping_date" "text", "p_items" "jsonb") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."deduct_inventory_for_sale"("p_sale_id" "uuid") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -2148,7 +2212,8 @@ CREATE TABLE IF NOT EXISTS "public"."products" (
     "category" "public"."product_category" DEFAULT 'PIZZA'::"public"."product_category" NOT NULL,
     "is_active" boolean DEFAULT true NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    "has_recipe" boolean DEFAULT false NOT NULL
+    "has_recipe" boolean DEFAULT false NOT NULL,
+    "icon" "text"
 );
 
 
@@ -3596,6 +3661,10 @@ CREATE POLICY "Admin manage recipe_ingredients" ON "public"."recipe_ingredients"
 
 
 
+CREATE POLICY "Admin manage recipes" ON "public"."recipes" TO "authenticated" USING (("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'RODY'::"public"."user_role"]))) WITH CHECK (("public"."get_user_role"() = ANY (ARRAY['GERENTE'::"public"."user_role", 'RODY'::"public"."user_role"])));
+
+
+
 CREATE POLICY "Admin manage validations" ON "public"."validations" TO "authenticated" USING (("public"."get_user_role"() = 'ADMIN'::"public"."user_role")) WITH CHECK (("public"."get_user_role"() = 'ADMIN'::"public"."user_role"));
 
 
@@ -4410,6 +4479,12 @@ GRANT ALL ON FUNCTION "public"."add_purchase_to_raw_inventory"() TO "service_rol
 GRANT ALL ON FUNCTION "public"."can_access_transfer"("from_store" "uuid", "to_store" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."can_access_transfer"("from_store" "uuid", "to_store" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."can_access_transfer"("from_store" "uuid", "to_store" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."create_transfer_order_atomic"("p_from_store_id" "uuid", "p_to_store_id" "uuid", "p_order_date" "text", "p_shipping_date" "text", "p_items" "jsonb") TO "anon";
+GRANT ALL ON FUNCTION "public"."create_transfer_order_atomic"("p_from_store_id" "uuid", "p_to_store_id" "uuid", "p_order_date" "text", "p_shipping_date" "text", "p_items" "jsonb") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_transfer_order_atomic"("p_from_store_id" "uuid", "p_to_store_id" "uuid", "p_order_date" "text", "p_shipping_date" "text", "p_items" "jsonb") TO "service_role";
 
 
 

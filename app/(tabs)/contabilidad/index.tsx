@@ -816,8 +816,8 @@ export default function ContabilidadScreen() {
 
           if (isProd) {
             if (isCpCredit) {
-              // ONLY add to bank/total payments if this payment does NOT have an associated income record
-              if (!p.income_id) {
+              // ONLY add to bank/total payments if this payment does NOT have an associated income record AND is not cash
+              if (!p.income_id && p.payment_method !== PaymentMethod.EFECTIVO) {
                 bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
               }
               totalPaymentsByDate.set(pDate, (totalPaymentsByDate.get(pDate) ?? 0) + p.amount);
@@ -1481,7 +1481,7 @@ export default function ContabilidadScreen() {
       let cpTransferPaymentsInflow = 0;
       if (isProd) {
         for (const p of (creditPaymentsRes.data || [])) {
-          if (p.status === 'CONFIRMED' && p.credit_entries?.debtor_type === 'LOCAL') {
+          if (p.status === 'CONFIRMED' && p.credit_entries?.debtor_type === 'LOCAL' && !p.income_id && p.payment_method !== PaymentMethod.EFECTIVO) {
             cpTransferPaymentsInflow += p.amount;
           }
         }
