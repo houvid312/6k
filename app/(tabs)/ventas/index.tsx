@@ -986,6 +986,30 @@ export default function VentasScreen() {
     lastSubmitTimeRef.current = now;
     isSubmittingRef.current = true;
 
+    if (isBonus) {
+      if (submittedCart.length !== 1) {
+        setSnackbar({ visible: true, success: false, message: 'El bono solo aplica para 1 pizza por transacci\u00f3n.' });
+        isSubmittingRef.current = false;
+        return;
+      }
+      const item = submittedCart[0];
+      const validFormats = ['PORCION', 'MEDIANA', 'FAMILIAR'];
+      if (!validFormats.includes(item.format)) {
+        setSnackbar({ visible: true, success: false, message: 'El bono solo aplica para Porci\u00f3n, Mediana o Familiar.' });
+        isSubmittingRef.current = false;
+        return;
+      }
+      const lowercaseName = item.productName.toLowerCase();
+      const excluded = ['jam\u00f3n queso', 'jamon queso', 'maicitos', 'napolitana', 'margarita'];
+      if (excluded.some(ex => lowercaseName.includes(ex))) {
+        setSnackbar({ visible: true, success: false, message: 'El bono no es v\u00e1lido para sabores econ\u00f3micos (Jam\u00f3n Queso, Maicitos, Napolitana, Margarita).' });
+        isSubmittingRef.current = false;
+        return;
+      }
+      effectiveCash = 0;
+      effectiveBank = 0;
+    }
+
     if (!isPaid && isCredit) {
       if (debtorType === 'TRABAJADOR' && !debtorWorkerId) {
         setSnackbar({ visible: true, success: false, message: 'Por favor selecciona el trabajador a quien se le fía' });
@@ -1017,11 +1041,11 @@ export default function VentasScreen() {
         formatName: c.formatName,
         portionsPerUnit: c.portionsPerUnit,
         quantity: c.quantity,
-        unitPrice: c.unitPrice,
-        additions: c.additions.length > 0 ? c.additions : undefined,
+        unitPrice: isBonus ? 0 : c.unitPrice,
+        additions: isBonus ? c.additions.map(a => ({ ...a, unitPrice: 0 })) : (c.additions.length > 0 ? c.additions : undefined),
         packagingSupplyId: c.packagingSupplyId,
         packagingLabel: c.packagingLabel,
-        packagingUnitPrice: c.packagingUnitPrice,
+        packagingUnitPrice: isBonus ? 0 : c.packagingUnitPrice,
         packagingQuantity: c.packagingQuantity,
       }));
 
@@ -1052,6 +1076,7 @@ export default function VentasScreen() {
             debtorWorkerId || undefined,
             debtorCustomerId || undefined,
             customTimestamp,
+            isBonus,
           )
         : await saleService.createSale(
             selectedStoreId,
@@ -1638,6 +1663,27 @@ export default function VentasScreen() {
                 </View>
 
                 {!isPaid && (
+                  <>
+                  <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.elevation.level1, borderRadius: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
+                        \ud83c\udf81 \u00bfRedimir Bono de Fidelizaci\u00f3n?
+                      </Text>
+                      <Chip
+                        selected={isBonus}
+                        onPress={() => setIsBonus(!isBonus)}
+                        mode="flat"
+                        selectedColor={isBonus ? theme.colors.primary : theme.colors.onSurfaceVariant}
+                        style={{
+                          backgroundColor: isBonus
+                            ? theme.colors.primaryContainer
+                            : theme.colors.surfaceVariant,
+                        }}
+                      >
+                        {isBonus ? 'S\u00ed, redimir' : 'No'}
+                      </Chip>
+                    </View>
+                  </View>
                   <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.elevation.level1, borderRadius: 8 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                       <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
@@ -1726,6 +1772,7 @@ export default function VentasScreen() {
                       </>
                     )}
                   </View>
+                  </>
                 )}
 
                 <Divider style={styles.divider} />
