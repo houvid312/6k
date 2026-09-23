@@ -238,6 +238,3 @@ END;
 $$;
 
 
--- 5. Trigger para crear automáticamente la deuda al insertar una venta a crédito
-CREATE OR REPLACE FUNCTION sync_sale_credit_to_portfolio()
-RETURNS TRIGGER
