@@ -2,6 +2,7 @@ import { supabase } from '../../lib/supabase';
 import { Transfer, TransferItem } from '../../domain/entities';
 import { ITransferRepository } from '../../domain/interfaces/repositories';
 import { TransferStatus } from '../../domain/enums';
+import { colombiaDateRangeToUtc } from '../../utils/dates';
 
 // --- Row types ---
 
@@ -95,13 +96,15 @@ export class SupabaseTransferRepository implements ITransferRepository {
     fromDate: string,
     toDate: string,
   ): Promise<Transfer[]> {
+    const { fromUtc, toUtc } = colombiaDateRangeToUtc(fromDate, toDate);
+    
     const { data, error } = await supabase
       .from('transfers')
       .select('*')
       .eq('to_store_id', toStoreId)
       .eq('status', 'RECEIVED')
-      .gte('received_at', `${fromDate}T00:00:00`)
-      .lte('received_at', `${toDate}T23:59:59`);
+      .gte('received_at', fromUtc)
+      .lte('received_at', toUtc);
     if (error) throw error;
     return this.hydrateTransfers(data as TransferRow[]);
   }
@@ -111,13 +114,15 @@ export class SupabaseTransferRepository implements ITransferRepository {
     fromDate: string,
     toDate: string,
   ): Promise<Transfer[]> {
+    const { fromUtc, toUtc } = colombiaDateRangeToUtc(fromDate, toDate);
+    
     const { data, error } = await supabase
       .from('transfers')
       .select('*')
       .eq('from_store_id', fromStoreId)
       .eq('status', 'RECEIVED')
-      .gte('received_at', `${fromDate}T00:00:00`)
-      .lte('received_at', `${toDate}T23:59:59`);
+      .gte('received_at', fromUtc)
+      .lte('received_at', toUtc);
     if (error) throw error;
     return this.hydrateTransfers(data as TransferRow[]);
   }

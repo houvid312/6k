@@ -4,6 +4,7 @@ import { IWriteoffRepository } from '../../domain/interfaces/repositories/IWrite
 import { InventoryLevel } from '../../domain/enums/InventoryLevel';
 import { WriteoffStatus } from '../../domain/enums/WriteoffStatus';
 import { WriteoffReason } from '../../domain/enums/WriteoffReason';
+import { colombiaDateRangeToUtc } from '../../utils/dates';
 
 const LEVEL_TO_DB: Record<InventoryLevel, string> = {
   [InventoryLevel.RAW]: 'RAW',
@@ -138,13 +139,15 @@ export class SupabaseWriteoffRepository implements IWriteoffRepository {
     startDate: string,
     endDate: string,
   ): Promise<InventoryWriteoff[]> {
+    const { fromUtc, toUtc } = colombiaDateRangeToUtc(startDate, endDate);
+    
     const { data, error } = await supabase
       .from('inventory_writeoffs')
       .select('*')
       .eq('store_id', storeId)
       .eq('status', 'APPROVED')
-      .gte('created_at', `${startDate}T00:00:00`)
-      .lte('created_at', `${endDate}T23:59:59`);
+      .gte('created_at', fromUtc)
+      .lte('created_at', toUtc);
     if (error) throw error;
     return (data as WriteoffRow[]).map(toEntity);
   }

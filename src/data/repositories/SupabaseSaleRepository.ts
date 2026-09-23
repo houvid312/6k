@@ -1,6 +1,6 @@
 import { supabase } from '../../lib/supabase';
 import { Sale, SaleItem, SaleItemAddition } from '../../domain/entities';
-import { ISaleRepository, DailySummary } from '../../domain/interfaces/repositories';
+import { ISaleRepository, DailySummary, DashboardMetrics } from '../../domain/interfaces/repositories';
 import { PaymentMethod } from '../../domain/enums';
 import { colombiaDateRangeToUtc } from '../../utils/dates';
 
@@ -162,7 +162,7 @@ export class SupabaseSaleRepository implements ISaleRepository {
     return saleRowToEntity(row, items);
   }
 
-  async getByDateRange(storeId: string, from: string, to: string): Promise<Sale[]> {
+  async getByDateRange(storeId: string, from: string, to: string, limit?: number): Promise<Sale[]> {
     const { fromUtc, toUtc } = colombiaDateRangeToUtc(from, to);
 
     let query = supabase
@@ -174,6 +174,10 @@ export class SupabaseSaleRepository implements ISaleRepository {
 
     if (storeId && storeId !== 'consolidado') {
       query = query.eq('store_id', storeId);
+    }
+    
+    if (limit) {
+      query = query.limit(limit);
     }
 
     const { data, error } = await query;
@@ -442,25 +446,73 @@ export class SupabaseSaleRepository implements ISaleRepository {
   }
 
   async getDailySummary(storeId: string, date: string): Promise<DailySummary> {
-    const { fromUtc, toUtc } = colombiaDateRangeToUtc(date, date);
-
+    const dates = colombiaDateRangeToUtc(date, date);
     const { data, error } = await supabase
       .from('sales')
-      .select('total_portions, total_amount, cash_amount, bank_amount, is_credit, is_paid')
+      .select('total_portions, total_amount, payment_method, is_credit')
       .eq('store_id', storeId)
-      .gte('created_at', fromUtc)
-      .lte('created_at', toUtc);
+      .gte('created_at', dates.fromUtc)
+      .lte('created_at', dates.toUtc);
+
     if (error) throw error;
 
-    const rows = data as (Pick<SaleRow, 'total_portions' | 'total_amount' | 'cash_amount' | 'bank_amount' | 'is_paid'> & { is_credit: boolean })[];
+    let totalPortions = 0;
+    let totalAmount = 0;
+    let totalCashAmount = 0;
+    let totalBankAmount = 0;
+    let totalCreditAmount = 0;
+
+    for (const row of data || []) {
+      totalPortions += row.total_portions || 0;
+      totalAmount += row.total_amount || 0;
+      
+      if (row.is_credit) {
+        totalCreditAmount += row.total_amount || 0;
+      } else if (row.payment_method === PaymentMethod.EFECTIVO) {
+        totalCashAmount += row.total_amount || 0;
+      } else if (row.payment_method === PaymentMethod.TRANSFERENCIA) {
+        totalBankAmount += row.total_amount || 0;
+      }
+    }
+
     return {
-      totalPortions: rows.reduce((sum, r) => sum + r.total_portions, 0),
-      totalAmount: rows.reduce((sum, r) => sum + r.total_amount, 0),
-      totalCashAmount: rows.reduce((sum, r) => sum + r.cash_amount, 0),
-      totalBankAmount: rows.reduce((sum, r) => sum + r.bank_amount, 0),
-      totalCreditAmount: rows.reduce((sum, r) => sum + (r.is_credit && !r.is_paid ? r.total_amount : 0), 0),
-      salesCount: rows.length,
+      totalPortions,
+      totalAmount,
+      totalCashAmount,
+      totalBankAmount,
+      totalCreditAmount,
+      salesCount: data?.length || 0,
     };
+  }
+
+  async getDashboardMetrics(storeId: string, startDate: string, endDate: string): Promise<DashboardMetrics> {
+    const { data, error } = await supabase.rpc('get_dashboard_metrics', {
+      p_store_id: storeId,
+      p_start_date: startDate,
+      p_end_date: endDate,
+    });
+    if (error) throw error;
+    return data as DashboardMetrics;
+  }
+
+  async getAccountingPnL(storeId: string, startDate: string, endDate: string) {
+    const { data, error } = await supabase.rpc('get_accounting_pnl', {
+      p_store_id: storeId,
+      p_start_date: startDate,
+      p_end_date: endDate,
+    });
+    if (error) throw error;
+    return data;
+  }
+
+  async getDailyLedgerSales(storeId: string, startDate: string, endDate: string) {
+    const { data, error } = await supabase.rpc('get_daily_sales_ledger', {
+      p_store_id: storeId,
+      p_start_date: startDate,
+      p_end_date: endDate,
+    });
+    if (error) throw error;
+    return data;
   }
 
   private async fetchSaleItems(saleId: string): Promise<SaleItem[]> {

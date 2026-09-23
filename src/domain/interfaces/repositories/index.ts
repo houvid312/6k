@@ -1,4 +1,4 @@
-export type { ISaleRepository, DailySummary } from './ISaleRepository';
+export type { ISaleRepository, DailySummary, DashboardMetrics, AccountingPnL } from './ISaleRepository';
 export type { IInventoryRepository } from './IInventoryRepository';
 export type { IRecipeRepository } from './IRecipeRepository';
 export type { IProductRepository } from './IProductRepository';

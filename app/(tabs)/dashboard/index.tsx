@@ -129,121 +129,16 @@ export default function DashboardScreen() {
       const daysCount = Math.max(1, Math.ceil((endObj.getTime() - startObj.getTime()) / (1000 * 3600 * 24)));
       setTotalDays(daysCount);
 
-      // Get all sales for store in date range
-      const [sales, dbProducts] = await Promise.all([
-        saleRepo.getByDateRange(selectedStoreId, startDateStr, endDateStr),
-        cachedProducts.length > 0 ? cachedProducts : productRepo.getAll(),
-      ]);
+      const metrics = await saleRepo.getDashboardMetrics(selectedStoreId, startDateStr, endDateStr);
 
-      const fullProductMap = new Map(dbProducts.map((p) => [p.id, p]));
-
-      // 1. Calculate Product breakdowns by category
-      const pizzaMap = new Map<string, { units: number; pesos: number }>();
-      const beverageMap = new Map<string, { units: number; pesos: number }>();
-      const addPkgMap = new Map<string, { units: number; pesos: number }>();
-      const allProductMap = new Map<string, { units: number; pesos: number }>();
-
-      let pizzaUnitsSum = 0;
-      let pizzaPesosSum = 0;
-      let beverageUnitsSum = 0;
-      let beveragePesosSum = 0;
-      let addPkgUnitsSum = 0;
-      let addPkgPesosSum = 0;
-
-      let totalUnitsSum = 0;
-      let totalPesosSum = 0;
-
-      for (const sale of sales) {
-        totalPesosSum += sale.totalAmount;
-
-        for (const item of sale.items) {
-          const prodObj = fullProductMap.get(item.productId);
-          const rawName = prodObj?.name ?? item.formatName ?? item.productId;
-          const flavorKey = rawName.toUpperCase();
-          const itemUnits = item.portions || item.quantity || 1;
-          const itemPesos = item.subtotal;
-
-          totalUnitsSum += itemUnits;
-
-          // All products map
-          const allExist = allProductMap.get(flavorKey) ?? { units: 0, pesos: 0 };
-          allExist.units += itemUnits;
-          allExist.pesos += itemPesos;
-          allProductMap.set(flavorKey, allExist);
-
-          const upperName = rawName.toUpperCase();
-          const category = (prodObj?.category === 'BEBIDA' || upperName.includes('GASEOSA') || upperName.includes('JUGO') || upperName.includes('AGUA') || upperName.includes('BEBIDA') || upperName.includes('CERVEZA') || upperName.includes('COCA') || upperName.includes('POSTOBON'))
-            ? 'BEBIDAS'
-            : (upperName.includes('CAJA') || upperName.includes('EMPAQUE') || upperName.includes('BOLSA') || upperName.includes('ADICION') || upperName.includes('ADICIÓN'))
-              ? 'ADICIONES_EMPAQUES'
-              : 'PIZZAS';
-
-          if (category === 'BEBIDAS') {
-            const exist = beverageMap.get(flavorKey) ?? { units: 0, pesos: 0 };
-            exist.units += itemUnits;
-            exist.pesos += itemPesos;
-            beverageMap.set(flavorKey, exist);
-            beverageUnitsSum += itemUnits;
-            beveragePesosSum += itemPesos;
-          } else if (category === 'ADICIONES_EMPAQUES') {
-            const exist = addPkgMap.get(flavorKey) ?? { units: 0, pesos: 0 };
-            exist.units += itemUnits;
-            exist.pesos += itemPesos;
-            addPkgMap.set(flavorKey, exist);
-            addPkgUnitsSum += itemUnits;
-            addPkgPesosSum += itemPesos;
-          } else {
-            const exist = pizzaMap.get(flavorKey) ?? { units: 0, pesos: 0 };
-            exist.units += itemUnits;
-            exist.pesos += itemPesos;
-            pizzaMap.set(flavorKey, exist);
-            pizzaUnitsSum += itemUnits;
-            pizzaPesosSum += itemPesos;
-          }
-
-          // Process item additions
-          if (item.additions && item.additions.length > 0) {
-            for (const add of item.additions) {
-              const addKey = add.name ? `➕ ${add.name.toUpperCase()}` : '➕ ADICIÓN';
-              const addUnits = add.quantity || 1;
-              const addPesos = (add.price || 0) * addUnits;
-
-              const exist = addPkgMap.get(addKey) ?? { units: 0, pesos: 0 };
-              exist.units += addUnits;
-              exist.pesos += addPesos;
-              addPkgMap.set(addKey, exist);
-              addPkgUnitsSum += addUnits;
-              addPkgPesosSum += addPesos;
-            }
-          }
-
-          // Process item packaging
-          if (item.packagingLabel && item.packagingQuantity) {
-            const pkgKey = `📦 ${item.packagingLabel.toUpperCase()}`;
-            const pkgUnits = item.packagingQuantity || 1;
-            const pkgPesos = item.packagingTotal || 0;
-
-            const exist = addPkgMap.get(pkgKey) ?? { units: 0, pesos: 0 };
-            exist.units += pkgUnits;
-            exist.pesos += pkgPesos;
-            addPkgMap.set(pkgKey, exist);
-            addPkgUnitsSum += pkgUnits;
-            addPkgPesosSum += pkgPesos;
-          }
-        }
-      }
-
-      setGrandTotalUnits(totalUnitsSum);
-      setGrandTotalPesos(totalPesosSum);
-
-      const dailyAvgU = daysCount > 0 ? totalUnitsSum / daysCount : 0;
-      const dailyAvgP = daysCount > 0 ? totalPesosSum / daysCount : 0;
-      setGrandDailyAvgUnits(Math.round(dailyAvgU * 10) / 10);
-      setGrandDailyAvgPesos(Math.round(dailyAvgP));
+      setGrandTotalUnits(metrics.totalUnits);
+      setGrandTotalPesos(metrics.totalPesos);
+      setGrandDailyAvgUnits(Math.round(metrics.dailyAvgUnits * 10) / 10);
+      setGrandDailyAvgPesos(Math.round(metrics.dailyAvgPesos));
 
       let colorIdx = 0;
-      const buildSegments = (map: Map<string, { units: number; pesos: number }>, catTotalUnits: number): FlavorSegment[] => {
-        return Array.from(map.entries())
+      const buildSegments = (distribution: Record<string, { units: number; pesos: number }>, catTotalUnits: number): FlavorSegment[] => {
+        return Object.entries(distribution)
           .map(([name, data]) => {
             const pct = catTotalUnits > 0 ? Math.round((data.units / catTotalUnits) * 1000) / 10 : 0;
             const color = FLAVOR_COLORS[name] ?? DEFAULT_COLORS[colorIdx++ % DEFAULT_COLORS.length];
@@ -258,10 +153,19 @@ export default function DashboardScreen() {
           .sort((a, b) => b.totalUnits - a.totalUnits);
       };
 
-      setPizzaRows(buildSegments(pizzaMap, pizzaUnitsSum));
-      setBeverageRows(buildSegments(beverageMap, beverageUnitsSum));
-      setAddPkgRows(buildSegments(addPkgMap, addPkgUnitsSum));
-      setAllProductRows(buildSegments(allProductMap, totalUnitsSum));
+      const pizzaUnitsSum = Object.values(metrics.pizzaDistribution).reduce((sum: number, d: any) => sum + d.units, 0);
+      const pizzaPesosSum = Object.values(metrics.pizzaDistribution).reduce((sum: number, d: any) => sum + d.pesos, 0);
+      const beverageUnitsSum = Object.values(metrics.beverageDistribution).reduce((sum: number, d: any) => sum + d.units, 0);
+      const beveragePesosSum = Object.values(metrics.beverageDistribution).reduce((sum: number, d: any) => sum + d.pesos, 0);
+      const addPkgUnitsSum = Object.values(metrics.otherDistribution).reduce((sum: number, d: any) => sum + d.units, 0);
+      const addPkgPesosSum = Object.values(metrics.otherDistribution).reduce((sum: number, d: any) => sum + d.pesos, 0);
+
+      setPizzaRows(buildSegments(metrics.pizzaDistribution, pizzaUnitsSum));
+      setBeverageRows(buildSegments(metrics.beverageDistribution, beverageUnitsSum));
+      setAddPkgRows(buildSegments(metrics.otherDistribution, addPkgUnitsSum));
+      
+      const allDistribution = { ...metrics.pizzaDistribution, ...metrics.beverageDistribution, ...metrics.otherDistribution };
+      setAllProductRows(buildSegments(allDistribution, metrics.totalUnits));
 
       setCatTotals({
         pizzaUnits: pizzaUnitsSum,
@@ -274,45 +178,31 @@ export default function DashboardScreen() {
 
       // 2. Calculate Monthly breakdown (Enero to Diciembre)
       const currentYear = new Date(startDateStr).getFullYear();
-      const monthBuckets = Array.from({ length: 12 }, (_, idx) => ({
-        monthName: MONTH_NAMES[idx],
-        monthIndex: idx,
-        daysOperated: 0,
-        totalUnits: 0,
-        dailyAvgUnits: 0,
-        totalPesos: 0,
-        dailyAvgPesos: 0,
-      }));
-
-      // Set days operated for each month in range
-      const now = new Date();
-      for (let m = 0; m < 12; m++) {
-        const daysInM = new Date(currentYear, m + 1, 0).getDate();
+      const monthBuckets = Array.from({ length: 12 }, (_, idx) => {
+        const monthKey = String(idx + 1);
+        const data = metrics.monthlyDistribution[monthKey] ?? { units: 0, pesos: 0 };
+        
+        let daysOperated = 0;
+        const now = new Date();
+        const daysInM = new Date(currentYear, idx + 1, 0).getDate();
         const currentM = now.getMonth();
-        if (m < currentM) {
-          monthBuckets[m].daysOperated = daysInM;
-        } else if (m === currentM) {
-          monthBuckets[m].daysOperated = Math.max(1, now.getDate());
-        } else {
-          monthBuckets[m].daysOperated = 0;
+        
+        if (idx < currentM) {
+          daysOperated = daysInM;
+        } else if (idx === currentM) {
+          daysOperated = Math.max(1, now.getDate());
         }
-      }
 
-      for (const sale of sales) {
-        const sDate = new Date(sale.timestamp);
-        const mIdx = sDate.getMonth();
-        if (mIdx >= 0 && mIdx < 12) {
-          monthBuckets[mIdx].totalUnits += sale.totalPortions;
-          monthBuckets[mIdx].totalPesos += sale.totalAmount;
-        }
-      }
-
-      for (const m of monthBuckets) {
-        if (m.daysOperated > 0) {
-          m.dailyAvgUnits = Math.round((m.totalUnits / m.daysOperated) * 10) / 10;
-          m.dailyAvgPesos = Math.round(m.totalPesos / m.daysOperated);
-        }
-      }
+        return {
+          monthName: MONTH_NAMES[idx],
+          monthIndex: idx,
+          daysOperated,
+          totalUnits: data.units,
+          dailyAvgUnits: daysOperated > 0 ? Math.round((data.units / daysOperated) * 10) / 10 : 0,
+          totalPesos: data.pesos,
+          dailyAvgPesos: daysOperated > 0 ? Math.round(data.pesos / daysOperated) : 0,
+        };
+      });
 
       setMonthRows(monthBuckets);
     } catch (error) {

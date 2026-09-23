@@ -122,6 +122,23 @@ Para evitar descuadres, faltantes/sobrantes ficticios y proteger el "Debe Haber"
    - En la variable `grossInflowToday`, se deben excluir los ingresos marcados como `Abono Cartera` y `Traslado` (usando `revenueCashIncomesByDate` en lugar de `cashIncomesByDate`).
 4. **Matemática del Efectivo:** El sistema calcula el efectivo final de la sede como: `Efectivo = (Debe Haber) - Bancos - Cartera`. Si permites que una permuta modifique el `Debe Haber`, alterarás el resultado del Efectivo y generarás un descuadre automático.
 
+## Diferencias Críticas: Tiendas Locales vs Centro de Producción (CP)
+
+Al calcular métricas financieras (Flujo de Caja, P&L, Cierres Mensuales), el código debe separar estrictamente la lógica de las tiendas físicas y el Centro de Producción (`isProductionCenter === true`):
+
+1. **Naturaleza de los Ingresos:**
+   - **Tiendas:** Generan ingresos a través de `sales` (Ventas al público).
+   - **CP:** NO tiene ventas al público. Sus ingresos (Ventas Netas) provienen de los **Traslados Internos** hacia las tiendas (`transfers` con `status = 'RECEIVED'`). En P&L, estos traslados se inyectan como `bankSales`. **Cuidado con el doble conteo:** Nunca sumar manualmente las órdenes de traslado en el frontend si ya se consumió el RPC de P&L.
+2. **Egresos y Compras de Materia Prima:**
+   - **CP:** Adquiere su materia prima a través del módulo de compras (`PurchaseService`). En el Flujo de Caja (Cierres Mensuales), es obligatorio sumar `totalPurchases` al Total de Salidas.
+   - **Tiendas:** Reciben inventario del CP (`totalIncomingTransfers`). Para pagarlo, registran un Gasto manual de categoría "Traslado". En el Flujo de Caja, se suma `totalPurchases` (para compras menores directas) pero **NUNCA se debe sumar `totalIncomingTransfers` como salida** si ya se está contando el Gasto manual de "Traslado" en `supplyExp`, de lo contrario se duplican las salidas.
+3. **Manejo de la categoría "Traslado" en Egresos:**
+   - **Tiendas:** El Gasto de categoría "Traslado" (pago al CP) se incluye en `supplyExp` (insumos) y se filtra de `opsExps` para evitar doble conteo.
+   - **CP:** Como no recibe traslados de inventario de nadie, si el CP registra un Gasto de categoría "Traslado" (ej. retiro de utilidades o envío a otra cuenta), este Gasto **DEBE incluirse** en `opsExps` (Gastos Operativos) y no ser filtrado.
+4. **Descuadres y Cartera vs Flujo Neto:**
+   - **Tiendas:** Tienen alto volumen de transacciones en efectivo. El `Debe Haber` diferirá del `Flujo Neto de Caja` debido a los Descuadres diarios de los cajeros y a la Cartera (Adelantos prestados y Abonos cobrados, los cuales son permutas y no flujos operativos).
+   - **CP:** Al no tener atención al público, los descuadres tienden a cero. El Flujo Neto operativo se alinea casi matemáticamente con su Debe Haber.
+
 ## Supabase
 
 - Migraciones en `supabase/migrations/` (001-016).

@@ -1,6 +1,6 @@
 import { Recipe, Sale, SaleItem, Supply, ProductFormat } from '../domain/entities';
 import { PaymentMethod, PACKAGING_SUPPLY_IDS } from '../domain/enums';
-import { ISaleRepository, DailySummary, IInventoryRepository, IRecipeRepository, ISupplyRepository, IProductRepository, IProductFormatRepository } from '../domain/interfaces/repositories';
+import { ISaleRepository, DailySummary, DashboardMetrics, AccountingPnL, IInventoryRepository, IRecipeRepository, ISupplyRepository, IProductRepository, IProductFormatRepository } from '../domain/interfaces/repositories';
 
 export interface CreateSaleItemAdditionInput {
   additionCatalogId: string;
@@ -269,8 +269,20 @@ export class SaleService {
   /**
    * Returns sales for a date range.
    */
-  async getSalesByDateRange(storeId: string, startDate: string, endDate: string): Promise<Sale[]> {
-    return this.saleRepo.getByDateRange(storeId, startDate, endDate);
+  async getSalesByDateRange(storeId: string, startDate: string, endDate: string, limit?: number): Promise<Sale[]> {
+    return this.saleRepo.getByDateRange(storeId, startDate, endDate, limit);
+  }
+
+  async getDashboardMetrics(storeId: string, startDate: string, endDate: string): Promise<DashboardMetrics> {
+    return this.saleRepo.getDashboardMetrics(storeId, startDate, endDate);
+  }
+
+  async getAccountingPnL(storeId: string, startDate: string, endDate: string): Promise<AccountingPnL> {
+    return this.saleRepo.getAccountingPnL(storeId, startDate, endDate);
+  }
+
+  async getDailyLedgerSales(storeId: string, startDate: string, endDate: string): Promise<{sales_date: string, cash_sales: number, bank_sales: number}[]> {
+    return this.saleRepo.getDailyLedgerSales(storeId, startDate, endDate);
   }
 
   /**
