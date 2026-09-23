@@ -18,6 +18,7 @@ export interface Sale {
   isPaid: boolean;
   isDispatched: boolean;
   isCredit?: boolean;
+  isBonus?: boolean;
   debtorName?: string;
   debtorType?: string;
   debtorWorkerId?: string;

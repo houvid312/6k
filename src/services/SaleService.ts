@@ -173,6 +173,7 @@ export class SaleService {
     debtorWorkerId?: string,
     debtorCustomerId?: string,
     customTimestamp?: string,
+    isBonus: boolean = false,
   ): Promise<Sale> {
     const { saleItems, totalPortions, totalAmount, totalCostCop, grossMarginCop } = await this.buildSaleItems(items);
 
@@ -192,6 +193,7 @@ export class SaleService {
       isPaid,
       isDispatched: false,
       isCredit,
+      isBonus,
       debtorName,
       debtorType,
       debtorWorkerId,
@@ -223,6 +225,7 @@ export class SaleService {
     debtorWorkerId?: string,
     debtorCustomerId?: string,
     customTimestamp?: string,
+    isBonus: boolean = false,
   ): Promise<Sale> {
     const { saleItems, totalPortions, totalAmount, totalCostCop, grossMarginCop } = await this.buildSaleItems(items);
 
@@ -243,6 +246,7 @@ export class SaleService {
       isPaid,
       isDispatched: false,
       isCredit,
+      isBonus,
       debtorName,
       debtorType,
       debtorWorkerId,

@@ -148,6 +148,7 @@ export default function VentasScreen() {
 
   // Estados deudor para fiados (isPaid = false)
   const [isCredit, setIsCredit] = useState<boolean>(false);
+  const [isBonus, setIsBonus] = useState<boolean>(false);
   const [debtorType, setDebtorType] = useState<string>('TRABAJADOR');
   const [debtorWorkerId, setDebtorWorkerId] = useState<string>('');
   const [debtorCustomerId, setDebtorCustomerId] = useState<string>('');
@@ -1082,6 +1083,7 @@ export default function VentasScreen() {
       setObservations('');
       setIsPaid(false);
       setIsCredit(false);
+      setIsBonus(false);
       setDebtorType('TRABAJADOR');
       setDebtorWorkerId('');
       setDebtorCustomerId('');

@@ -21,6 +21,7 @@ interface SaleRow {
   is_paid: boolean;
   is_dispatched: boolean;
   is_credit: boolean;
+  is_bonus?: boolean;
   debtor_name: string | null;
   debtor_type: string | null;
   debtor_worker_id: string | null;
@@ -124,6 +125,7 @@ function saleRowToEntity(row: SaleRow & { worker?: { name: string } | null }, it
     isPaid: row.is_paid ?? true,
     isDispatched: row.is_dispatched ?? false,
     isCredit: row.is_credit ?? false,
+    isBonus: row.is_bonus ?? false,
     debtorName: row.debtor_name ?? undefined,
     debtorType: row.debtor_type ?? undefined,
     debtorWorkerId: row.debtor_worker_id ?? undefined,
@@ -305,6 +307,7 @@ export class SupabaseSaleRepository implements ISaleRepository {
         is_paid: sale.isPaid ?? true,
         is_dispatched: sale.isDispatched ?? false,
         is_credit: sale.isCredit ?? false,
+        is_bonus: sale.isBonus ?? false,
         debtor_name: sale.debtorName ?? null,
         debtor_type: sale.debtorType ?? null,
         debtor_worker_id: sale.debtorWorkerId ?? null,

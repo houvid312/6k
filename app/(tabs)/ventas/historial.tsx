@@ -246,7 +246,17 @@ export default function HistorialScreen() {
               {formatDateTime(item.timestamp)}
             </Text>
             <View style={styles.chipsRow}>
-              {isCreditSale && (
+              {item.isBonus && (
+                <Chip
+                  icon="gift"
+                  compact
+                  textStyle={{ fontSize: 11, fontWeight: 'bold', color: '#FF4081' }}
+                  style={{ backgroundColor: '#4A148C' }}
+                >
+                  Bono Fidelización
+                </Chip>
+              )}
+              {isCreditSale && !item.isBonus && (
                 <Chip
                   icon="account-clock"
                   compact
