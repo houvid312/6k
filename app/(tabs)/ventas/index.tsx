@@ -776,7 +776,7 @@ export default function VentasScreen() {
     setSelectedPackagingSupplyId(undefined);
   }, [addToCart, beverageQuantity, formatsByProductId, getPackagingSalePrice, selectedAdditions, selectedPackagingSupplyId, selectedProduct]);
 
-  const totalAmount = cart.reduce((sum, i) => sum + i.subtotal, 0);
+  const totalAmount = isBonus ? 0 : cart.reduce((sum, i) => sum + i.subtotal, 0);
   const mixedPaymentEditedFieldRef = useRef<'cash' | 'bank'>('cash');
 
   const clampTenderAmount = useCallback((value: number) => {
@@ -845,6 +845,21 @@ export default function VentasScreen() {
     setCashAmount(totalAmount);
     setBankAmount(0);
   }, [paymentMethod, totalAmount]);
+
+  useEffect(() => {
+    if (isBonus) {
+      setCashAmount(0);
+      setBankAmount(0);
+    } else {
+      if (paymentMethod === PaymentMethod.EFECTIVO) {
+        setCashAmount(totalAmount);
+        setBankAmount(0);
+      } else if (paymentMethod === PaymentMethod.TRANSFERENCIA) {
+        setCashAmount(0);
+        setBankAmount(totalAmount);
+      }
+    }
+  }, [isBonus, totalAmount, paymentMethod]);
 
   useEffect(() => {
     if (paymentMethod !== PaymentMethod.MIXTO) return;
@@ -986,28 +1001,28 @@ export default function VentasScreen() {
     lastSubmitTimeRef.current = now;
     isSubmittingRef.current = true;
 
+    const submittedCart = [...cart];
+
     if (isBonus) {
       if (submittedCart.length !== 1) {
-        setSnackbar({ visible: true, success: false, message: 'El bono solo aplica para 1 pizza por transacci\u00f3n.' });
+        setSnackbar({ visible: true, success: false, message: 'El bono solo aplica para 1 pizza por transacción.' });
         isSubmittingRef.current = false;
         return;
       }
       const item = submittedCart[0];
       const validFormats = ['PORCION', 'MEDIANA', 'FAMILIAR'];
-      if (!validFormats.includes(item.format)) {
-        setSnackbar({ visible: true, success: false, message: 'El bono solo aplica para Porci\u00f3n, Mediana o Familiar.' });
+      if (!validFormats.includes(item.formatName ?? '')) {
+        setSnackbar({ visible: true, success: false, message: 'El bono solo aplica para Porción, Mediana o Familiar.' });
         isSubmittingRef.current = false;
         return;
       }
       const lowercaseName = item.productName.toLowerCase();
-      const excluded = ['jam\u00f3n queso', 'jamon queso', 'maicitos', 'napolitana', 'margarita'];
+      const excluded = ['jamón queso', 'jamon queso', 'maicitos', 'napolitana', 'margarita'];
       if (excluded.some(ex => lowercaseName.includes(ex))) {
-        setSnackbar({ visible: true, success: false, message: 'El bono no es v\u00e1lido para sabores econ\u00f3micos (Jam\u00f3n Queso, Maicitos, Napolitana, Margarita).' });
+        setSnackbar({ visible: true, success: false, message: 'El bono no es válido para sabores económicos (Jamón Queso, Maicitos, Napolitana, Margarita).' });
         isSubmittingRef.current = false;
         return;
       }
-      effectiveCash = 0;
-      effectiveBank = 0;
     }
 
     if (!isPaid && isCredit) {
@@ -1033,7 +1048,7 @@ export default function VentasScreen() {
 
     setSubmitting(true);
     try {
-      const submittedCart = [...cart];
+
       const previousSale = editingSale;
       const items = submittedCart.map((c) => ({
         productId: c.productId,
@@ -1042,7 +1057,7 @@ export default function VentasScreen() {
         portionsPerUnit: c.portionsPerUnit,
         quantity: c.quantity,
         unitPrice: isBonus ? 0 : c.unitPrice,
-        additions: isBonus ? c.additions.map(a => ({ ...a, unitPrice: 0 })) : (c.additions.length > 0 ? c.additions : undefined),
+        additions: isBonus ? c.additions.map((a: any) => ({ ...a, unitPrice: 0, price: 0 })) : (c.additions.length > 0 ? c.additions : undefined),
         packagingSupplyId: c.packagingSupplyId,
         packagingLabel: c.packagingLabel,
         packagingUnitPrice: isBonus ? 0 : c.packagingUnitPrice,
@@ -1569,7 +1584,7 @@ export default function VentasScreen() {
               </View>
             )}
             <CartSummary
-              items={cart}
+              items={isBonus ? cart.map(c => ({...c, unitPrice: 0, subtotal: 0, additionsTotal: 0, packagingUnitPrice: 0, packagingTotal: 0})) : cart}
               onRemove={removeFromCart}
               onUpdateQuantity={updateQuantity}
               onUpdateNote={updateCustomerNote}
