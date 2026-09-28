@@ -776,7 +776,25 @@ export default function VentasScreen() {
     setSelectedPackagingSupplyId(undefined);
   }, [addToCart, beverageQuantity, formatsByProductId, getPackagingSalePrice, selectedAdditions, selectedPackagingSupplyId, selectedProduct]);
 
-  const totalAmount = isBonus ? 0 : cart.reduce((sum, i) => sum + i.subtotal, 0);
+
+  const isCartEligibleForBonus = useMemo(() => {
+    if (cart.length !== 1) return false;
+    const item = cart[0];
+    const lowercaseName = item.productName.toLowerCase();
+    const excluded = ['jamón', 'jamon', 'maicito', 'napolitana', 'margarita'];
+    if (excluded.some(ex => lowercaseName.includes(ex))) return false;
+    const formatName = (item.formatName ?? '').toUpperCase();
+    return formatName === 'INDIVIDUAL' || formatName === 'MEDIANA' || formatName === 'FAMILIAR' || formatName === 'PORCION' || formatName === 'PORCIÓN';
+  }, [cart]);
+
+  // If cart changes and becomes ineligible, disable bonus
+  useEffect(() => {
+    if (!isCartEligibleForBonus) {
+      setIsBonus(false);
+    }
+  }, [isCartEligibleForBonus]);
+
+  const totalAmount = cart.reduce((sum, i) => sum + (isBonus ? (i.subtotal - (i.unitPrice * i.quantity)) : i.subtotal), 0);
   const mixedPaymentEditedFieldRef = useRef<'cash' | 'bank'>('cash');
 
   const clampTenderAmount = useCallback((value: number) => {
@@ -1010,8 +1028,8 @@ export default function VentasScreen() {
         return;
       }
       const item = submittedCart[0];
-      const validFormats = ['PORCION', 'MEDIANA', 'FAMILIAR'];
-      if (!validFormats.includes(item.formatName ?? '')) {
+      const validFormats = ['INDIVIDUAL', 'MEDIANA', 'FAMILIAR', 'PORCION', 'PORCIÓN'];
+      if (!validFormats.includes((item.formatName ?? '').toUpperCase())) {
         setSnackbar({ visible: true, success: false, message: 'El bono solo aplica para Porción, Mediana o Familiar.' });
         isSubmittingRef.current = false;
         return;
@@ -1057,7 +1075,7 @@ export default function VentasScreen() {
         portionsPerUnit: c.portionsPerUnit,
         quantity: c.quantity,
         unitPrice: isBonus ? 0 : c.unitPrice,
-        additions: isBonus ? c.additions.map((a: any) => ({ ...a, unitPrice: 0, price: 0 })) : (c.additions.length > 0 ? c.additions : undefined),
+        additions: c.additions.length > 0 ? c.additions : undefined,
         packagingSupplyId: c.packagingSupplyId,
         packagingLabel: c.packagingLabel,
         packagingUnitPrice: isBonus ? 0 : c.packagingUnitPrice,
@@ -1584,7 +1602,7 @@ export default function VentasScreen() {
               </View>
             )}
             <CartSummary
-              items={isBonus ? cart.map(c => ({...c, unitPrice: 0, subtotal: 0, additionsTotal: 0, packagingUnitPrice: 0, packagingTotal: 0})) : cart}
+              items={isBonus ? cart.map(c => ({...c, unitPrice: 0, subtotal: c.subtotal - (c.unitPrice * c.quantity) })) : cart}
               onRemove={removeFromCart}
               onUpdateQuantity={updateQuantity}
               onUpdateNote={updateCustomerNote}
@@ -1677,7 +1695,7 @@ export default function VentasScreen() {
                   </Chip>
                 </View>
 
-                {!isPaid && (
+                {!isPaid && isCartEligibleForBonus && (
                   <>
                   <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.elevation.level1, borderRadius: 8 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
