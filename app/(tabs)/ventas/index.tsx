@@ -1667,7 +1667,9 @@ export default function VentasScreen() {
                   <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.elevation.level1, borderRadius: 8 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                       <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
-                        \ud83c\udf81 \u00bfRedimir Bono de Fidelizaci\u00f3n?
+                        <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
+                          🎁 ¿Redimir Bono de Fidelización?
+                        </Text>
                       </Text>
                       <Chip
                         selected={isBonus}
@@ -1680,7 +1682,7 @@ export default function VentasScreen() {
                             : theme.colors.surfaceVariant,
                         }}
                       >
-                        {isBonus ? 'S\u00ed, redimir' : 'No'}
+                        {isBonus ? 'Sí, redimir' : 'No'}
                       </Chip>
                     </View>
                   </View>
