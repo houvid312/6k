@@ -786,16 +786,27 @@ export default function VentasScreen() {
 
 
   const isCartEligibleForBonus = useMemo(() => {
-    if (cart.length !== 1) return false;
-    const item = cart[0];
-    const product = products.find(p => p.id === item.productId);
-    if (!product || product.category !== 'PIZZA') return false;
-    const lowercaseName = item.productName.toLowerCase();
-    const excluded = ['jamón queso', 'jamon queso', 'jamón y queso', 'jamon y queso', 'maicito', 'napolitana', 'margarita', 'quesadilla'];
-    if (excluded.some(ex => lowercaseName.includes(ex))) return false;
-    const formatName = (item.formatName ?? '').toUpperCase();
-    const validFormats = ['INDIVIDUAL', 'MEDIANA', 'FAMILIAR', 'PORCION', 'PORCIÓN', 'MEDIA FAMILIAR', 'MEDIA MEDIANA'];
-    return validFormats.includes(formatName) || formatName.includes('MEDIA');
+    if (cart.length === 0 || cart.length > 2) return false;
+    
+    for (const item of cart) {
+      const product = products.find(p => p.id === item.productId);
+      if (!product || product.category !== 'PIZZA') return false;
+      const lowercaseName = item.productName.toLowerCase();
+      const excluded = ['jamón queso', 'jamon queso', 'jamón y queso', 'jamon y queso', 'maicito', 'napolitana', 'margarita', 'quesadilla'];
+      if (excluded.some(ex => lowercaseName.includes(ex))) return false;
+      const formatName = (item.formatName ?? '').toUpperCase();
+      const validFormats = ['INDIVIDUAL', 'MEDIANA', 'FAMILIAR', 'PORCION', 'PORCIÓ"N', 'MEDIA FAMILIAR', 'MEDIA MEDIANA'];
+      if (!validFormats.includes(formatName) && !formatName.includes('MEDIA')) return false;
+    }
+
+    if (cart.length === 2) {
+      const format1 = (cart[0].formatName ?? '').toUpperCase();
+      const format2 = (cart[1].formatName ?? '').toUpperCase();
+      if (!format1.includes('MEDIA') || !format2.includes('MEDIA')) return false;
+      if (format1 !== format2) return false;
+    }
+    
+    return true;
   }, [cart, products]);
 
   // If cart changes and becomes ineligible, disable bonus
@@ -1716,11 +1727,12 @@ export default function VentasScreen() {
 
                 {!isPaid && (
                   <>
-                  <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.elevation.level1, borderRadius: 8 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
-                          🎁 ¿Redimir Bono de Fidelización?
-                        </Text>
+                  {isCartEligibleForBonus && (
+                      <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.elevation.level1, borderRadius: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
+                            🎁 ¿Redimir Bono de Fidelización?
+                          </Text>
                       <Chip
                         selected={isBonus}
                         onPress={() => setIsBonus(!isBonus)}
@@ -1734,12 +1746,13 @@ export default function VentasScreen() {
                       >
                         {isBonus ? 'Sí, redimir' : 'No'}
                       </Chip>
-                    </View>
-                  </View>
-                  <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.elevation.level1, borderRadius: 8 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
-                        ¿Registrar como Crédito (Fiado)?
+                        </View>
+                      </View>
+                    )}
+                    <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.elevation.level1, borderRadius: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
+                          ¿Registrar como Crédito (Fiado)?
                       </Text>
                       <Chip
                         selected={isCredit}

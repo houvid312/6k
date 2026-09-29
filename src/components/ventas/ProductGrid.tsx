@@ -78,6 +78,11 @@ export function ProductGrid({
     return Object.entries(soldPortions).reduce((sum, [id, count]) => pizzaIds.has(id) ? sum + count : sum, 0);
   }, [soldPortions, pizzaIds]);
 
+  const totalRedeemedPizzaPortions = useMemo(() => {
+    if (!redeemedPortions) return 0;
+    return Object.entries(redeemedPortions).reduce((sum, [id, count]) => pizzaIds.has(id) ? sum + count : sum, 0);
+  }, [redeemedPortions, pizzaIds]);
+
   const totalSoldBeverages = useMemo(() => {
     if (!soldPortions) return 0;
     return Object.entries(soldPortions).reduce((sum, [id, count]) => beverageIds.has(id) ? sum + count : sum, 0);
@@ -170,12 +175,17 @@ export function ProductGrid({
       </View>
 
       {/* Total sold summary bar */}
-      {(soldPortions || soldPackaging || soldAdditionsCount || soldDiamondAdditionsCount) && (totalSoldPizzaPortions > 0 || totalSoldBeverages > 0 || packagingSummary.length > 0 || (soldAdditionsCount ?? 0) > 0 || (soldDiamondAdditionsCount ?? 0) > 0) && (
+      {(soldPortions || redeemedPortions || soldPackaging || soldAdditionsCount || soldDiamondAdditionsCount) && (totalSoldPizzaPortions > 0 || totalRedeemedPizzaPortions > 0 || totalSoldBeverages > 0 || packagingSummary.length > 0 || (soldAdditionsCount ?? 0) > 0 || (soldDiamondAdditionsCount ?? 0) > 0) && (
         <View style={[styles.totalSoldRow, { backgroundColor: theme.colors.surfaceVariant, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }]}>
           <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             {totalSoldPizzaPortions > 0 && (
               <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
                 🍕 Porciones: <Text style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>{totalSoldPizzaPortions}</Text>
+              </Text>
+            )}
+            {totalRedeemedPizzaPortions > 0 && (
+              <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
+                🎁 Bonos: <Text style={{ fontWeight: 'bold', color: '#E63946' }}>{totalRedeemedPizzaPortions}</Text>
               </Text>
             )}
             {totalSoldBeverages > 0 && (
