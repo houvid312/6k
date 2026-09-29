@@ -278,6 +278,7 @@ export default function ContabilidadScreen() {
   const [reportClosings, setReportClosings] = useState<CashClosing[]>([]);
   const [storeStockValuations, setStoreStockValuations] = useState<StoreStockValuation[]>([]);
   const [advancesTotal, setAdvancesTotal] = useState(0);
+  const [dividendosTotal, setDividendosTotal] = useState(0);
   const [cashSalesSum, setCashSalesSum] = useState(0);
   const [bankSalesSum, setBankSalesSum] = useState(0);
   const [otherIncomesSum, setOtherIncomesSum] = useState(0);
@@ -500,6 +501,10 @@ export default function ContabilidadScreen() {
       const advancesOnly = rawAllExpenses.filter((exp) => exp.category === 'Adelanto');
       const totalAdv = advancesOnly.reduce((sum, e) => sum + e.amount, 0);
       setAdvancesTotal(totalAdv);
+
+      const dividendosOnly = rawAllExpenses.filter((exp) => exp.category === 'Dividendos');
+      const totalDiv = dividendosOnly.reduce((sum, e) => sum + e.amount, 0);
+      setDividendosTotal(totalDiv);
 
       allExpenses = allExpenses.filter((exp) => exp.category !== 'Adelanto');
 
@@ -1169,8 +1174,8 @@ export default function ContabilidadScreen() {
       const payrollExp = rawAllExpenses.filter(e => isPayrollCat(e.category) && e.category !== 'Adelanto').reduce((sum, e) => sum + e.amount, 0);
 
       const opsExp = appliedStoreId === 'consolidado'
-        ? rawAllExpenses.filter(e => !isSupplyCat(e.category) && !isPayrollCat(e.category) && e.category !== 'Traslado' && e.category !== 'Adelanto').reduce((sum, e) => sum + e.amount, 0)
-        : rawAllExpenses.filter(e => !isSupplyCat(e.category) && !isPayrollCat(e.category) && e.category !== 'Adelanto').reduce((sum, e) => sum + e.amount, 0);
+          ? rawAllExpenses.filter(e => !isSupplyCat(e.category) && !isPayrollCat(e.category) && e.category !== 'Traslado' && e.category !== 'Adelanto' && e.category !== 'Dividendos').reduce((sum, e) => sum + e.amount, 0)
+          : rawAllExpenses.filter(e => !isSupplyCat(e.category) && !isPayrollCat(e.category) && e.category !== 'Adelanto' && e.category !== 'Dividendos').reduce((sum, e) => sum + e.amount, 0);
 
       setSuppliesExpensesSum(supplyExp + totalPurchases);
       setPayrollExpensesSum(payrollExp);
@@ -1184,8 +1189,9 @@ export default function ContabilidadScreen() {
           cat === 'compra insumo' ||
           cat === 'compra turno' ||
           cat === 'traslado' ||
-          cat === 'adelanto'
-        );
+          cat === 'adelanto' ||
+            cat === 'dividendos'
+          );
       };
 
       const operationalExpensesList = appliedStoreId === 'consolidado'
@@ -2613,9 +2619,9 @@ export default function ContabilidadScreen() {
               </View>
 
               <View style={styles.txRow}>
-                <Text variant="bodySmall">3. Variación neta reinvertida en Stock en este periodo (1 - 2):</Text>
+                <Text variant="bodySmall">3. Variación neta reinvertida en Stock en este periodo (1 - 2 - Dividendos):</Text>
                 <Text variant="bodySmall" style={{ fontWeight: '700', color: '#F57C00' }}>
-                  {formatCOP(Math.max(0, resultadoOperativo - (generalIngresos - generalEgresos)))}
+                  {formatCOP(Math.max(0, resultadoOperativo - (generalIngresos - generalEgresos) - dividendosTotal))}
                 </Text>
               </View>
 
@@ -2627,7 +2633,7 @@ export default function ContabilidadScreen() {
                 </Text>
               </View>
               <Text variant="bodySmall" style={{ color: '#888', fontStyle: 'italic', marginTop: 4 }}>
-                💡 En este periodo se compró y pagó en caja más inventario del que se consumió (+{formatCOP(Math.max(0, resultadoOperativo - (generalIngresos - generalEgresos)))}), el cual se sumó al saldo de meses anteriores ({formatCOP(Math.max(0, inventoryAssetValue - Math.max(0, resultadoOperativo - (generalIngresos - generalEgresos))))}) dando el Stock Total de {formatCOP(inventoryAssetValue)}.
+                💡 En este periodo se compró y pagó en caja más inventario del que se consumió (+{formatCOP(Math.max(0, resultadoOperativo - (generalIngresos - generalEgresos) - dividendosTotal))}), el cual se sumó al saldo de meses anteriores ({formatCOP(Math.max(0, inventoryAssetValue - Math.max(0, resultadoOperativo - (generalIngresos - generalEgresos))))}) dando el Stock Total de {formatCOP(inventoryAssetValue)}.
               </Text>
             </Card.Content>
           </Card>

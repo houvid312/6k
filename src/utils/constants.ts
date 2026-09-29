@@ -26,6 +26,7 @@ export const EXPENSE_CATEGORIES: string[] = [
   'Transporte',
   'Compra Turno',
   'Otro',
+  'Dividendos',
 ];
 
 export const DAYS_OF_WEEK: string[] = [
