@@ -619,8 +619,16 @@ export default function ProductosScreen() {
   };
 
   const handleSaveRecipe = async (productId: string) => {
-    const recipe = recipesByProduct[productId];
-    if (!recipe) { showError('No se encontró la receta'); return; }
+    let recipe = recipesByProduct[productId];
+    if (!recipe) {
+      try {
+        recipe = await recipeRepo.create(productId);
+      } catch (err) {
+        console.error("Error creating recipe:", err);
+        showError('No se pudo inicializar la receta');
+        return;
+      }
+    }
 
     const parsed = editIngredients.map((i) => ({
       supplyId: i.supplyId,
