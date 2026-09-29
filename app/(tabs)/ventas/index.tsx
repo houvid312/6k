@@ -966,24 +966,30 @@ export default function VentasScreen() {
     const next = getCartPortionsByProduct(nextCart);
     const productIds = new Set([...Object.keys(previous), ...Object.keys(next)]);
     const updatedSold = { ...soldPortions };
-    const updatedAvailable = { ...availablePortions };
-
-    productIds.forEach((productId) => {
-      const delta = (next[productId] ?? 0) - (previous[productId] ?? 0);
-      if (delta === 0) return;
-
-      if (!isBonus) { updatedSold[productId] = Math.max(0, (updatedSold[productId] ?? 0) + delta); }
-      if (portionsSet && updatedAvailable[productId] !== undefined) {
-        updatedAvailable[productId] = Math.max(0, updatedAvailable[productId] - delta);
-      }
-    });
-
-    setSoldPortions(updatedSold);
+      const updatedRedeemed = { ...redeemedPortions };
+      const updatedAvailable = { ...availablePortions };
+  
+      productIds.forEach((productId) => {
+        const delta = (next[productId] ?? 0) - (previous[productId] ?? 0);
+        if (delta === 0) return;
+  
+        if (!isBonus) { 
+          updatedSold[productId] = Math.max(0, (updatedSold[productId] ?? 0) + delta); 
+        } else {
+          updatedRedeemed[productId] = Math.max(0, (updatedRedeemed[productId] ?? 0) + delta);
+        }
+        if (portionsSet && updatedAvailable[productId] !== undefined) {
+          updatedAvailable[productId] = Math.max(0, updatedAvailable[productId] - delta);
+        }
+      });
+  
+      setSoldPortions(updatedSold);
+      setRedeemedPortions(updatedRedeemed);
     if (portionsSet) {
       setAvailablePortions(updatedAvailable);
       savePortionsToDB(updatedAvailable);
     }
-  }, [availablePortions, getCartPortionsByProduct, getSalePortionsByProduct, portionsSet, savePortionsToDB, soldPortions]);
+  }, [availablePortions, getCartPortionsByProduct, getSalePortionsByProduct, portionsSet, savePortionsToDB, soldPortions, redeemedPortions]);
 
   const handleCancelEdit = useCallback(() => {
     setEditingSale(null);
@@ -1139,6 +1145,7 @@ export default function VentasScreen() {
             debtorWorkerId || undefined,
             debtorCustomerId || undefined,
             customTimestamp,
+            isBonus
           );
 
       const totalPortions = submittedCart.reduce((sum, i) => sum + i.portions, 0);
