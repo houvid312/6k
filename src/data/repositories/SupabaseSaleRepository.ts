@@ -307,6 +307,8 @@ export class SupabaseSaleRepository implements ISaleRepository {
         is_paid: sale.isPaid ?? true,
         is_dispatched: sale.isDispatched ?? false,
         is_credit: sale.isCredit ?? false,
+          is_bonus: sale.isBonus ?? false,
+          is_bonus: sale.isBonus ?? false,
         is_bonus: sale.isBonus ?? false,
         debtor_name: sale.debtorName ?? null,
         debtor_type: sale.debtorType ?? null,
@@ -437,9 +439,10 @@ export class SupabaseSaleRepository implements ISaleRepository {
 
     if (error) throw error;
 
-    if (sale.timestamp) {
-      await supabase.from('sales').update({ created_at: sale.timestamp }).eq('id', sale.id);
-    }
+    await supabase.from('sales').update({ 
+        is_bonus: sale.isBonus ?? false,
+        ...(sale.timestamp ? { created_at: sale.timestamp } : {})
+      }).eq('id', sale.id);
 
     const updated = await this.getById(sale.id);
     if (!updated) {

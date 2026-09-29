@@ -1845,6 +1845,7 @@ export default function VentasScreen() {
             selectedId={selectedProductId ?? undefined}
             availablePortions={portionsSet ? availablePortions : undefined}
             soldPortions={Object.keys(soldPortions).length > 0 ? soldPortions : undefined}
+              redeemedPortions={Object.keys(redeemedPortions).length > 0 ? redeemedPortions : undefined}
             soldPackaging={Object.keys(soldPackaging).length > 0 ? soldPackaging : undefined}
             soldAdditionsCount={soldAdditionsCount}
             soldDiamondAdditionsCount={soldDiamondAdditionsCount}
