@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/lib/supabase';
 import { View, StyleSheet, Platform, Alert } from 'react-native';
 import { Text, Card, Button, Chip, Divider, IconButton, Portal, Snackbar, useTheme } from 'react-native-paper';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -12,7 +13,7 @@ import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 import { useSnackbar } from '../../../src/hooks';
 import { useCashClosingStore } from '../../../src/stores/useCashClosingStore';
 import { formatCOP } from '../../../src/utils/currency';
-import { formatDate, todayColombia } from '../../../src/utils/dates';
+import { formatDate, todayColombia, colombiaDateRangeToUtc } from '../../../src/utils/dates';
 import { CashClosing, Expense } from '../../../src/domain/entities';
 import { ClosingStatus, UserRole, PaymentMethod } from '../../../src/domain/enums';
 
@@ -50,6 +51,7 @@ export default function CierreCajaScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [existingClosing, setExistingClosing] = useState<CashClosing | null>(null);
   const [nextDayBase, setNextDayBase] = useState<number | null>(null);
+  const [bonusStats, setBonusStats] = useState<Record<string, number>>({});
   const [savingBase, setSavingBase] = useState(false);
 
   const actualTotal = getTotal();
@@ -64,6 +66,29 @@ export default function CierreCajaScreen() {
       try {
         const summary = await cashClosingService.getDailyExpected(selectedStoreId, activeDate);
         const existing = await cashClosingService.getClosingByDate(selectedStoreId, activeDate);
+        // Load bonus stats
+        try {
+          const { fromUtc, toUtc } = colombiaDateRangeToUtc(activeDate, activeDate);
+          const { data: bonusData } = await supabase
+            .from('sale_items')
+            .select('format_name, quantity, portions, sales!inner(store_id, created_at, is_bonus)')
+            .eq('sales.store_id', selectedStoreId)
+            .eq('sales.is_bonus', true)
+            .gte('sales.created_at', fromUtc)
+            .lte('sales.created_at', toUtc);
+          
+          if (bonusData) {
+            const stats: Record<string, number> = {};
+            bonusData.forEach(row => {
+              const format = row.format_name ? row.format_name.toUpperCase() : 'DESCONOCIDO';
+              const isMedia = format.includes('MEDIA');
+              const key = isMedia ? format : (format === 'INDIVIDUAL' || format === 'PORCION' || format === 'PORCIÓN' ? 'PORCIÓN' : format);
+              const qty = row.quantity || 1;
+              stats[key] = (stats[key] ?? 0) + qty;
+            });
+            setBonusStats(stats);
+          }
+        } catch(e) { console.error('Error fetching bonuses', e); }
         setExistingClosing(existing);
         setTotalCredit(summary.totalCreditAmount ?? 0);
 
@@ -362,7 +387,28 @@ export default function CierreCajaScreen() {
 
           <Divider style={{ marginVertical: 8 }} />
 
-          {/* Ventas desglosadas */}
+          {/* Bonos Redimidos */}
+            {Object.keys(bonusStats).length > 0 && (
+              <>
+                <View style={styles.summaryRow}>
+                  <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#E63946' }}>Bonos de Fidelización Redimidos</Text>
+                  <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#E63946' }}>
+                    {Object.values(bonusStats).reduce((a, b) => a + b, 0)} Total
+                  </Text>
+                </View>
+                {Object.entries(bonusStats).map(([format, count]) => (
+                  <View key={format} style={[styles.summaryRow, { paddingLeft: 12 }]}>
+                    <Text variant="bodySmall" style={{ color: '#aaa' }}>• {format}</Text>
+                    <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>
+                      {count} {count === 1 ? 'pizza' : 'pizzas'}
+                    </Text>
+                  </View>
+                ))}
+                <Divider style={{ marginVertical: 8 }} />
+              </>
+            )}
+
+            {/* Ventas desglosadas */}
           <View style={styles.summaryRow}>
             <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>Total Ventas</Text>
             <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>

@@ -203,7 +203,7 @@ export default function VentasScreen() {
     // 1. Porciones, bebidas y empaques por item
     const { data: itemData } = await supabase
       .from('sale_items')
-      .select('id, product_id, format_name, portions, quantity, packaging_supply_id, packaging_quantity, packaging_total, sales!inner(id, store_id, created_at)')
+      .select('id, product_id, format_name, portions, quantity, packaging_supply_id, packaging_quantity, packaging_total, sales!inner(id, store_id, created_at, is_bonus)')
       .eq('sales.store_id', selectedStoreId)
       .gte('sales.created_at', startOfDay)
       .lte('sales.created_at', endOfDay);
@@ -215,7 +215,10 @@ export default function VentasScreen() {
 
     if (itemData) {
       for (const row of itemData) {
-        portionMap[row.product_id] = (portionMap[row.product_id] ?? 0) + (row.portions || row.quantity || 0);
+        const saleObj: any = Array.isArray(row.sales) ? row.sales[0] : row.sales;
+          if (!saleObj?.is_bonus) {
+            portionMap[row.product_id] = (portionMap[row.product_id] ?? 0) + (row.portions || row.quantity || 0);
+          }
 
         if (row.packaging_supply_id && ((row.packaging_quantity ?? 0) > 0 || (row.packaging_total ?? 0) > 0)) {
           const qty = row.packaging_quantity && row.packaging_quantity > 0 ? row.packaging_quantity : 1;
@@ -780,12 +783,15 @@ export default function VentasScreen() {
   const isCartEligibleForBonus = useMemo(() => {
     if (cart.length !== 1) return false;
     const item = cart[0];
+    const product = products.find(p => p.id === item.productId);
+    if (!product || product.category !== 'PIZZA') return false;
     const lowercaseName = item.productName.toLowerCase();
-    const excluded = ['jamón', 'jamon', 'maicito', 'napolitana', 'margarita'];
+    const excluded = ['jamón queso', 'jamon queso', 'maicito', 'napolitana', 'margarita'];
     if (excluded.some(ex => lowercaseName.includes(ex))) return false;
     const formatName = (item.formatName ?? '').toUpperCase();
-    return formatName === 'INDIVIDUAL' || formatName === 'MEDIANA' || formatName === 'FAMILIAR' || formatName === 'PORCION' || formatName === 'PORCIÓN';
-  }, [cart]);
+    const validFormats = ['INDIVIDUAL', 'MEDIANA', 'FAMILIAR', 'PORCION', 'PORCIÓN', 'MEDIA FAMILIAR', 'MEDIA MEDIANA'];
+    return validFormats.includes(formatName) || formatName.includes('MEDIA');
+  }, [cart, products]);
 
   // If cart changes and becomes ineligible, disable bonus
   useEffect(() => {
@@ -950,7 +956,7 @@ export default function VentasScreen() {
     return totals;
   }, [products]);
 
-  const applyPortionDelta = useCallback((previousSale: Sale | null, nextCart: CartItem[]) => {
+  const applyPortionDelta = useCallback((previousSale: Sale | null, nextCart: CartItem[], isBonus: boolean = false) => {
     const previous = getSalePortionsByProduct(previousSale);
     const next = getCartPortionsByProduct(nextCart);
     const productIds = new Set([...Object.keys(previous), ...Object.keys(next)]);
@@ -961,7 +967,7 @@ export default function VentasScreen() {
       const delta = (next[productId] ?? 0) - (previous[productId] ?? 0);
       if (delta === 0) return;
 
-      updatedSold[productId] = Math.max(0, (updatedSold[productId] ?? 0) + delta);
+      if (!isBonus) { updatedSold[productId] = Math.max(0, (updatedSold[productId] ?? 0) + delta); }
       if (portionsSet && updatedAvailable[productId] !== undefined) {
         updatedAvailable[productId] = Math.max(0, updatedAvailable[productId] - delta);
       }
@@ -1028,14 +1034,15 @@ export default function VentasScreen() {
         return;
       }
       const item = submittedCart[0];
-      const validFormats = ['INDIVIDUAL', 'MEDIANA', 'FAMILIAR', 'PORCION', 'PORCIÓN'];
-      if (!validFormats.includes((item.formatName ?? '').toUpperCase())) {
+      const validFormats = ['INDIVIDUAL', 'MEDIANA', 'FAMILIAR', 'PORCION', 'PORCIÓN', 'MEDIA FAMILIAR', 'MEDIA MEDIANA'];
+      const fn = (item.formatName ?? '').toUpperCase();
+        if (!validFormats.includes(fn) && !fn.includes('MEDIA')) {
         setSnackbar({ visible: true, success: false, message: 'El bono solo aplica para Porción, Mediana o Familiar.' });
         isSubmittingRef.current = false;
         return;
       }
       const lowercaseName = item.productName.toLowerCase();
-      const excluded = ['jamón queso', 'jamon queso', 'maicitos', 'napolitana', 'margarita'];
+      const excluded = ['jamón queso', 'jamon queso', 'maicito', 'napolitana', 'margarita'];
       if (excluded.some(ex => lowercaseName.includes(ex))) {
         setSnackbar({ visible: true, success: false, message: 'El bono no es válido para sabores económicos (Jamón Queso, Maicitos, Napolitana, Margarita).' });
         isSubmittingRef.current = false;
@@ -1156,7 +1163,7 @@ export default function VentasScreen() {
           : `Venta registrada: ${totalPortions} porc. por ${formatCOP(sale.totalAmount)}${paidLabel}`,
       });
 
-      applyPortionDelta(previousSale, submittedCart);
+      applyPortionDelta(previousSale, submittedCart, isBonus);
 
       loadPendingSales();
       loadSoldPortions();
@@ -1695,15 +1702,13 @@ export default function VentasScreen() {
                   </Chip>
                 </View>
 
-                {!isPaid && isCartEligibleForBonus && (
+                {!isPaid && (
                   <>
                   <View style={{ marginTop: 8, padding: 8, backgroundColor: theme.colors.elevation.level1, borderRadius: 8 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                       <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
-                        <Text variant="bodyMedium" style={{ fontWeight: '600', color: theme.colors.onSurface }}>
                           🎁 ¿Redimir Bono de Fidelización?
                         </Text>
-                      </Text>
                       <Chip
                         selected={isBonus}
                         onPress={() => setIsBonus(!isBonus)}
