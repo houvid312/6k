@@ -2618,8 +2618,17 @@ export default function ContabilidadScreen() {
                 </Text>
               </View>
 
+              {dividendosTotal > 0 && (
+                <View style={styles.txRow}>
+                  <Text variant="bodySmall">3. Retiro de Utilidades / Dividendos (Bolsillo Socios):</Text>
+                  <Text variant="bodySmall" style={{ fontWeight: '700', color: '#D32F2F' }}>
+                    {formatCOP(dividendosTotal)}
+                  </Text>
+                </View>
+              )}
+
               <View style={styles.txRow}>
-                <Text variant="bodySmall">3. Variación neta reinvertida en Stock en este periodo (1 - 2 - Dividendos):</Text>
+                <Text variant="bodySmall">{dividendosTotal > 0 ? '4' : '3'}. Variación neta reinvertida en Stock en este periodo (1 - 2{dividendosTotal > 0 ? ' - 3' : ''}):</Text>
                 <Text variant="bodySmall" style={{ fontWeight: '700', color: '#F57C00' }}>
                   {formatCOP(Math.max(0, resultadoOperativo - (generalIngresos - generalEgresos) - dividendosTotal))}
                 </Text>
