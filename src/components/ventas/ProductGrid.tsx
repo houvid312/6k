@@ -175,24 +175,20 @@ export function ProductGrid({
       </View>
 
       {/* Total sold summary bar */}
-      {(soldPortions || redeemedPortions || soldPackaging || soldAdditionsCount || soldDiamondAdditionsCount) && (totalSoldPizzaPortions > 0 || totalRedeemedPizzaPortions > 0 || totalSoldBeverages > 0 || packagingSummary.length > 0 || (soldAdditionsCount ?? 0) > 0 || (soldDiamondAdditionsCount ?? 0) > 0) && (
+      {(soldPortions || redeemedPortions || soldPackaging || soldAdditionsCount !== undefined || soldDiamondAdditionsCount !== undefined) && (
         <View style={[styles.totalSoldRow, { backgroundColor: theme.colors.surfaceVariant, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }]}>
           <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            {totalSoldPizzaPortions > 0 && (
-              <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
+            <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
                 🍕 Porciones: <Text style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>{totalSoldPizzaPortions}</Text>
               </Text>
-            )}
             {totalRedeemedPizzaPortions > 0 && (
               <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
                 🎁 Bonos: <Text style={{ fontWeight: 'bold', color: '#E63946' }}>{totalRedeemedPizzaPortions}</Text>
               </Text>
             )}
-            {totalSoldBeverages > 0 && (
-              <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
+            <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
                 🥤 Bebidas: <Text style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>{totalSoldBeverages}</Text>
               </Text>
-            )}
             {soldAdditionsCount !== undefined && soldAdditionsCount > 0 && (
               <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
                 ➕ Adiciones: <Text style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>{soldAdditionsCount}</Text>
@@ -209,7 +205,7 @@ export function ProductGrid({
               </Text>
             ))}
           </View>
-          {totalSalesToday !== undefined && totalSalesToday > 0 && (
+          {totalSalesToday !== undefined && (
             <Text style={[styles.totalSoldText, { color: theme.colors.primary, fontWeight: 'bold' }]}>
               Ventas: {formatCOP(totalSalesToday)}
             </Text>
