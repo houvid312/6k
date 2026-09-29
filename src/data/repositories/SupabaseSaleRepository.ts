@@ -308,8 +308,6 @@ export class SupabaseSaleRepository implements ISaleRepository {
         is_dispatched: sale.isDispatched ?? false,
         is_credit: sale.isCredit ?? false,
           is_bonus: sale.isBonus ?? false,
-          is_bonus: sale.isBonus ?? false,
-        is_bonus: sale.isBonus ?? false,
         debtor_name: sale.debtorName ?? null,
         debtor_type: sale.debtorType ?? null,
         debtor_worker_id: sale.debtorWorkerId ?? null,

@@ -791,7 +791,7 @@ export default function VentasScreen() {
     const product = products.find(p => p.id === item.productId);
     if (!product || product.category !== 'PIZZA') return false;
     const lowercaseName = item.productName.toLowerCase();
-    const excluded = ['jamón queso', 'jamon queso', 'maicito', 'napolitana', 'margarita'];
+    const excluded = ['jamón queso', 'jamon queso', 'jamón y queso', 'jamon y queso', 'maicito', 'napolitana', 'margarita', 'quesadilla'];
     if (excluded.some(ex => lowercaseName.includes(ex))) return false;
     const formatName = (item.formatName ?? '').toUpperCase();
     const validFormats = ['INDIVIDUAL', 'MEDIANA', 'FAMILIAR', 'PORCION', 'PORCIÓN', 'MEDIA FAMILIAR', 'MEDIA MEDIANA'];
@@ -1047,7 +1047,7 @@ export default function VentasScreen() {
         return;
       }
       const lowercaseName = item.productName.toLowerCase();
-      const excluded = ['jamón queso', 'jamon queso', 'maicito', 'napolitana', 'margarita'];
+      const excluded = ['jamón queso', 'jamon queso', 'jamón y queso', 'jamon y queso', 'maicito', 'napolitana', 'margarita', 'quesadilla'];
       if (excluded.some(ex => lowercaseName.includes(ex))) {
         setSnackbar({ visible: true, success: false, message: 'El bono no es válido para sabores económicos (Jamón Queso, Maicitos, Napolitana, Margarita).' });
         isSubmittingRef.current = false;
