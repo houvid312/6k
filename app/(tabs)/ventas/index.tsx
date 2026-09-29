@@ -171,6 +171,7 @@ export default function VentasScreen() {
 
   // Porciones vendidas hoy por producto
   const [soldPortions, setSoldPortions] = useState<Record<string, number>>({});
+  const [redeemedPortions, setRedeemedPortions] = useState<Record<string, number>>({});
   const [soldPackaging, setSoldPackaging] = useState<Record<string, number>>({});
   const [soldAdditionsCount, setSoldAdditionsCount] = useState(0);
   const [soldDiamondAdditionsCount, setSoldDiamondAdditionsCount] = useState(0);
@@ -209,6 +210,7 @@ export default function VentasScreen() {
       .lte('sales.created_at', endOfDay);
 
     const portionMap: Record<string, number> = {};
+    const redeemedMap: Record<string, number> = {};
     const packagingMap: Record<string, number> = {};
     let normalAddCount = 0;
     let diamondAddCount = 0;
@@ -217,8 +219,10 @@ export default function VentasScreen() {
       for (const row of itemData) {
         const saleObj: any = Array.isArray(row.sales) ? row.sales[0] : row.sales;
           if (!saleObj?.is_bonus) {
-            portionMap[row.product_id] = (portionMap[row.product_id] ?? 0) + (row.portions || row.quantity || 0);
-          }
+          portionMap[row.product_id] = (portionMap[row.product_id] ?? 0) + (row.portions || row.quantity || 0);
+        } else {
+          redeemedMap[row.product_id] = (redeemedMap[row.product_id] ?? 0) + (row.portions || row.quantity || 0);
+        }
 
         if (row.packaging_supply_id && ((row.packaging_quantity ?? 0) > 0 || (row.packaging_total ?? 0) > 0)) {
           const qty = row.packaging_quantity && row.packaging_quantity > 0 ? row.packaging_quantity : 1;
@@ -274,6 +278,7 @@ export default function VentasScreen() {
     }
 
     setSoldPortions(portionMap);
+      setRedeemedPortions(redeemedMap);
     setSoldPackaging(packagingMap);
   }, [selectedStoreId, salesDate, products]);
 

@@ -27,6 +27,7 @@ interface Props {
   selectedId?: string;
   availablePortions?: Record<string, number>;
   soldPortions?: Record<string, number>;
+  redeemedPortions?: Record<string, number>;
   soldPackaging?: Record<string, number>;
   soldAdditionsCount?: number;
   soldDiamondAdditionsCount?: number;
@@ -46,6 +47,7 @@ export function ProductGrid({
   selectedId,
   availablePortions,
   soldPortions,
+  redeemedPortions,
   soldPackaging,
   soldAdditionsCount,
   soldDiamondAdditionsCount,
@@ -154,10 +156,11 @@ export function ProductGrid({
               >
                 {item.name}
               </Text>
-              {soldPortions && (
+              {(soldPortions || redeemedPortions) && (
                 <View style={[styles.soldBadge, { backgroundColor: theme.colors.surfaceVariant }]}>
                   <Text style={[styles.soldBadgeText, { color: theme.colors.onSurfaceVariant }]}>
-                    {soldPortions[item.id] ?? 0} vend.
+                    {soldPortions?.[item.id] ?? 0} vend.
+                    {redeemedPortions?.[item.id] ? ` | ${redeemedPortions[item.id]} bonos` : ''}
                   </Text>
                 </View>
               )}
