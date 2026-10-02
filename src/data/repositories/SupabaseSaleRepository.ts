@@ -433,6 +433,7 @@ export class SupabaseSaleRepository implements ISaleRepository {
       p_debtor_type: sale.debtorType ?? null,
       p_debtor_worker_id: sale.debtorWorkerId ?? null,
       p_debtor_customer_id: sale.debtorCustomerId ?? null,
+        p_is_bonus: sale.isBonus ?? false,
     });
 
     if (error) throw error;
