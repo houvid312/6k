@@ -34,6 +34,47 @@ function getPeriodRange(type: PeriodType): { startDate: string; endDate: string 
   }
 }
 
+function getPreviousQuincena(startStr: string): { startDate: string; endDate: string } {
+  const [year, month, day] = startStr.split('-').map(Number);
+  if (day === 16) {
+    const endStr = `${year}-${String(month).padStart(2, '0')}-15`;
+    return { startDate: `${year}-${String(month).padStart(2, '0')}-01`, endDate: endStr };
+  } else {
+    let prevMonth = month - 1;
+    let prevYear = year;
+    if (prevMonth === 0) {
+      prevMonth = 12;
+      prevYear--;
+    }
+    const lastDay = new Date(prevYear, prevMonth, 0).getDate();
+    return { 
+      startDate: `${prevYear}-${String(prevMonth).padStart(2, '0')}-16`, 
+      endDate: `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+    };
+  }
+}
+
+function getNextQuincena(startStr: string): { startDate: string; endDate: string } {
+  const [year, month, day] = startStr.split('-').map(Number);
+  if (day === 1) {
+    const lastDay = new Date(year, month, 0).getDate();
+    return { 
+      startDate: `${year}-${String(month).padStart(2, '0')}-16`, 
+      endDate: `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}` 
+    };
+  } else {
+    let nextMonth = month + 1;
+    let nextYear = year;
+    if (nextMonth === 13) {
+      nextMonth = 1;
+      nextYear++;
+    }
+    const endStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-15`;
+    return { startDate: `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`, endDate: endStr };
+  }
+}
+
+
 function applyCustomizations(
   entry: PayrollEntry,
   rawDeduction?: string,
@@ -111,6 +152,7 @@ export default function NominaScreen() {
   const canEditOrDelete = userRole === 'GERENTE' || userRole === 'ADMIN_LOCAL';
 
   const [activeTab, setActiveTab] = useState<'ACTUAL' | 'HISTORICO'>('ACTUAL');
+  const [selectedPeriod, setSelectedPeriod] = useState<{startDate: string; endDate: string}>(() => getPeriodRange('QUINCENAL'));
   const [report, setReport] = useState<PayrollReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -129,7 +171,7 @@ export default function NominaScreen() {
   const [historyPeriods, setHistoryPeriods] = useState<PayrollPeriod[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  const loadPayroll = useCallback(async (customStartDate?: string, customEndDate?: string) => {
+  const loadPayroll = useCallback(async () => {
     if (!selectedStoreId) {
       setReport(null);
       setLoading(false);
@@ -138,15 +180,11 @@ export default function NominaScreen() {
     setLoading(true);
     try {
       await loadWorkers(selectedStoreId);
-      const { startDate, endDate } = customStartDate && customEndDate
-        ? { startDate: customStartDate, endDate: customEndDate }
-        : getPeriodRange(periodType);
-
       const data = await payrollService.generateReport(
         selectedStoreId,
         periodType,
-        startDate,
-        endDate,
+        selectedPeriod.startDate,
+        selectedPeriod.endDate,
       );
       setReport(data);
       setDeductionValues(Object.fromEntries(
@@ -171,7 +209,7 @@ export default function NominaScreen() {
     } finally {
       setLoading(false);
     }
-  }, [loadWorkers, payrollService, periodType, selectedStoreId, showError]);
+  }, [loadWorkers, payrollService, periodType, selectedStoreId, showError, selectedPeriod]);
 
   const loadHistory = useCallback(async () => {
     if (!selectedStoreId) return;
@@ -184,7 +222,7 @@ export default function NominaScreen() {
     } finally {
       setHistoryLoading(false);
     }
-  }, [payrollService, selectedStoreId, showError]);
+  }, [payrollService, selectedStoreId, showError, selectedPeriod]);
 
   useEffect(() => {
     loadPayroll();
@@ -329,9 +367,23 @@ export default function NominaScreen() {
       {activeTab === 'ACTUAL' ? (
         editableReport ? (
           <>
-            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginBottom: 8 }}>
-              PerÃ­odo Quincenal: {formatDate(editableReport.periodStart)} - {formatDate(editableReport.periodEnd)}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, backgroundColor: theme.colors.surfaceVariant, borderRadius: 8, paddingHorizontal: 4 }}>
+                <IconButton 
+                  icon="chevron-left" 
+                  size={20}
+                  onPress={() => setSelectedPeriod(getPreviousQuincena(editableReport.periodStart))}
+                  disabled={saving}
+                />
+                <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, fontWeight: 'bold' }}>
+                  Período: {formatDate(editableReport.periodStart)} - {formatDate(editableReport.periodEnd)}
+                </Text>
+                <IconButton 
+                  icon="chevron-right" 
+                  size={20}
+                  onPress={() => setSelectedPeriod(getNextQuincena(editableReport.periodStart))}
+                  disabled={saving}
+                />
+              </View>
 
             <PayrollSummary
               totalGross={editableReport.totalGross}
@@ -594,8 +646,8 @@ export default function NominaScreen() {
                         compact
                         mode="contained-tonal"
                         icon="eye"
-                        onPress={async () => {
-                          await loadPayroll(period.startDate, period.endDate);
+                        onPress={() => {
+                          setSelectedPeriod({ startDate: period.startDate, endDate: period.endDate });
                           setActiveTab('ACTUAL');
                         }}
                       >
