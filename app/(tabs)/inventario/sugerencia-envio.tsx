@@ -329,7 +329,7 @@ export default function SugerenciaEnvioScreen() {
               </Card>
 
               {requirements.map((req) => (
-                <Card key={req.supplyId} style={[styles.reqCard, { backgroundColor: '#1E1E1E', marginBottom: 12 }]}>
+                <View key={req.supplyId} style={{ marginBottom: 12 }}><Card style={[styles.reqCard, { backgroundColor: '#1E1E1E', marginBottom: 0 }]}>
                   {req.isManual && (
                     <View style={{ position: 'absolute', top: 4, right: 4, zIndex: 10 }}>
                       <IconButton
@@ -414,8 +414,7 @@ export default function SugerenciaEnvioScreen() {
                       );
                     })()}
                   </Card.Content>
-                </Card>
-              ))}
+                </Card></View>))}
             </>
           )}
 
