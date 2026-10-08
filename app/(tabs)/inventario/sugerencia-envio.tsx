@@ -317,7 +317,7 @@ export default function SugerenciaEnvioScreen() {
               <Text variant="bodySmall" style={{ color: '#999', marginBottom: 8 }}>
                 Ajusta las bolsas si necesitas enviar mas o menos de lo sugerido
               </Text>
-              <Card style={[styles.totalCard, { backgroundColor: '#1E1E1E' }]}>
+              <View style={{ paddingBottom: 12 }}><Card style={[styles.totalCard, { backgroundColor: '#1E1E1E', margin: 0, marginBottom: 0 }]}>
                 <Card.Content style={styles.totalContent}>
                   <Text variant="bodySmall" style={{ color: '#999' }}>
                     Total estimado para el local
@@ -325,11 +325,10 @@ export default function SugerenciaEnvioScreen() {
                   <Text variant="headlineSmall" style={{ color: '#E63946', fontWeight: '800' }}>
                     {formatCOP(estimatedTotal)}
                   </Text>
-                </Card.Content>
-              </Card>
+                </Card.Content></Card></View>
 
               {requirements.map((req) => (
-                <React.Fragment key={req.supplyId}><Card style={[styles.reqCard, { backgroundColor: '#1E1E1E' }]}>
+                <React.Fragment key={req.supplyId}><View style={{ paddingBottom: 12 }}><Card style={[styles.reqCard, { backgroundColor: '#1E1E1E', margin: 0, marginBottom: 0 }]}>
                   {req.isManual && (
                     <View style={{ position: 'absolute', top: 4, right: 4, zIndex: 10 }}>
                       <IconButton
@@ -414,7 +413,7 @@ export default function SugerenciaEnvioScreen() {
                       );
                     })()}
                   </Card.Content>
-                </Card><View style={{ height: 12 }} /></React.Fragment>))}
+                </Card></View></React.Fragment>))}
             </>
           )}
 
