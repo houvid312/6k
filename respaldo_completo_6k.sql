@@ -476,6 +476,104 @@ $$;
 ALTER FUNCTION "public"."deduct_store_inventory"("p_store_id" "uuid", "p_supply_id" "uuid", "p_grams" numeric) OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."get_accounting_pnl"("p_store_id" "uuid", "p_start_date" "date", "p_end_date" "date") RETURNS json
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_is_prod boolean;
+  v_net_sales numeric := 0;
+  v_internal_transfer_income numeric := 0;
+  
+  v_cogs_sales numeric := 0;
+  v_cogs_transfers_out numeric := 0;
+  v_cogs_total numeric := 0;
+  
+  v_gross_profit numeric := 0;
+  v_fixed_expenses numeric := 0;
+  v_variable_expenses numeric := 0;
+  v_payroll_advances numeric := 0;
+  v_operational_profit numeric := 0;
+  
+  v_cash_sales numeric := 0;
+  v_bank_sales numeric := 0;
+BEGIN
+  SELECT is_production_center INTO v_is_prod FROM stores WHERE id = p_store_id;
+
+  IF v_is_prod THEN
+    -- CP Revenue: Total of APPROVED transfers SENT
+    SELECT COALESCE(SUM(total_price_cop), 0)
+    INTO v_internal_transfer_income
+    FROM transfers
+    WHERE from_store_id = p_store_id
+      AND status = 'RECEIVED'
+      AND date(received_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') >= p_start_date
+      AND date(received_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') <= p_end_date;
+      
+    v_net_sales := v_internal_transfer_income;
+
+    SELECT COALESCE(SUM(total_cost_cop), 0)
+    INTO v_cogs_transfers_out
+    FROM transfers
+    WHERE from_store_id = p_store_id
+      AND status = 'RECEIVED'
+      AND date(received_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') >= p_start_date
+      AND date(received_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') <= p_end_date;
+      
+    v_cogs_total := v_cogs_transfers_out;
+    v_cash_sales := 0;
+    v_bank_sales := v_internal_transfer_income;
+  ELSE
+
+
+    -- Store COGS: Sum of total_cost_cop from sales
+    SELECT 
+      COALESCE(SUM(total_cost_cop), 0),
+      COALESCE(SUM(CASE WHEN payment_method = 'EFECTIVO' THEN total_amount ELSE 0 END), 0),
+      COALESCE(SUM(CASE WHEN payment_method != 'EFECTIVO' THEN total_amount ELSE 0 END), 0)
+    INTO v_cogs_sales, v_cash_sales, v_bank_sales
+    FROM sales
+    WHERE store_id = p_store_id
+      AND date(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') >= p_start_date
+      AND date(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') <= p_end_date;
+
+    v_net_sales := v_cash_sales + v_bank_sales;
+    v_cogs_total := v_cogs_sales;
+  END IF;
+
+  v_gross_profit := v_net_sales - v_cogs_total;
+
+  -- Expenses
+  SELECT 
+    COALESCE(SUM(CASE WHEN category = 'Nómina' OR category = 'Arriendo' OR category = 'Servicios Públicos' THEN amount ELSE 0 END), 0),
+    COALESCE(SUM(CASE WHEN category NOT IN ('Nómina', 'Arriendo', 'Servicios Públicos', 'Adelanto', 'Compra Turno') THEN amount ELSE 0 END), 0),
+    COALESCE(SUM(CASE WHEN category = 'Adelanto' THEN amount ELSE 0 END), 0)
+  INTO v_fixed_expenses, v_variable_expenses, v_payroll_advances
+  FROM expenses
+  WHERE store_id = p_store_id
+    AND date >= p_start_date
+    AND date <= p_end_date;
+
+  v_operational_profit := v_gross_profit - v_fixed_expenses - v_variable_expenses;
+
+  RETURN json_build_object(
+    'netSales', v_net_sales,
+    'cogsTotal', v_cogs_total,
+    'grossProfit', v_gross_profit,
+    'fixedExpenses', v_fixed_expenses,
+    'variableExpenses', v_variable_expenses,
+    'payrollAdvances', v_payroll_advances,
+    'operationalProfit', v_operational_profit,
+    'cashSales', v_cash_sales,
+    'bankSales', v_bank_sales
+  );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_accounting_pnl"("p_store_id" "uuid", "p_start_date" "date", "p_end_date" "date") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."get_auth_worker_id"() RETURNS "uuid"
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -487,6 +585,157 @@ $$;
 
 
 ALTER FUNCTION "public"."get_auth_worker_id"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_daily_sales_ledger"("p_store_id" "uuid", "p_start_date" "date", "p_end_date" "date") RETURNS TABLE("sales_date" "date", "cash_sales" numeric, "bank_sales" numeric)
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    date(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') as sales_date,
+    COALESCE(SUM(CASE WHEN payment_method = 'EFECTIVO' THEN total_amount ELSE 0 END), 0)::numeric as cash_sales,
+    COALESCE(SUM(CASE WHEN payment_method != 'EFECTIVO' THEN total_amount ELSE 0 END), 0)::numeric as bank_sales
+  FROM sales
+  WHERE store_id = p_store_id
+    AND date(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') >= p_start_date
+    AND date(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') <= p_end_date
+  GROUP BY date(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota')
+  ORDER BY sales_date ASC;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_daily_sales_ledger"("p_store_id" "uuid", "p_start_date" "date", "p_end_date" "date") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."get_dashboard_metrics"("p_store_id" "uuid", "p_start_date" "date", "p_end_date" "date") RETURNS json
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_total_units numeric := 0;
+  v_total_pesos numeric := 0;
+  v_days_count integer;
+  v_daily_avg_units numeric := 0;
+  v_daily_avg_pesos numeric := 0;
+  v_pizza_distribution json;
+  v_beverage_distribution json;
+  v_other_distribution json;
+  v_monthly_distribution json;
+BEGIN
+  -- Calculate totals
+  SELECT COALESCE(SUM(total_portions), 0), COALESCE(SUM(total_amount), 0)
+  INTO v_total_units, v_total_pesos
+  FROM sales
+  WHERE store_id = p_store_id
+    AND date(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') >= p_start_date
+    AND date(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') <= p_end_date;
+
+  -- Calculate daily averages
+  v_days_count := (p_end_date - p_start_date) + 1;
+  IF v_days_count > 0 THEN
+    v_daily_avg_units := v_total_units / v_days_count;
+    v_daily_avg_pesos := v_total_pesos / v_days_count;
+  END IF;
+
+  -- Calculate Monthly Breakdown
+  WITH monthly_data AS (
+    SELECT 
+      EXTRACT(MONTH FROM (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota'))::integer as month_idx,
+      COALESCE(SUM(total_portions), 0) as total_qty,
+      COALESCE(SUM(total_amount), 0) as total_pesos
+    FROM sales
+    WHERE store_id = p_store_id
+      AND date(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') >= p_start_date
+      AND date(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') <= p_end_date
+    GROUP BY EXTRACT(MONTH FROM (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota'))
+  )
+  SELECT json_object_agg(month_idx, json_build_object('units', total_qty, 'pesos', total_pesos))
+  INTO v_monthly_distribution
+  FROM monthly_data;
+
+  -- Calculate flavor distribution by category
+  WITH item_data AS (
+    -- Main products
+    SELECT
+      UPPER(COALESCE(p.name, i.format_name, 'DESCONOCIDO')) as product_name,
+      CASE 
+        WHEN p.category = 'BEBIDA' OR UPPER(p.name) LIKE '%GASEOSA%' OR UPPER(p.name) LIKE '%JUGO%' OR UPPER(p.name) LIKE '%AGUA%' THEN 'BEBIDAS'
+        WHEN UPPER(p.name) LIKE '%CAJA%' OR UPPER(p.name) LIKE '%EMPAQUE%' OR UPPER(p.name) LIKE '%BOLSA%' OR UPPER(p.name) LIKE '%ADICION%' THEN 'ADICIONES_EMPAQUES'
+        ELSE 'PIZZAS'
+      END as category_group,
+      COALESCE(i.portions, i.quantity, 1) as qty,
+      i.subtotal as pesos
+    FROM sales s
+    JOIN sale_items i ON s.id = i.sale_id
+    LEFT JOIN products p ON i.product_id = p.id
+    WHERE s.store_id = p_store_id
+      AND date(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') >= p_start_date
+      AND date(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') <= p_end_date
+
+    UNION ALL
+
+    -- Additions
+    SELECT 
+      '➕ ' || UPPER(COALESCE(a.name, 'ADICIÓN')) as product_name,
+      'ADICIONES_EMPAQUES' as category_group,
+      COALESCE(a.quantity, 1) as qty,
+      (COALESCE(a.price, 0) * COALESCE(a.quantity, 1)) as pesos
+    FROM sales s
+    JOIN sale_items i ON s.id = i.sale_id
+    JOIN sale_item_additions a ON i.id = a.sale_item_id
+    WHERE s.store_id = p_store_id
+      AND date(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') >= p_start_date
+      AND date(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') <= p_end_date
+
+    UNION ALL
+
+    -- Packaging
+    SELECT 
+      '📦 ' || UPPER(COALESCE(i.packaging_label, 'EMPAQUE')) as product_name,
+      'ADICIONES_EMPAQUES' as category_group,
+      COALESCE(i.packaging_quantity, 1) as qty,
+      COALESCE(i.packaging_total, 0) as pesos
+    FROM sales s
+    JOIN sale_items i ON s.id = i.sale_id
+    WHERE s.store_id = p_store_id
+      AND date(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') >= p_start_date
+      AND date(s.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') <= p_end_date
+      AND i.packaging_label IS NOT NULL
+      AND i.packaging_quantity IS NOT NULL
+  ),
+  grouped_items AS (
+    SELECT
+      product_name,
+      category_group,
+      SUM(qty) as total_qty,
+      SUM(pesos) as total_pesos
+    FROM item_data
+    GROUP BY product_name, category_group
+  )
+  SELECT 
+    (SELECT json_object_agg(product_name, json_build_object('units', total_qty, 'pesos', total_pesos)) FROM grouped_items WHERE category_group = 'PIZZAS'),
+    (SELECT json_object_agg(product_name, json_build_object('units', total_qty, 'pesos', total_pesos)) FROM grouped_items WHERE category_group = 'BEBIDAS'),
+    (SELECT json_object_agg(product_name, json_build_object('units', total_qty, 'pesos', total_pesos)) FROM grouped_items WHERE category_group = 'ADICIONES_EMPAQUES')
+  INTO v_pizza_distribution, v_beverage_distribution, v_other_distribution;
+
+  RETURN json_build_object(
+    'totalUnits', v_total_units,
+    'totalPesos', v_total_pesos,
+    'dailyAvgUnits', v_daily_avg_units,
+    'dailyAvgPesos', v_daily_avg_pesos,
+    'pizzaDistribution', COALESCE(v_pizza_distribution, '{}'::json),
+    'beverageDistribution', COALESCE(v_beverage_distribution, '{}'::json),
+    'otherDistribution', COALESCE(v_other_distribution, '{}'::json),
+    'monthlyDistribution', COALESCE(v_monthly_distribution, '{}'::json)
+  );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_dashboard_metrics"("p_store_id" "uuid", "p_start_date" "date", "p_end_date" "date") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."get_user_role"() RETURNS "public"."user_role"
@@ -1280,6 +1529,219 @@ $$;
 
 
 ALTER FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean DEFAULT false, "p_debtor_name" "text" DEFAULT NULL::"text", "p_debtor_type" "public"."debtor_type" DEFAULT NULL::"public"."debtor_type", "p_debtor_worker_id" "uuid" DEFAULT NULL::"uuid", "p_debtor_customer_id" "uuid" DEFAULT NULL::"uuid", "p_is_bonus" boolean DEFAULT false) RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_sale sales%ROWTYPE;
+  v_item RECORD;
+  v_addition RECORD;
+  v_recipe_id UUID;
+  v_ingredient RECORD;
+  v_sale_item_id UUID;
+  v_additions JSONB;
+  v_had_item_packaging BOOLEAN;
+BEGIN
+  IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array' OR jsonb_array_length(p_items) = 0 THEN
+    RAISE EXCEPTION 'Sale % must have at least one item', p_sale_id;
+  END IF;
+
+  SELECT *
+  INTO v_sale
+  FROM sales
+  WHERE id = p_sale_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Sale % not found', p_sale_id;
+  END IF;
+
+  IF is_accounting_period_locked(v_sale.store_id, (v_sale.created_at AT TIME ZONE 'America/Bogota')::DATE) THEN
+    PERFORM raise_locked_period_error();
+  END IF;
+
+  IF COALESCE(v_sale.is_dispatched, false) THEN
+    RAISE EXCEPTION 'Sale % cannot be edited after dispatch', p_sale_id;
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM sale_items
+    WHERE sale_id = p_sale_id
+      AND packaging_supply_id IS NOT NULL
+      AND COALESCE(packaging_quantity, 0) > 0
+  )
+  INTO v_had_item_packaging;
+
+  FOR v_item IN
+    SELECT *
+    FROM sale_items
+    WHERE sale_id = p_sale_id
+  LOOP
+    SELECT r.id
+    INTO v_recipe_id
+    FROM recipes r
+    WHERE r.product_id = v_item.product_id;
+
+    IF v_recipe_id IS NOT NULL THEN
+      FOR v_ingredient IN
+        SELECT ri.supply_id, ri.grams_per_portion
+        FROM recipe_ingredients ri
+        WHERE ri.recipe_id = v_recipe_id
+      LOOP
+        PERFORM deduct_store_inventory(
+          v_sale.store_id,
+          v_ingredient.supply_id,
+          -(v_ingredient.grams_per_portion * v_item.portions)
+        );
+      END LOOP;
+    END IF;
+
+    FOR v_addition IN
+      SELECT sia.supply_id, sia.grams, sia.quantity
+      FROM sale_item_additions sia
+      WHERE sia.sale_item_id = v_item.id
+    LOOP
+      PERFORM deduct_store_inventory(
+        v_sale.store_id,
+        v_addition.supply_id,
+        -(v_addition.grams * v_addition.quantity)
+      );
+    END LOOP;
+
+    IF v_item.packaging_supply_id IS NOT NULL AND COALESCE(v_item.packaging_quantity, 0) > 0 THEN
+      PERFORM deduct_store_inventory(
+        v_sale.store_id,
+        v_item.packaging_supply_id,
+        -v_item.packaging_quantity
+      );
+    END IF;
+  END LOOP;
+
+  IF v_sale.packaging_supply_id IS NOT NULL AND NOT COALESCE(v_had_item_packaging, false) THEN
+    PERFORM deduct_store_inventory(v_sale.store_id, v_sale.packaging_supply_id, -1);
+  END IF;
+
+  DELETE FROM sale_item_additions
+  WHERE sale_item_id IN (
+    SELECT id FROM sale_items WHERE sale_id = p_sale_id
+  );
+
+  DELETE FROM sale_items
+  WHERE sale_id = p_sale_id;
+
+  UPDATE sales
+  SET
+    payment_method = p_payment_method,
+    total_portions = p_total_portions,
+    total_amount = p_total_amount,
+    packaging_total = COALESCE(p_packaging_total, 0),
+    total_cost_cop = COALESCE(p_total_cost_cop, 0),
+    gross_margin_cop = COALESCE(p_gross_margin_cop, p_total_amount - COALESCE(p_total_cost_cop, 0)),
+    cash_amount = p_cash_amount,
+    bank_amount = p_bank_amount,
+    observations = COALESCE(p_observations, ''),
+    is_paid = COALESCE(p_is_paid, false),
+    is_credit = COALESCE(p_is_credit, false),
+    debtor_name = p_debtor_name,
+    debtor_type = p_debtor_type,
+    debtor_worker_id = p_debtor_worker_id,
+    debtor_customer_id = p_debtor_customer_id,
+    customer_note = NULLIF(COALESCE(p_customer_note, ''), ''),
+    is_bonus = COALESCE(p_is_bonus, false),
+    packaging_supply_id = p_packaging_supply_id
+  WHERE id = p_sale_id;
+
+  FOR v_item IN
+    SELECT value
+    FROM jsonb_array_elements(p_items)
+  LOOP
+    INSERT INTO sale_items (
+      sale_id,
+      product_id,
+      size,
+      format_id,
+      format_name,
+      quantity,
+      portions,
+      unit_price,
+      subtotal,
+      additions_total,
+      packaging_supply_id,
+      packaging_label,
+      packaging_unit_price,
+      packaging_quantity,
+      packaging_total,
+      recipe_cost_cop,
+      additions_cost_cop,
+      packaging_cost_cop,
+      total_cost_cop
+    )
+    VALUES (
+      p_sale_id,
+      (v_item.value->>'product_id')::UUID,
+      CASE
+        WHEN NULLIF(v_item.value->>'size', '') IS NULL THEN NULL
+        ELSE (v_item.value->>'size')::pizza_size
+      END,
+      NULLIF(v_item.value->>'format_id', '')::UUID,
+      NULLIF(COALESCE(v_item.value->>'format_name', ''), ''),
+      COALESCE(NULLIF(v_item.value->>'quantity', '')::INTEGER, 1),
+      COALESCE(NULLIF(v_item.value->>'portions', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'unit_price', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'subtotal', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'additions_total', '')::INTEGER, 0),
+      NULLIF(v_item.value->>'packaging_supply_id', '')::UUID,
+      NULLIF(COALESCE(v_item.value->>'packaging_label', ''), ''),
+      COALESCE(NULLIF(v_item.value->>'packaging_unit_price', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'packaging_quantity', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'packaging_total', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'recipe_cost_cop', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'additions_cost_cop', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'packaging_cost_cop', '')::INTEGER, 0),
+      COALESCE(NULLIF(v_item.value->>'total_cost_cop', '')::INTEGER, 0)
+    )
+    RETURNING id INTO v_sale_item_id;
+
+    v_additions := CASE
+      WHEN jsonb_typeof(v_item.value->'additions') = 'array' THEN v_item.value->'additions'
+      ELSE '[]'::jsonb
+    END;
+
+    FOR v_addition IN
+      SELECT value
+      FROM jsonb_array_elements(v_additions)
+    LOOP
+      INSERT INTO sale_item_additions (
+        sale_item_id,
+        addition_catalog_id,
+        supply_id,
+        name,
+        price,
+        grams,
+        quantity
+      )
+      VALUES (
+        v_sale_item_id,
+        (v_addition.value->>'addition_catalog_id')::UUID,
+        (v_addition.value->>'supply_id')::UUID,
+        v_addition.value->>'name',
+        COALESCE(NULLIF(v_addition.value->>'price', '')::INTEGER, 0),
+        COALESCE(NULLIF(v_addition.value->>'grams', '')::NUMERIC, 0),
+        COALESCE(NULLIF(v_addition.value->>'quantity', '')::INTEGER, 1)
+      );
+    END LOOP;
+  END LOOP;
+
+  PERFORM deduct_inventory_for_sale(p_sale_id);
+END;
+$$;
+
+
+ALTER FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid", "p_is_bonus" boolean) OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."rls_auto_enable"() RETURNS "event_trigger"
@@ -2321,7 +2783,8 @@ CREATE TABLE IF NOT EXISTS "public"."sales" (
     "debtor_name" "text",
     "debtor_type" "public"."debtor_type",
     "debtor_worker_id" "uuid",
-    "debtor_customer_id" "uuid"
+    "debtor_customer_id" "uuid",
+    "is_bonus" boolean DEFAULT false
 );
 
 
@@ -4506,9 +4969,27 @@ GRANT ALL ON FUNCTION "public"."deduct_store_inventory"("p_store_id" "uuid", "p_
 
 
 
+GRANT ALL ON FUNCTION "public"."get_accounting_pnl"("p_store_id" "uuid", "p_start_date" "date", "p_end_date" "date") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_accounting_pnl"("p_store_id" "uuid", "p_start_date" "date", "p_end_date" "date") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_accounting_pnl"("p_store_id" "uuid", "p_start_date" "date", "p_end_date" "date") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."get_auth_worker_id"() TO "anon";
 GRANT ALL ON FUNCTION "public"."get_auth_worker_id"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_auth_worker_id"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_daily_sales_ledger"("p_store_id" "uuid", "p_start_date" "date", "p_end_date" "date") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_daily_sales_ledger"("p_store_id" "uuid", "p_start_date" "date", "p_end_date" "date") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_daily_sales_ledger"("p_store_id" "uuid", "p_start_date" "date", "p_end_date" "date") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."get_dashboard_metrics"("p_store_id" "uuid", "p_start_date" "date", "p_end_date" "date") TO "anon";
+GRANT ALL ON FUNCTION "public"."get_dashboard_metrics"("p_store_id" "uuid", "p_start_date" "date", "p_end_date" "date") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_dashboard_metrics"("p_store_id" "uuid", "p_start_date" "date", "p_end_date" "date") TO "service_role";
 
 
 
@@ -4611,6 +5092,12 @@ GRANT ALL ON FUNCTION "public"."receive_transfer_with_billing"("p_transfer_id" "
 REVOKE ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid", "p_is_bonus" boolean) TO "anon";
+GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid", "p_is_bonus" boolean) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."replace_pending_sale_order"("p_sale_id" "uuid", "p_payment_method" "public"."payment_method", "p_total_portions" integer, "p_total_amount" integer, "p_packaging_total" integer, "p_cash_amount" integer, "p_bank_amount" integer, "p_observations" "text", "p_is_paid" boolean, "p_customer_note" "text", "p_packaging_supply_id" "uuid", "p_total_cost_cop" integer, "p_gross_margin_cop" integer, "p_items" "jsonb", "p_is_credit" boolean, "p_debtor_name" "text", "p_debtor_type" "public"."debtor_type", "p_debtor_worker_id" "uuid", "p_debtor_customer_id" "uuid", "p_is_bonus" boolean) TO "service_role";
 
 
 
