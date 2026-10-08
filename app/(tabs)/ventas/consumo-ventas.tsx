@@ -31,6 +31,8 @@ export default function ConsumoVentasScreen() {
   const [calculated, setCalculated] = useState(false);
   const [consumption, setConsumption] = useState<SupplyConsumption[]>([]);
   const [totalPortions, setTotalPortions] = useState(0);
+  const [totalQuesadillas, setTotalQuesadillas] = useState(0);
+  const [totalDiamantes, setTotalDiamantes] = useState(0);
   const [salesCount, setSalesCount] = useState(0);
 
   const supplyMap = new Map(supplies.map((s) => [s.id, s]));
@@ -66,11 +68,21 @@ export default function ConsumoVentasScreen() {
       const consumptionMap = new Map<string, { totalGrams: number; breakdown: SupplyConsumption['breakdown'] }>();
 
       let portionsTotal = 0;
+      let quesadillasTotal = 0;
+      let diamantesTotal = 0;
 
       for (const sale of sales) {
         for (const item of sale.items) {
-          portionsTotal += item.portions;
           const prodName = productMap.get(item.productId)?.name ?? item.productId;
+          const nameLower = prodName.toLowerCase();
+          
+          if (nameLower.includes('quesadilla')) {
+            quesadillasTotal += item.quantity;
+          } else if (nameLower.includes('diamante')) {
+            diamantesTotal += item.quantity;
+          } else {
+            portionsTotal += item.portions;
+          }
 
           // 1. Ingredientes de receta base por porcion
           const recipe = recipeByProductId.get(item.productId);
@@ -163,6 +175,8 @@ export default function ConsumoVentasScreen() {
 
       setConsumption(result);
       setTotalPortions(portionsTotal);
+        setTotalQuesadillas(quesadillasTotal);
+        setTotalDiamantes(diamantesTotal);
       setSalesCount(sales.length);
       setCalculated(true);
     } catch {
@@ -233,11 +247,27 @@ export default function ConsumoVentasScreen() {
                 <Text variant="bodySmall" style={{ color: '#999' }}>Ventas</Text>
               </View>
               <View style={styles.summaryItem}>
-                <Text variant="headlineSmall" style={{ color: '#E63946', fontWeight: '700' }}>
-                  {totalPortions}
-                </Text>
-                <Text variant="bodySmall" style={{ color: '#999' }}>Porciones</Text>
-              </View>
+                  <Text variant="headlineSmall" style={{ color: '#E63946', fontWeight: '700' }}>
+                    {totalPortions}
+                  </Text>
+                  <Text variant="bodySmall" style={{ color: '#999' }}>Porciones</Text>
+                </View>
+                {(totalDiamantes > 0) && (
+                  <View style={styles.summaryItem}>
+                    <Text variant="headlineSmall" style={{ color: '#E63946', fontWeight: '700' }}>
+                      {totalDiamantes}
+                    </Text>
+                    <Text variant="bodySmall" style={{ color: '#999' }}>💎 Diamantes</Text>
+                  </View>
+                )}
+                {(totalQuesadillas > 0) && (
+                  <View style={styles.summaryItem}>
+                    <Text variant="headlineSmall" style={{ color: '#E63946', fontWeight: '700' }}>
+                      {totalQuesadillas}
+                    </Text>
+                    <Text variant="bodySmall" style={{ color: '#999' }}>🌮 Quesadillas</Text>
+                  </View>
+                )}
               <View style={styles.summaryItem}>
                 <Text variant="headlineSmall" style={{ color: '#E63946', fontWeight: '700' }}>
                   {consumption.length}

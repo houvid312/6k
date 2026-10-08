@@ -68,9 +68,14 @@ export function ProductGrid({
     };
   }, [gridWidth, width]);
 
-  const pizzas = products.filter((p) => p.category === 'PIZZA');
+  const allPizzas = products.filter((p) => p.category === 'PIZZA');
+  const quesadillas = allPizzas.filter((p) => p.name.toLowerCase().includes('quesadilla'));
+  const diamantes = allPizzas.filter((p) => p.name.toLowerCase().includes('diamante'));
+  const pizzas = allPizzas.filter((p) => !p.name.toLowerCase().includes('quesadilla') && !p.name.toLowerCase().includes('diamante'));
   const beverages = products.filter((p) => p.category === 'BEBIDA');
   const pizzaIds = useMemo(() => new Set(pizzas.map((p) => p.id)), [pizzas]);
+  const quesadillaIds = useMemo(() => new Set(quesadillas.map((p) => p.id)), [quesadillas]);
+  const diamanteIds = useMemo(() => new Set(diamantes.map((p) => p.id)), [diamantes]);
   const beverageIds = useMemo(() => new Set(beverages.map((p) => p.id)), [beverages]);
 
   const totalSoldPizzaPortions = useMemo(() => {
@@ -133,7 +138,7 @@ export function ProductGrid({
     >
       {/* Pizzas - 3 columns */}
       <View style={styles.grid}>
-        {pizzas.map((item) => {
+        {allPizzas.map((item) => {
           const isSelected = item.id === selectedId;
           const portions = availablePortions?.[item.id];
           const hasPortions = portions !== undefined;

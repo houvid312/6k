@@ -11,6 +11,7 @@ import { formatCOP } from '../../../src/utils/currency';
 import { toISODate, formatDate, getColombiaDateString } from '../../../src/utils/dates';
 import { CashClosing } from '../../../src/domain/entities';
 import { ClosingStatus } from '../../../src/domain/enums';
+import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
 
 const MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -21,6 +22,7 @@ export default function CierresMensualesScreen() {
   const theme = useTheme();
   const { saleService, expenseRepo, cashClosingService } = useDI();
   const { selectedStoreId } = useAppStore();
+  const { products } = useMasterDataStore();
 
   const now = new Date();
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
@@ -32,6 +34,8 @@ export default function CierresMensualesScreen() {
   const [totalEgresos, setTotalEgresos] = useState(0);
   const [totalAdelantos, setTotalAdelantos] = useState(0);
   const [totalPortions, setTotalPortions] = useState(0);
+  const [totalQuesadillas, setTotalQuesadillas] = useState(0);
+  const [totalDiamantes, setTotalDiamantes] = useState(0);
   const [totalSaleDays, setTotalSaleDays] = useState(0);
 
   // Breakdown
@@ -60,7 +64,25 @@ export default function CierresMensualesScreen() {
       const revenue = sales.reduce((sum, s) => sum + s.totalAmount, 0);
       const expenseTotal = operatingExpenses.reduce((sum, e) => sum + e.amount, 0);
       const advancesTotal = advances.reduce((sum, e) => sum + e.amount, 0);
-      const portions = sales.reduce((sum, s) => sum + s.totalPortions, 0);
+      
+      let portions = 0;
+      let quesadillas = 0;
+      let diamantes = 0;
+      
+      sales.forEach((s) => {
+        s.items.forEach((item) => {
+          const product = products.find(p => p.id === item.productId);
+          const name = (product?.name || '').toLowerCase();
+          
+          if (name.includes('quesadilla')) {
+            quesadillas += item.quantity;
+          } else if (name.includes('diamante')) {
+            diamantes += item.quantity;
+          } else {
+            portions += item.portions;
+          }
+        });
+      });
 
       // Count unique sale days
       const uniqueDays = new Set(sales.map((s) => getColombiaDateString(s.timestamp)));
@@ -69,6 +91,8 @@ export default function CierresMensualesScreen() {
       setTotalEgresos(expenseTotal);
       setTotalAdelantos(advancesTotal);
       setTotalPortions(portions);
+      setTotalQuesadillas(quesadillas);
+      setTotalDiamantes(diamantes);
       setTotalSaleDays(uniqueDays.size);
 
       // All operating expense categories sorted descending
@@ -173,6 +197,19 @@ export default function CierresMensualesScreen() {
             <Text variant="bodyMedium" style={{ color: '#F5F0EB' }}>Porciones vendidas</Text>
             <Text variant="bodyMedium" style={{ fontWeight: '700', color: '#F5F0EB' }}>{totalPortions}</Text>
           </View>
+          
+          {(totalDiamantes > 0 || totalQuesadillas > 0) && (
+            <View style={[styles.statRow, { marginTop: 4, opacity: 0.8 }]}>
+              <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>💎 Diamantes vendidos</Text>
+              <Text variant="bodySmall" style={{ fontWeight: '700', color: '#F5F0EB' }}>{totalDiamantes}</Text>
+            </View>
+          )}
+          {(totalQuesadillas > 0 || totalDiamantes > 0) && (
+            <View style={[styles.statRow, { marginTop: 2, opacity: 0.8, marginBottom: 8 }]}>
+              <Text variant="bodySmall" style={{ color: '#F5F0EB' }}>🌮 Quesadillas vendidas</Text>
+              <Text variant="bodySmall" style={{ fontWeight: '700', color: '#F5F0EB' }}>{totalQuesadillas}</Text>
+            </View>
+          )}
 
           <View style={styles.statRow}>
             <Text variant="bodyMedium" style={{ color: '#F5F0EB' }}>Dias con ventas</Text>
