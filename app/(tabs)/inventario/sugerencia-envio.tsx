@@ -329,16 +329,6 @@ export default function SugerenciaEnvioScreen() {
 
               {requirements.map((req) => (
                 <React.Fragment key={req.supplyId}><View style={{ paddingBottom: 12 }}><Card style={[styles.reqCard, { backgroundColor: '#1E1E1E', margin: 0, marginBottom: 0 }]}>
-                  {req.isManual && (
-                    <View style={{ position: 'absolute', top: 4, right: 4, zIndex: 10 }}>
-                      <IconButton
-                        icon="close"
-                        size={20}
-                        iconColor="#999"
-                        onPress={() => handleRemoveManualSupply(req.supplyId)}
-                      />
-                    </View>
-                  )}
                   <Card.Content>
                     {(() => {
                       const supply = supplyMap.get(req.supplyId);
@@ -348,7 +338,7 @@ export default function SugerenciaEnvioScreen() {
                       const lineTotal = bags * unitPrice;
                       return (
                         <>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: req.isManual ? 36 : 0 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 0 }}>
                             <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: '600' }}>
                               {req.supplyName}
                             </Text>
@@ -356,6 +346,15 @@ export default function SugerenciaEnvioScreen() {
                               <Chip compact style={{ backgroundColor: 'rgba(255, 193, 7, 0.1)', marginLeft: 8 }} textStyle={{fontSize: 10, color: '#FFC107'}}>
                                 Manual
                               </Chip>
+                            )}
+                            {req.isManual && (
+                              <IconButton
+                                icon="close"
+                                size={20}
+                                iconColor="#999"
+                                onPress={() => handleRemoveManualSupply(req.supplyId)}
+                                style={{ marginLeft: 'auto', margin: 0 }}
+                              />
                             )}
                           </View>
                           <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
