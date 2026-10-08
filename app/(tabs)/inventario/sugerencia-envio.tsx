@@ -1,10 +1,11 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
-import { Text, TextInput, Button, Card, Divider, Portal, Snackbar, Chip, useTheme } from 'react-native-paper';
+import { Text, TextInput, Button, Card, Divider, Portal, Snackbar, Chip, useTheme, IconButton } from 'react-native-paper';
 import { router } from 'expo-router';
 import { ScreenContainer } from '../../../src/components/common/ScreenContainer';
 import { StoreSelector } from '../../../src/components/common/StoreSelector';
 import { EmptyState } from '../../../src/components/common/EmptyState';
+import { SearchableSelect } from '../../../src/components/common/SearchableSelect';
 import { useDI } from '../../../src/di/providers';
 import { useAppStore } from '../../../src/stores/useAppStore';
 import { useMasterDataStore } from '../../../src/stores/useMasterDataStore';
@@ -45,6 +46,8 @@ function parseBagCount(value?: string): number {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
 
+type UIRequirement = SupplyRequirement & { isManual?: boolean };
+
 export default function SugerenciaEnvioScreen() {
   const theme = useTheme();
   const { demandEstimationService, transferService } = useDI();
@@ -53,7 +56,7 @@ export default function SugerenciaEnvioScreen() {
   const { snackbar, showSuccess, showError, hideSnackbar } = useSnackbar();
 
   const [selectedDays, setSelectedDays] = useState<number[]>([getTomorrowDayNum()]);
-  const [requirements, setRequirements] = useState<SupplyRequirement[]>([]);
+  const [requirements, setRequirements] = useState<UIRequirement[]>([]);
   const [editableBags, setEditableBags] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -69,6 +72,42 @@ export default function SugerenciaEnvioScreen() {
   }, [userRole, refreshMasterData]);
 
   const supplyMap = new Map(supplies.map((s) => [s.id, s]));
+
+  const availableOptions = useMemo(() => {
+    return supplies
+      .filter((s) => s.isActive !== false)
+      .filter((s) => s.gramsPerBag && s.gramsPerBag > 0)
+      .filter((s) => !(s.category === 'RAW' && !s.isBillableToStore && !s.allowLocalPurchase))
+      .filter((s) => !requirements.some((r) => r.supplyId === s.id))
+      .map((s) => ({ value: s.id, label: s.name, subtitle: `${s.gramsPerBag}g por bolsa` }));
+  }, [supplies, requirements]);
+
+  const handleAddManualSupply = useCallback((supplyId: string) => {
+    const supply = supplyMap.get(supplyId);
+    if (!supply) return;
+    const newReq: UIRequirement = {
+      supplyId,
+      supplyName: supply.name,
+      requiredGrams: 0,
+      currentGrams: 0,
+      neededGrams: 0,
+      bagsToSend: 0,
+      gramsPerBag: supply.gramsPerBag || 1,
+      isManual: true,
+    };
+    setRequirements((prev) => [...prev, newReq]);
+    setEditableBags((prev) => ({ ...prev, [supplyId]: '' }));
+  }, [supplyMap]);
+
+  const handleRemoveManualSupply = useCallback((supplyId: string) => {
+    setRequirements((prev) => prev.filter((r) => r.supplyId !== supplyId));
+    setEditableBags((prev) => {
+      const next = { ...prev };
+      delete next[supplyId];
+      return next;
+    });
+  }, []);
+
 
   const estimatedTotal = requirements.reduce((sum, req) => {
     const supply = supplyMap.get(req.supplyId);
@@ -120,12 +159,24 @@ export default function SugerenciaEnvioScreen() {
         selectedStoreId,
         selectedDays,
       );
-      setRequirements(result);
-      const bags: Record<string, string> = {};
-      for (const req of result) {
-        bags[req.supplyId] = String(req.bagsToSend);
-      }
-      setEditableBags(bags);
+      setRequirements((prevReqs) => {
+        const manualItems = prevReqs.filter((r) => r.isManual);
+        const resultSet = new Set(result.map((r) => r.supplyId));
+        const keptManuals = manualItems.filter((m) => !resultSet.has(m.supplyId));
+        
+        setEditableBags((prevBags) => {
+          const bags: Record<string, string> = { ...prevBags };
+          for (const req of result) {
+            bags[req.supplyId] = String(req.bagsToSend);
+          }
+          for (const m of keptManuals) {
+            if (!(m.supplyId in bags)) bags[m.supplyId] = '';
+          }
+          return bags;
+        });
+
+        return [...result, ...keptManuals];
+      });
       setCalculated(true);
       if (result.length === 0) {
         showSuccess('El local tiene inventario suficiente para la demanda estimada');
