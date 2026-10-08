@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+﻿import React, { useState, useCallback, useMemo } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { Text, TextInput, Button, Card, Divider, Portal, Snackbar, Chip, useTheme, IconButton } from 'react-native-paper';
 import { router } from 'expo-router';
@@ -304,104 +304,143 @@ export default function SugerenciaEnvioScreen() {
         Calcular Sugerencia ({selectedDays.length} {selectedDays.length === 1 ? 'Día' : 'Días'})
       </Button>
 
-      {calculated && requirements.length === 0 ? (
-        <EmptyState
-          icon="check-circle"
-          title="Inventario suficiente"
-          subtitle="No se necesita enviar insumos para la demanda estimada"
-        />
-      ) : requirements.length > 0 ? (
+      {calculated && (
         <>
-          <Text variant="bodySmall" style={{ color: '#999', marginBottom: 8 }}>
-            Ajusta las bolsas si necesitas enviar mas o menos de lo sugerido
-          </Text>
-          <Card style={[styles.totalCard, { backgroundColor: '#1E1E1E' }]}>
-            <Card.Content style={styles.totalContent}>
-              <Text variant="bodySmall" style={{ color: '#999' }}>
-                Total estimado para el local
+          {requirements.length === 0 ? (
+            <EmptyState
+              icon="check-circle"
+              title="Inventario suficiente"
+              subtitle="No se necesita enviar insumos para la demanda estimada"
+            />
+          ) : (
+            <>
+              <Text variant="bodySmall" style={{ color: '#999', marginBottom: 8 }}>
+                Ajusta las bolsas si necesitas enviar mas o menos de lo sugerido
               </Text>
-              <Text variant="headlineSmall" style={{ color: '#E63946', fontWeight: '800' }}>
-                {formatCOP(estimatedTotal)}
-              </Text>
-            </Card.Content>
-          </Card>
-
-          {requirements.map((req) => (
-            <Card key={req.supplyId} style={[styles.reqCard, { backgroundColor: '#1E1E1E' }]}>
-              <Card.Content>
-                {(() => {
-                  const supply = supplyMap.get(req.supplyId);
-                  const bags = parseBagCount(editableBags[req.supplyId]);
-                  const isBillable = supply?.isBillableToStore !== false;
-                  const unitPrice = isBillable ? (Number(supply?.commercialPriceCop) || Number(supply?.productionCostCop) || 0) : 0;
-                  const lineTotal = bags * unitPrice;
-                  return (
-                    <>
-                <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: '600' }}>
-                  {req.supplyName}
-                </Text>
-                <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
-                  {req.gramsPerBag}g por bolsa
-                </Text>
-
-                <Divider style={{ backgroundColor: '#333', marginVertical: 8 }} />
-
-                <View style={styles.reqDetails}>
-                  <View style={{ flex: 1 }}>
-                    <Text variant="bodySmall" style={{ color: '#999' }}>
-                      En tienda: {Math.round(req.currentGrams)}g
-                    </Text>
-                    <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
-                      Necesita: {Math.round(req.requiredGrams)}g
-                    </Text>
-                  </View>
-                  <View style={styles.bagsInputContainer}>
-                    <Text variant="bodySmall" style={{ color: '#999', marginBottom: 4 }}>
-                      Bolsas
-                    </Text>
-                    <TextInput
-                      mode="outlined"
-                      dense
-                      keyboardType="numeric"
-                      value={editableBags[req.supplyId] || '0'}
-                      onChangeText={(v) =>
-                        setEditableBags((prev) => ({ ...prev, [req.supplyId]: v }))
-                      }
-                      style={styles.bagsInput}
-                      outlineColor="#333"
-                      activeOutlineColor="#E63946"
-                      textColor="#F5F0EB"
-                    />
-                  </View>
-                </View>
-                <Divider style={{ backgroundColor: '#333', marginVertical: 8 }} />
-                <View style={styles.priceRow}>
+              <Card style={[styles.totalCard, { backgroundColor: '#1E1E1E' }]}>
+                <Card.Content style={styles.totalContent}>
                   <Text variant="bodySmall" style={{ color: '#999' }}>
-                    {formatCOP(unitPrice)} c/u
+                    Total estimado para el local
                   </Text>
-                  <Text variant="bodyMedium" style={{ color: '#E63946', fontWeight: '700' }}>
-                    {formatCOP(lineTotal)}
+                  <Text variant="headlineSmall" style={{ color: '#E63946', fontWeight: '800' }}>
+                    {formatCOP(estimatedTotal)}
                   </Text>
-                </View>
-                    </>
-                  );
-                })()}
-              </Card.Content>
-            </Card>
-          ))}
+                </Card.Content>
+              </Card>
 
-          <Button
-            mode="contained"
-            onPress={handleCreateTransfer}
-            loading={creating}
-            disabled={creating}
-            icon="truck"
-            style={styles.createBtn}
-          >
-            Crear Orden de Traslado
-          </Button>
+              {requirements.map((req) => (
+                <Card key={req.supplyId} style={[styles.reqCard, { backgroundColor: '#1E1E1E', position: 'relative' }]}>
+                  {req.isManual && (
+                    <View style={{ position: 'absolute', top: 4, right: 4, zIndex: 10 }}>
+                      <IconButton
+                        icon="close"
+                        size={20}
+                        iconColor="#999"
+                        onPress={() => handleRemoveManualSupply(req.supplyId)}
+                      />
+                    </View>
+                  )}
+                  <Card.Content>
+                    {(() => {
+                      const supply = supplyMap.get(req.supplyId);
+                      const bags = parseBagCount(editableBags[req.supplyId]);
+                      const isBillable = supply?.isBillableToStore !== false;
+                      const unitPrice = isBillable ? (Number(supply?.commercialPriceCop) || Number(supply?.productionCostCop) || 0) : 0;
+                      const lineTotal = bags * unitPrice;
+                      return (
+                        <>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: req.isManual ? 36 : 0 }}>
+                            <Text variant="titleSmall" style={{ color: '#F5F0EB', fontWeight: '600' }}>
+                              {req.supplyName}
+                            </Text>
+                            {req.isManual && (
+                              <Chip compact style={{ backgroundColor: 'rgba(255, 193, 7, 0.1)', marginLeft: 8 }} textStyle={{fontSize: 10, color: '#FFC107'}}>
+                                Manual
+                              </Chip>
+                            )}
+                          </View>
+                          <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
+                            {req.gramsPerBag}g por bolsa
+                          </Text>
+
+                          <Divider style={{ backgroundColor: '#333', marginVertical: 8 }} />
+
+                          <View style={styles.reqDetails}>
+                            <View style={{ flex: 1 }}>
+                              {req.isManual ? (
+                                <Text variant="bodySmall" style={{ color: '#FFC107', fontStyle: 'italic' }}>
+                                  Agregado manualmente
+                                </Text>
+                              ) : (
+                                <>
+                                  <Text variant="bodySmall" style={{ color: '#999' }}>
+                                    En tienda: {Math.round(req.currentGrams)}g
+                                  </Text>
+                                  <Text variant="bodySmall" style={{ color: '#999', marginTop: 2 }}>
+                                    Necesita: {Math.round(req.requiredGrams)}g
+                                  </Text>
+                                </>
+                              )}
+                            </View>
+                            <View style={styles.bagsInputContainer}>
+                              <Text variant="bodySmall" style={{ color: '#999', marginBottom: 4 }}>
+                                Bolsas
+                              </Text>
+                              <TextInput
+                                mode="outlined"
+                                dense
+                                keyboardType="numeric"
+                                value={editableBags[req.supplyId] ?? ''}
+                                onChangeText={(v) =>
+                                  setEditableBags((prev) => ({ ...prev, [req.supplyId]: v }))
+                                }
+                                style={styles.bagsInput}
+                                outlineColor="#333"
+                                activeOutlineColor="#E63946"
+                                textColor="#F5F0EB"
+                              />
+                            </View>
+                          </View>
+                          <Divider style={{ backgroundColor: '#333', marginVertical: 8 }} />
+                          <View style={styles.priceRow}>
+                            <Text variant="bodySmall" style={{ color: '#999' }}>
+                              {formatCOP(unitPrice)} c/u
+                            </Text>
+                            <Text variant="bodyMedium" style={{ color: '#E63946', fontWeight: '700' }}>
+                              {formatCOP(lineTotal)}
+                            </Text>
+                          </View>
+                        </>
+                      );
+                    })()}
+                  </Card.Content>
+                </Card>
+              ))}
+            </>
+          )}
+
+          <View style={{ marginTop: 16, marginBottom: 16 }}>
+            <SearchableSelect
+              options={availableOptions}
+              placeholder="+ Agregar insumo manualmente..."
+              onSelect={handleAddManualSupply}
+            />
+          </View>
+
+          {requirements.length > 0 && (
+            <Button
+              mode="contained"
+              onPress={handleCreateTransfer}
+              loading={creating}
+              disabled={creating}
+              icon="truck"
+              style={styles.createBtn}
+            >
+              Crear Orden de Traslado
+            </Button>
+          )}
         </>
-      ) : null}
+      )}
 
       <View style={{ height: 100 }} />
 
