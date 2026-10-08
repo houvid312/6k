@@ -88,6 +88,50 @@ export function ProductGrid({
     return Object.entries(redeemedPortions).reduce((sum, [id, count]) => pizzaIds.has(id) ? sum + count : sum, 0);
   }, [redeemedPortions, pizzaIds]);
 
+  const totalSoldQuesadillas = useMemo(() => {
+    if (!soldPortions) return 0;
+    return Object.entries(soldPortions).reduce((sum, [id, count]) => {
+      if (quesadillaIds.has(id)) {
+        const product = products.find(p => p.id === id);
+        return sum + (count / (product?.portionsPerUnit || 1));
+      }
+      return sum;
+    }, 0);
+  }, [soldPortions, quesadillaIds, products]);
+
+  const totalSoldDiamantes = useMemo(() => {
+    if (!soldPortions) return 0;
+    return Object.entries(soldPortions).reduce((sum, [id, count]) => {
+      if (diamanteIds.has(id)) {
+        const product = products.find(p => p.id === id);
+        return sum + (count / (product?.portionsPerUnit || 1));
+      }
+      return sum;
+    }, 0);
+  }, [soldPortions, diamanteIds, products]);
+
+  const totalRedeemedQuesadillas = useMemo(() => {
+    if (!redeemedPortions) return 0;
+    return Object.entries(redeemedPortions).reduce((sum, [id, count]) => {
+      if (quesadillaIds.has(id)) {
+        const product = products.find(p => p.id === id);
+        return sum + (count / (product?.portionsPerUnit || 1));
+      }
+      return sum;
+    }, 0);
+  }, [redeemedPortions, quesadillaIds, products]);
+
+  const totalRedeemedDiamantes = useMemo(() => {
+    if (!redeemedPortions) return 0;
+    return Object.entries(redeemedPortions).reduce((sum, [id, count]) => {
+      if (diamanteIds.has(id)) {
+        const product = products.find(p => p.id === id);
+        return sum + (count / (product?.portionsPerUnit || 1));
+      }
+      return sum;
+    }, 0);
+  }, [redeemedPortions, diamanteIds, products]);
+
   const totalSoldBeverages = useMemo(() => {
     if (!soldPortions) return 0;
     return Object.entries(soldPortions).reduce((sum, [id, count]) => beverageIds.has(id) ? sum + count : sum, 0);
@@ -188,7 +232,19 @@ export function ProductGrid({
               </Text>
             {totalRedeemedPizzaPortions > 0 && (
               <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
-                🎁 Bonos: <Text style={{ fontWeight: 'bold', color: '#E63946' }}>{totalRedeemedPizzaPortions}</Text>
+                🎁 Bonos (P): <Text style={{ fontWeight: 'bold', color: '#E63946' }}>{totalRedeemedPizzaPortions}</Text>
+              </Text>
+            )}
+            {(totalSoldDiamantes > 0 || totalRedeemedDiamantes > 0) && (
+              <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
+                💎 Diamantes: <Text style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>{totalSoldDiamantes}</Text>
+                {totalRedeemedDiamantes > 0 && <Text style={{ color: '#E63946' }}> (+{totalRedeemedDiamantes} bonos)</Text>}
+              </Text>
+            )}
+            {(totalSoldQuesadillas > 0 || totalRedeemedQuesadillas > 0) && (
+              <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
+                🌮 Quesadillas: <Text style={{ fontWeight: 'bold', color: theme.colors.onSurface }}>{totalSoldQuesadillas}</Text>
+                {totalRedeemedQuesadillas > 0 && <Text style={{ color: '#E63946' }}> (+{totalRedeemedQuesadillas} bonos)</Text>}
               </Text>
             )}
             <Text style={[styles.totalSoldText, { color: theme.colors.onSurfaceVariant }]}>
