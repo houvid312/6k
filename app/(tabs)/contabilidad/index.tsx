@@ -778,7 +778,7 @@ export default function ContabilidadScreen() {
         const isProd = appliedStore?.isProductionCenter ?? false;
 
         const totalCartera = isProd
-          ? credits.filter(c => c.debtorType === 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0)
+          ? credits.filter(c => (c.debtorType === 'LOCAL' || c.storeId === appliedStoreId) && c.balance > 0).reduce((sum, c) => sum + c.balance, 0)
           : credits.filter(c => c.storeId === appliedStoreId && c.debtorType !== 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0);
 
         const totalCuentasPorPagar = isProd
@@ -883,7 +883,7 @@ export default function ContabilidadScreen() {
           const isCpCredit = entry.debtor_type === 'LOCAL';
 
           if (isProd) {
-            if (isCpCredit) {
+            if (isCpCredit || entry.store_id === appliedStoreId) {
               // ONLY add to bank/total payments if this payment does NOT have an associated income record AND is not cash
               if (!p.income_id && p.payment_method !== PaymentMethod.EFECTIVO) {
                 bankPaymentsByDate.set(pDate, (bankPaymentsByDate.get(pDate) ?? 0) + p.amount);
@@ -1534,7 +1534,7 @@ export default function ContabilidadScreen() {
       const appliedStore = stores.find((s) => s.id === appliedStoreId);
       const isProd = appliedStore?.isProductionCenter ?? false;
       const freshTotal = isProd
-        ? freshCredits.filter(c => c.debtorType === 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0)
+        ? freshCredits.filter(c => (c.debtorType === 'LOCAL' || c.storeId === appliedStoreId) && c.balance > 0).reduce((sum, c) => sum + c.balance, 0)
         : freshCredits.filter(c => c.storeId === appliedStoreId && c.debtorType !== 'LOCAL' && c.balance > 0).reduce((sum, c) => sum + c.balance, 0);
       setAuditCartera(freshTotal);
       // Override base with the actual registered opening for today if it exists

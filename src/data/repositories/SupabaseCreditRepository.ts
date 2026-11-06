@@ -291,4 +291,12 @@ export class SupabaseCreditRepository implements ICreditRepository {
       .eq('id', id);
     if (error) throw error;
   }
+
+  async deleteCredit(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('credit_entries')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+  }
 }

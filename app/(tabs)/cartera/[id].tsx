@@ -82,7 +82,12 @@ export default function DebtorDetailScreen() {
       setCredit(found ?? null);
 
       if (found) {
-        const related = await creditService.getCreditsByDebtor(found.debtorName);
+        const allRelated = await creditService.getCreditsByDebtor(found.debtorName);
+        const related = !selectedStoreId
+          ? allRelated
+          : found.debtorType === 'LOCAL'
+            ? allRelated.filter((c) => c.debtorType === 'LOCAL' && (isProduction || c.storeId === selectedStoreId))
+            : allRelated.filter((c) => c.storeId === selectedStoreId && c.debtorType !== 'LOCAL');
         setRelatedCredits(related);
 
         // Pre-seleccionar todos los créditos con saldo pendiente por defecto
@@ -123,7 +128,7 @@ export default function DebtorDetailScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id, creditService, expenseRepo]);
+  }, [id, creditService, expenseRepo, selectedStoreId, isProduction]);
 
   useEffect(() => {
     loadData();
@@ -296,6 +301,29 @@ export default function DebtorDetailScreen() {
       setSubmitting(false);
     }
   }, [creditService, loadData, showSuccess, showError]);
+
+  const handleDeleteManualCredit = useCallback(async (creditToDelete: CreditEntry) => {
+    if (typeof window !== 'undefined' && !window.confirm(`¿Eliminar este crédito manual de ${formatCOP(creditToDelete.amount)} (${creditToDelete.concept})?`)) {
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await creditService.deleteManualCredit(creditToDelete.id);
+      showSuccess('Crédito eliminado correctamente.');
+      const remaining = relatedCredits.filter((c) => c.id !== creditToDelete.id);
+      if (remaining.length === 0) {
+        setTimeout(() => router.back(), 800);
+      } else if (creditToDelete.id === id) {
+        router.replace(`/(tabs)/cartera/${remaining[0].id}`);
+      } else {
+        await loadData();
+      }
+    } catch (err: any) {
+      showError(err instanceof Error ? err.message : 'No se pudo eliminar el crédito');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [creditService, relatedCredits, id, loadData, showSuccess, showError]);
 
   if (loading) {
     return <LoadingIndicator message="Cargando deuda..." />;
@@ -559,6 +587,21 @@ export default function DebtorDetailScreen() {
                       <Text variant="bodyMedium" style={{ color: '#E63946', fontWeight: '800' }}>
                         Debe: {formatCOP(c.balance)}
                       </Text>
+                      {!c.saleId && !c.transferId && !c.expenseId && c.balance === c.amount && (userRole === UserRole.ADMIN || userRole === UserRole.GERENTE) && (
+                        <TouchableOpacity
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            handleDeleteManualCredit(c);
+                          }}
+                          disabled={submitting}
+                          style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(211, 47, 47, 0.15)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}
+                        >
+                          <MaterialCommunityIcons name="trash-can-outline" size={14} color="#EF5350" />
+                          <Text variant="labelSmall" style={{ color: '#EF5350', marginLeft: 4, fontSize: 10 }}>
+                            Eliminar
+                          </Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   </View>
                 </Card.Content>

@@ -597,5 +597,26 @@ export class CreditService {
 
     await this.creditRepo.deletePayment(paymentId);
   }
+
+  /**
+   * Deletes a manually created credit entry that has no payments, sale, transfer, or expense attached.
+   */
+  async deleteManualCredit(creditId: string): Promise<void> {
+    const all = await this.creditRepo.getAll();
+    const credit = all.find((c) => c.id === creditId);
+    if (!credit) {
+      throw new Error('Crédito no encontrado');
+    }
+
+    if (credit.saleId || credit.transferId || credit.expenseId) {
+      throw new Error('Solo se pueden eliminar créditos creados manualmente desde Cartera');
+    }
+
+    if (credit.balance < credit.amount || credit.isPaid) {
+      throw new Error('No se puede eliminar un crédito que ya tiene abonos registrados');
+    }
+
+    await this.creditRepo.deleteCredit(creditId);
+  }
 }
 

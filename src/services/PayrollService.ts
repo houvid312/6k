@@ -61,7 +61,8 @@ export class PayrollService {
       if (!worker) continue;
       const totalHours = roundHours(workerAttendance.reduce((sum, record) => sum + record.actualHours, 0));
       const grossPay = workerAttendance.reduce((sum, record) => sum + record.subtotal, 0);
-      const activeCredits = await this.creditRepo.getActiveByWorker(workerId);
+      const allWorkerCredits = await this.creditRepo.getActiveByWorker(workerId);
+      const activeCredits = allWorkerCredits.filter((credit) => !credit.storeId || credit.storeId === storeId);
       const activeDebt = activeCredits.reduce((sum, credit) => sum + credit.balance, 0);
       const defaultDeduction = Math.min(activeDebt, grossPay);
       const requestedDeduction = deductionOverrides[workerId] ?? defaultDeduction;
@@ -221,7 +222,8 @@ export class PayrollService {
     let remaining = entry.debtDeduction;
     if (remaining <= 0) return;
 
-    const activeCredits = await this.creditRepo.getActiveByWorker(entry.workerId);
+    const allActiveCredits = await this.creditRepo.getActiveByWorker(entry.workerId);
+    const activeCredits = allActiveCredits.filter((credit) => !credit.storeId || credit.storeId === (entry.storeId || period.storeId));
     const orderedCredits = activeCredits
       .filter((credit) => entry.debtCreditIds.length === 0 || entry.debtCreditIds.includes(credit.id))
       .sort((a, b) => a.date.localeCompare(b.date));

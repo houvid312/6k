@@ -124,7 +124,7 @@ export default function CarteraScreen() {
   const storeCredits = useMemo(() => {
     if (!selectedStoreId) return allCredits;
     if (isProduction) {
-      return allCredits.filter((c) => c.debtorType === 'LOCAL');
+      return allCredits.filter((c) => c.debtorType === 'LOCAL' || c.storeId === selectedStoreId);
     } else {
       return allCredits.filter((c) => c.storeId === selectedStoreId && c.debtorType !== 'LOCAL');
     }
