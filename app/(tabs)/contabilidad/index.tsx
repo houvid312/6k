@@ -253,6 +253,7 @@ export default function ContabilidadScreen() {
   const [egresos, setEgresos] = useState(0);
   const [generalIngresos, setGeneralIngresos] = useState(0);
   const [generalEgresos, setGeneralEgresos] = useState(0);
+  const [localStoresIncome, setLocalStoresIncome] = useState(0);
   const [salesIncome, setSalesIncome] = useState(0);
   const [fixedExpenses, setFixedExpenses] = useState(0);
   const [variableExpenses, setVariableExpenses] = useState(0);
@@ -1063,6 +1064,8 @@ export default function ContabilidadScreen() {
         setDbCuentasPorPagar(0);
         setGeneralIngresos(periodIncome);
         setGeneralEgresos(periodExpenses);
+        const localIncomesOnly = allIncomes.filter(i => i.storeId !== cpStoreId && i.category !== 'Traslado' && i.category !== 'Abono Cartera').reduce((sum, inc) => sum + inc.amount, 0);
+        setLocalStoresIncome(totalRevenue + localIncomesOnly);
 
         const auditsRes = await supabase
           .from('cash_audit_entries')
@@ -2203,6 +2206,22 @@ export default function ContabilidadScreen() {
                   color="#D32F2F"
                 />
               </View>
+              {appliedStoreId === 'consolidado' && (
+                <View style={styles.kpiRow}>
+                  <KpiCard
+                    icon="store"
+                    label="Ventas Locales (Público)"
+                    value={formatCOP(salesIncome)}
+                    color="#00897B"
+                  />
+                  <KpiCard
+                    icon="cash-multiple"
+                    label="Total Ingresos Locales"
+                    value={formatCOP(localStoresIncome)}
+                    color="#43A047"
+                  />
+                </View>
+              )}
               {appliedStoreId !== 'consolidado' && (
                 <>
                   <View style={styles.kpiRow}>
