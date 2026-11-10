@@ -263,6 +263,13 @@ export default function ContabilidadScreen() {
   const [internalTransferExpenses, setInternalTransferExpenses] = useState(0);
   const [inventoryAssetValue, setInventoryAssetValue] = useState(0);
   const [soldInventoryCost, setSoldInventoryCost] = useState(0);
+  const [localDirectSuppliesCost, setLocalDirectSuppliesCost] = useState(0);
+  const [investmentAndMarketingExpenses, setInvestmentAndMarketingExpenses] = useState(0);
+  const [investmentExpensesByCategory, setInvestmentExpensesByCategory] = useState<{ category: string; total: number }[]>([]);
+  const [capitalIncomesSum, setCapitalIncomesSum] = useState(0);
+  const [operatingReimbursementsSum, setOperatingReimbursementsSum] = useState(0);
+  const [operatingReimbursementsList, setOperatingReimbursementsList] = useState<Income[]>([]);
+  const [capitalIncomesList, setCapitalIncomesList] = useState<Income[]>([]);
   const [writeoffInventoryCost, setWriteoffInventoryCost] = useState(0);
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [recentExpenses, setRecentExpenses] = useState<Expense[]>([]);
@@ -1153,12 +1160,31 @@ export default function ContabilidadScreen() {
       // Flujo de Entradas estructurado
       const cashSales = pnlMetrics?.cashSales ?? sales.reduce((sum, s) => sum + (s.cashAmount || (s.paymentMethod === PaymentMethod.EFECTIVO ? s.totalAmount : 0)), 0);
       const bankSales = pnlMetrics?.bankSales ?? sales.reduce((sum, s) => sum + (s.bankAmount || (s.paymentMethod !== PaymentMethod.EFECTIVO ? s.totalAmount : 0)), 0);
-      const otherIncomes = allIncomes
-        .filter((inc) => inc.category !== 'Traslado' && inc.category !== 'Abono Cartera')
-        .reduce((sum, inc) => sum + inc.amount, 0);
+      const nonSwapIncomes = allIncomes.filter(
+        (inc) => inc.category !== 'Traslado' && inc.category !== 'Abono Cartera'
+      );
+      const isCapitalOrNonPnlIncome = (inc: Income) => {
+        const cat = (inc.category || '').trim().toLowerCase();
+        const desc = (inc.description || '').trim().toLowerCase();
+        if (cat === 'capital inicial') return true;
+        if (desc.includes('capital inicial') || desc.includes('plan implementación') || desc.includes('plan implementacion')) {
+          return true;
+        }
+        return false;
+      };
+      const capIncomesList = nonSwapIncomes.filter((inc) => isCapitalOrNonPnlIncome(inc));
+      const opReimbList = nonSwapIncomes.filter((inc) => !isCapitalOrNonPnlIncome(inc) && (appliedStoreId !== 'consolidado' || inc.storeId !== cpStoreId));
+      const otherIncomes = nonSwapIncomes.reduce((sum, inc) => sum + inc.amount, 0);
+      const capIncomesTotal = capIncomesList.reduce((sum, inc) => sum + inc.amount, 0);
+      const opReimbTotal = opReimbList.reduce((sum, inc) => sum + inc.amount, 0);
+
       setCashSalesSum(cashSales);
       setBankSalesSum(bankSales);
       setOtherIncomesSum(otherIncomes);
+      setCapitalIncomesSum(capIncomesTotal);
+      setOperatingReimbursementsSum(opReimbTotal);
+      setCapitalIncomesList(capIncomesList);
+      setOperatingReimbursementsList(opReimbList);
 
       // Flujo de Salidas estructurado
       const isPayrollCat = (cat: string) => {
@@ -1184,26 +1210,64 @@ export default function ContabilidadScreen() {
       setPayrollExpensesSum(payrollExp);
       setOperationsExpensesSum(opsExp);
 
-      const isStockOrSupplyExpense = (category: string) => {
+      const isDirectLocalSupplyCat = (category: string) => {
         const cat = (category || '').trim().toLowerCase();
         return (
           cat === 'insumos' ||
           cat === 'insumo' ||
           cat === 'compra insumo' ||
-          cat === 'compra turno' ||
-          cat === 'traslado' ||
-          cat === 'adelanto' ||
-            cat === 'dividendos'
-          );
+          cat === 'proveedores'
+        );
       };
 
-      const operationalExpensesList = appliedStoreId === 'consolidado'
-        ? allExpenses.filter((e) => !isStockOrSupplyExpense(e.category) && e.storeId !== cpStoreId)
-        : allExpenses.filter((e) => !isStockOrSupplyExpense(e.category));
+      const isInvestmentOrNonOpCat = (category: string) => {
+        const cat = (category || '').trim().toLowerCase();
+        return (
+          cat === 'inversión / equipos' ||
+          cat === 'inversion / equipos' ||
+          cat === 'publicidad / mercadeo' ||
+          cat === 'otro' ||
+          cat === 'otros'
+        );
+      };
+
+      const isExcludedFromPnLExpenses = (category: string, forProdCenter: boolean) => {
+        const cat = (category || '').trim().toLowerCase();
+        if (cat === 'adelanto' || cat === 'dividendos') return true;
+        // En tiendas y consolidado, Traslado es el pago de insumos al CP (ya costeado en Recetas COGS).
+        // En CP, si se registra un gasto Traslado manual, sí es un egreso operativo.
+        if (cat === 'traslado' && !forProdCenter) return true;
+        // Las compras de insumos/proveedores se tratan aparte:
+        // - En CP: ya están costeadas en el COGS de traslados despachados.
+        // - En Locales: son bebidas/salsas/insumos comprados a terceros y se suman al Costo de Ventas (Margen Bruto).
+        if (isDirectLocalSupplyCat(category)) return true;
+        return false;
+      };
+
+      const pnlCandidateExpenses = appliedStoreId === 'consolidado'
+        ? allExpenses.filter((e) => e.storeId !== cpStoreId && !isExcludedFromPnLExpenses(e.category, false))
+        : allExpenses.filter((e) => !isExcludedFromPnLExpenses(e.category, isProductionCenter));
+
+      // Compras directas locales (Bebidas Postobón, Coca-Cola, Cerveza, salsas compradas por fuera del CP)
+      const localDirectSupplyExp = isProductionCenter
+        ? 0
+        : (appliedStoreId === 'consolidado'
+            ? allExpenses.filter((e) => e.storeId !== cpStoreId && isDirectLocalSupplyCat(e.category)).reduce((sum, e) => sum + e.amount, 0)
+              + purchases.filter((p) => p.storeId !== cpStoreId).reduce((sum, p) => sum + p.priceCOP, 0)
+            : allExpenses.filter((e) => isDirectLocalSupplyCat(e.category)).reduce((sum, e) => sum + e.amount, 0)
+              + totalPurchases);
+      setLocalDirectSuppliesCost(localDirectSupplyExp);
+
+      const operationalExpensesList = pnlCandidateExpenses.filter((e) => !isInvestmentOrNonOpCat(e.category));
+      const investmentAndNonOpList = pnlCandidateExpenses.filter((e) => isInvestmentOrNonOpCat(e.category));
+
       const fixed = operationalExpensesList.filter((e) => e.isFixed).reduce((sum, e) => sum + e.amount, 0);
       const variable = operationalExpensesList.filter((e) => !e.isFixed).reduce((sum, e) => sum + e.amount, 0);
+      const invAndMktTotal = investmentAndNonOpList.reduce((sum, e) => sum + e.amount, 0);
+
       setFixedExpenses(fixed);
       setVariableExpenses(variable);
+      setInvestmentAndMarketingExpenses(invAndMktTotal);
 
       // Desglose de todos los egresos para la vista Cierres
       const cashFlowCatMap: Record<string, number> = {};
@@ -1215,7 +1279,7 @@ export default function ContabilidadScreen() {
         .sort((a, b) => b.total - a.total);
       setCashFlowExpensesByCategory(sortedCashFlowCats);
 
-      // Desglose de gastos operativos para la vista Rentabilidad
+      // Desglose de gastos operativos del día a día (OPEX) para la vista Rentabilidad
       const opCatMap: Record<string, number> = {};
       for (const e of operationalExpensesList) {
         opCatMap[e.category] = (opCatMap[e.category] || 0) + e.amount;
@@ -1224,6 +1288,16 @@ export default function ContabilidadScreen() {
         .map(([category, total]) => ({ category, total }))
         .sort((a, b) => b.total - a.total);
       setOperatingExpensesByCategory(sortedOpCats);
+
+      // Desglose de Inversiones, Mercadeo y Otros no operativos para la vista Rentabilidad
+      const invCatMap: Record<string, number> = {};
+      for (const e of investmentAndNonOpList) {
+        invCatMap[e.category] = (invCatMap[e.category] || 0) + e.amount;
+      }
+      const sortedInvCats = Object.entries(invCatMap)
+        .map(([category, total]) => ({ category, total }))
+        .sort((a, b) => b.total - a.total);
+      setInvestmentExpensesByCategory(sortedInvCats);
 
       // Valorización de inventario para todas las sedes (Vista Balances & Stock)
       try {
@@ -1370,17 +1444,26 @@ export default function ContabilidadScreen() {
   
   const totalIncomeForMargin = isProductionCenter ? internalTransferIncome : salesIncome;
 
-  // Margen bruto: Ventas a clientes - Costo de recetas, masas y empaques consumidos
-  const margenBruto = totalIncomeForMargin - soldInventoryCost;
+  // Costo Total de Ventas (COGS): Insumos de Recetas/Masas/Empaques + Compras directas locales (Bebidas, salsas, etc.)
+  const totalCogsWithLocalSupplies = soldInventoryCost + localDirectSuppliesCost;
+
+  // Margen bruto: Ventas a clientes - Costo total de ventas
+  const margenBruto = totalIncomeForMargin - totalCogsWithLocalSupplies;
   const margenBrutoPct = totalIncomeForMargin > 0
     ? Math.round((margenBruto / totalIncomeForMargin) * 100)
     : 0;
 
-  // Total Gastos Operacionales (OPEX): Fijos + Variables + Mermas
+  // Total Gastos Operacionales del Día a Día (OPEX Recurrente): Fijos + Variables (incl. Compra Turno) + Mermas
   const totalOpex = fixedExpenses + variableExpenses + writeoffInventoryCost;
 
-  // Margen operativo / Resultado neto de operacion: Margen Bruto - Gastos Fijos - Gastos Variables - Mermas
-  const resultadoOperativo = margenBruto - totalOpex;
+  // Utilidad Operacional (EBITDA): Margen Bruto - OPEX Recurrente
+  const utilidadOperacionalEbitda = margenBruto - totalOpex;
+  const margenEbitdaPct = totalIncomeForMargin > 0
+    ? Math.round((utilidadOperacionalEbitda / totalIncomeForMargin) * 100)
+    : 0;
+
+  // Utilidad Neta Final del Periodo: Utilidad Operacional + Reembolsos/Aportes a gastos (ej. servicios) - Inversiones / Mercadeo / Otros
+  const resultadoOperativo = utilidadOperacionalEbitda + operatingReimbursementsSum - investmentAndMarketingExpenses;
   const margenOperativoPct = totalIncomeForMargin > 0
     ? Math.round((resultadoOperativo / totalIncomeForMargin) * 100)
     : 0;
@@ -1870,12 +1953,22 @@ export default function ContabilidadScreen() {
       ['Ventas a clientes', currencyCell(salesIncome), 'Total vendido a clientes en el periodo seleccionado.'],
       ['Ventas internas (Centro Prod.)', currencyCell(internalTransferIncome), 'Facturacion interna al enviar insumos a locales.'],
       ['Costo vendido por recetas', currencyCell(-soldInventoryCost), 'Inventario consumido por ventas a precio de traslado.'],
-      ['Compras directas insumos', currencyCell(-purchaseExpenses), 'Compras directas hechas a proveedores locales.'],
-      ['Margen bruto', currencyCell(margenBruto), 'Ventas totales menos costos de inventario consumido y compras directas.'],
+      ['Compras directas locales (Bebidas e insumos)', currencyCell(-localDirectSuppliesCost), 'Bebidas, salsas e insumos comprados directamente por el local.'],
+      ['Margen bruto', currencyCell(margenBruto), 'Ventas totales menos costos de recetas y compras directas de bebidas/insumos.'],
+      ...operatingExpensesByCategory.map((item): ExcelCell[] => [
+        `OPEX: ${item.category}`,
+        currencyCell(-item.total),
+        'Gasto operativo recurrente del dia a dia.',
+      ]),
       ['Bajas y mermas aprobadas', currencyCell(-writeoffInventoryCost), 'Inventario descontado por bajas aprobadas en el periodo.'],
-      ['Gastos variables operacionales', currencyCell(-variableExpenses), 'Gastos generales variables de la operacion.'],
-      ['Gastos fijos operacionales', currencyCell(-fixedExpenses), 'Gastos generales fijos (arriendo, nomina, servicios).'],
-      ['Margen operativo', currencyCell(resultadoOperativo), 'Margen bruto menos mermas y gastos fijos/variables.'],
+      ['Utilidad Operacional (EBITDA)', currencyCell(utilidadOperacionalEbitda), 'Margen bruto menos gastos operativos recurrentes y mermas.'],
+      ['Reembolsos / Aportes a gastos operativos', currencyCell(operatingReimbursementsSum), 'Aportes externos para cubrir gastos operativos como servicios.'],
+      ...investmentExpensesByCategory.map((item): ExcelCell[] => [
+        `Inversion / No Operativo: ${item.category}`,
+        currencyCell(-item.total),
+        'Inversion en equipos, publicidad/mercadeo u otros no recurrentes.',
+      ]),
+      ['Utilidad Neta Final (P&L)', currencyCell(resultadoOperativo), 'Utilidad operacional mas reembolsos menos inversiones, mercadeo y otros.'],
       ['Inventario actual como activo', currencyCell(inventoryAssetValue), 'Stock que queda en el local valorizado al precio de compra.'],
     ];
 
@@ -2480,8 +2573,8 @@ export default function ContabilidadScreen() {
             />
             <KpiCard
               icon="food-variant"
-              label="Costo Insumos (COGS)"
-              value={formatCOP(soldInventoryCost)}
+              label="Costo Ventas (COGS + Bebidas)"
+              value={formatCOP(totalCogsWithLocalSupplies)}
               color="#D32F2F"
             />
           </View>
@@ -2501,14 +2594,20 @@ export default function ContabilidadScreen() {
           </View>
           <View style={styles.kpiRow}>
             <KpiCard
+              icon="trending-up"
+              label="Utilidad Operacional (EBITDA)"
+              value={`${formatCOP(utilidadOperacionalEbitda)} (${margenEbitdaPct}%)`}
+              color={utilidadOperacionalEbitda >= 0 ? '#388E3C' : '#D32F2F'}
+            />
+            <KpiCard
               icon="scale-balance"
-              label="Utilidad Operacional Neta"
+              label="Utilidad Neta Final (P&L)"
               value={`${formatCOP(resultadoOperativo)} (${margenOperativoPct}%)`}
               color={resultadoOperativo >= 0 ? '#388E3C' : '#D32F2F'}
             />
           </View>
           <Text variant="bodySmall" style={[styles.txInfoText, styles.kpiHelperText]}>
-            Mide la rentabilidad real del negocio: ventas menos materia prima consumida, mermas y gastos de funcionamiento.
+            Mide la rentabilidad real del negocio: ventas menos recetas, bebidas/insumos locales, gastos del día a día e inversiones en equipos o mercadeo.
           </Text>
 
           {/* Estado de Resultados en Cascada */}
@@ -2516,7 +2615,7 @@ export default function ContabilidadScreen() {
             <Card style={[styles.txCard, { backgroundColor: '#1A222D', borderColor: '#1976D2', borderWidth: 1, marginBottom: 10 }]} mode="outlined">
               <Card.Content style={{ paddingVertical: 10 }}>
                 <Text variant="bodySmall" style={{ color: '#90CAF9', lineHeight: 18 }}>
-                  ℹ️ <Text style={{ fontWeight: 'bold' }}>Consolidación de Puntos de Venta (Ventas a Clientes Externos):</Text> Esta vista computa la rentabilidad operativa comercial de todos los locales ({formatCOP(salesIncome)}), valorizando los insumos consumidos a precios de tienda y descontando los gastos operativos de los locales. La operación, facturación interna y costos del <Text style={{ fontWeight: 'bold' }}>Centro de Producción</Text> se consultan exclusivamente en su filtro individual.
+                  ℹ️ <Text style={{ fontWeight: 'bold' }}>Consolidación de Puntos de Venta (Ventas a Clientes Externos):</Text> Esta vista computa la rentabilidad comercial de todos los locales ({formatCOP(salesIncome)}), valorizando los insumos consumidos a precios de tienda y descontando todas las categorías de gasto de los locales. La operación, facturación interna y costos del <Text style={{ fontWeight: 'bold' }}>Centro de Producción</Text> se consultan en su filtro individual.
                 </Text>
               </Card.Content>
             </Card>
@@ -2525,22 +2624,27 @@ export default function ContabilidadScreen() {
           <Card style={styles.txCard} mode="elevated">
             <Card.Content>
               <Text variant="titleSmall" style={{ fontWeight: '600', marginBottom: 4 }}>
-                Estado de Resultados (P&L)
+                Estado de Resultados Detallado (P&L)
               </Text>
               <Text variant="bodySmall" style={styles.txInfoText}>
-                Informe económico del periodo. Descuenta insumos consumidos por recetas/formatos y gastos de funcionamiento.
+                Informe económico en cascada por rubro. Muestra el margen comercial, los gastos recurrentes del día a día, reembolsos de gastos e inversiones no operativas.
+              </Text>
+
+              {/* BLOQUE 1: INGRESOS Y COSTO DE VENTAS */}
+              <Text variant="labelSmall" style={{ color: '#90CAF9', fontWeight: '700', marginTop: 10, marginBottom: 4 }}>
+                1. INGRESOS Y COSTO DE MERCANCÍA VENDIDA
               </Text>
 
               {isProductionCenter ? (
-                <View style={[styles.txRow, { marginTop: 8 }]}>
-                  <Text variant="bodySmall">Facturación interna por traslados a locales</Text>
+                <View style={styles.txRow}>
+                  <Text variant="bodySmall">(+) Facturación interna por traslados a locales</Text>
                   <Text variant="bodySmall" style={{ fontWeight: '600', color: '#388E3C' }}>
                     +{formatCOP(internalTransferIncome)}
                   </Text>
                 </View>
               ) : (
-                <View style={[styles.txRow, { marginTop: 8 }]}>
-                  <Text variant="bodySmall">Ventas a clientes</Text>
+                <View style={styles.txRow}>
+                  <Text variant="bodySmall">(+) Ventas a clientes</Text>
                   <Text variant="bodySmall" style={{ fontWeight: '600', color: '#388E3C' }}>
                     +{formatCOP(salesIncome)}
                   </Text>
@@ -2550,19 +2654,30 @@ export default function ContabilidadScreen() {
               <View style={styles.txRow}>
                 <Text variant="bodySmall">
                   {isProductionCenter
-                    ? 'Costo de materia prima de traslados despachados'
-                    : 'Costo de insumos consumidos (Recetas + Masas + Empaques)'}
+                    ? '(-) Costo de materia prima de traslados despachados'
+                    : '(-) Costo de insumos consumidos (Recetas + Masas + Empaques)'}
                 </Text>
                 <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
                   -{formatCOP(soldInventoryCost)}
                 </Text>
               </View>
 
+              {!isProductionCenter && localDirectSuppliesCost > 0 && (
+                <View style={styles.txRow}>
+                  <Text variant="bodySmall">
+                    (-) Compras directas locales (Bebidas, salsas e insumos externos)
+                  </Text>
+                  <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
+                    -{formatCOP(localDirectSuppliesCost)}
+                  </Text>
+                </View>
+              )}
+
               <Divider style={{ marginVertical: 8 }} />
 
               <View style={[styles.txRow, styles.txSubtotalRow]}>
                 <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>
-                  Margen Bruto ({margenBrutoPct}%)
+                  (=) MARGEN BRUTO ({margenBrutoPct}%)
                 </Text>
                 <Text
                   variant="bodyMedium"
@@ -2574,34 +2689,85 @@ export default function ContabilidadScreen() {
 
               <Divider style={{ marginVertical: 8 }} />
 
+              {/* BLOQUE 2: GASTOS OPERATIVOS DEL DÍA A DÍA (OPEX) */}
+              <Text variant="labelSmall" style={{ color: '#FFB74D', fontWeight: '700', marginBottom: 4 }}>
+                2. GASTOS OPERATIVOS DEL DÍA A DÍA (OPEX: -{formatCOP(totalOpex)})
+              </Text>
+
+              {operatingExpensesByCategory.map((item) => (
+                <View key={item.category} style={styles.txRow}>
+                  <Text variant="bodySmall">
+                    (-) {item.category === 'Compra Turno' ? 'Compra Turno (Vegetales frescos, aseo diario, imprevistos)' : item.category}
+                  </Text>
+                  <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
+                    -{formatCOP(item.total)}
+                  </Text>
+                </View>
+              ))}
+
               {writeoffInventoryCost > 0 && (
                 <View style={styles.txRow}>
-                  <Text variant="bodySmall">Bajas y mermas de insumos aprobadas</Text>
+                  <Text variant="bodySmall">(-) Bajas y mermas de insumos aprobadas</Text>
                   <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
                     -{formatCOP(writeoffInventoryCost)}
                   </Text>
                 </View>
               )}
 
-              <View style={styles.txRow}>
-                <Text variant="bodySmall">Gastos fijos de operación (Nómina, arriendo, servicios, software)</Text>
-                <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
-                  -{formatCOP(fixedExpenses)}
+              {operatingExpensesByCategory.length === 0 && writeoffInventoryCost === 0 && (
+                <View style={styles.txRow}>
+                  <Text variant="bodySmall" style={{ color: '#888' }}>Sin gastos operativos registrados en este periodo</Text>
+                  <Text variant="bodySmall" style={{ color: '#888' }}>{formatCOP(0)}</Text>
+                </View>
+              )}
+
+              <Divider style={{ marginVertical: 8 }} />
+
+              <View style={[styles.txRow, styles.txSubtotalRow]}>
+                <Text variant="bodyMedium" style={{ fontWeight: 'bold' }}>
+                  (=) UTILIDAD OPERACIONAL / EBITDA ({margenEbitdaPct}%)
+                </Text>
+                <Text
+                  variant="bodyMedium"
+                  style={{ fontWeight: 'bold', color: utilidadOperacionalEbitda >= 0 ? '#388E3C' : '#D32F2F' }}
+                >
+                  {formatCOP(utilidadOperacionalEbitda)}
                 </Text>
               </View>
 
-              <View style={styles.txRow}>
-                <Text variant="bodySmall">Gastos variables de operación (Aseo, transporte, mantenimiento)</Text>
-                <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
-                  -{formatCOP(variableExpenses)}
-                </Text>
-              </View>
+              {/* BLOQUE 3: REEMBOLSOS OPERATIVOS, INVERSIONES, MERCADEO Y OTROS */}
+              {(operatingReimbursementsSum > 0 || investmentExpensesByCategory.length > 0) && (
+                <>
+                  <Divider style={{ marginVertical: 8 }} />
+                  <Text variant="labelSmall" style={{ color: '#CE93D8', fontWeight: '700', marginBottom: 4 }}>
+                    3. REEMBOLSOS DE GASTOS, INVERSIONES Y MERCADEO
+                  </Text>
+                  {operatingReimbursementsSum > 0 && (
+                    <View style={styles.txRow}>
+                      <Text variant="bodySmall" style={{ flex: 1, paddingRight: 8 }}>
+                        (+) Aportes / Reembolsos a gastos operativos ({operatingReimbursementsList.map((i) => i.description).join(' · ')})
+                      </Text>
+                      <Text variant="bodySmall" style={{ fontWeight: '600', color: '#388E3C' }}>
+                        +{formatCOP(operatingReimbursementsSum)}
+                      </Text>
+                    </View>
+                  )}
+                  {investmentExpensesByCategory.map((item) => (
+                    <View key={item.category} style={styles.txRow}>
+                      <Text variant="bodySmall">(-) {item.category}</Text>
+                      <Text variant="bodySmall" style={{ fontWeight: '600', color: '#D32F2F' }}>
+                        -{formatCOP(item.total)}
+                      </Text>
+                    </View>
+                  ))}
+                </>
+              )}
 
               <Divider style={{ marginVertical: 8 }} />
 
               <View style={[styles.txRow, styles.txSubtotalRow]}>
                 <Text variant="titleSmall" style={{ fontWeight: 'bold' }}>
-                  UTILIDAD OPERACIONAL NETA ({margenOperativoPct}%)
+                  (=) UTILIDAD NETA FINAL ({margenOperativoPct}%)
                 </Text>
                 <Text
                   variant="titleSmall"
@@ -2613,56 +2779,239 @@ export default function ContabilidadScreen() {
             </Card.Content>
           </Card>
 
-          {/* Tarjeta de Conciliación P&L vs Flujo de Caja */}
+          {/* Tarjeta de Conciliación Patrimonial: Origen de Recursos vs Ubicación Actual (Caja + Stock) */}
           <Card style={[styles.txCard, { borderColor: '#E63946', borderWidth: 1 }]} mode="elevated">
             <Card.Content>
               <Text variant="titleSmall" style={{ fontWeight: '700', color: '#F5F0EB', marginBottom: 4 }}>
-                🔍 Conciliación: Utilidad P&L vs Flujo Neto de Caja
+                🔍 Conciliación Patrimonial: Utilidad (P&L) vs. Caja General + Inventario
               </Text>
               <Text variant="bodySmall" style={styles.txInfoText}>
-                Explica por qué la utilidad económica y el dinero en caja son diferentes:
+                Muestra cuánto valor total ha acumulado la sede (Paso 1) y en dónde se encuentra guardado hoy ese valor entre Stock en Bodega y Caja General (Paso 2):
               </Text>
 
-              <View style={[styles.txRow, { marginTop: 8 }]}>
-                <Text variant="bodySmall">1. Utilidad Operacional Neta (P&L del periodo):</Text>
-                <Text variant="bodySmall" style={{ fontWeight: '700', color: resultadoOperativo >= 0 ? '#388E3C' : '#D32F2F' }}>
-                  {formatCOP(resultadoOperativo)}
-                </Text>
-              </View>
+              {(() => {
+                const netCashFlow = generalIngresos - generalEgresos;
+                const baseVigente = appliedStoreId === 'consolidado' ? 0 : latestTheoreticalBase;
+                const debeHaberCajaGeneral = netCashFlow + baseVigente;
+                const totalPatrimonioCajaMasStock = debeHaberCajaGeneral + inventoryAssetValue;
 
-              <View style={styles.txRow}>
-                <Text variant="bodySmall">2. Flujo Neto de Caja (Dinero líquido del periodo):</Text>
-                <Text variant="bodySmall" style={{ fontWeight: '700', color: (generalIngresos - generalEgresos) >= 0 ? '#1976D2' : '#D32F2F' }}>
-                  {formatCOP(generalIngresos - generalEgresos)}
-                </Text>
-              </View>
+                const cpTransferPaymentsInPeriod = isProductionCenter || appliedStoreId === 'consolidado'
+                  ? 0
+                  : reportExpenses
+                      .filter((e) => e.category === 'Traslado')
+                      .reduce((sum, e) => sum + e.amount, 0);
 
-              {dividendosTotal > 0 && (
-                <View style={styles.txRow}>
-                  <Text variant="bodySmall">3. Retiro de Utilidades / Dividendos (Bolsillo Socios):</Text>
-                  <Text variant="bodySmall" style={{ fontWeight: '700', color: '#D32F2F' }}>
-                    {formatCOP(dividendosTotal)}
-                  </Text>
-                </View>
-              )}
+                // En el Centro de Producción, la materia prima comprada en caja suma el módulo de Compras (purchaseExpenses)
+                // más los gastos registrados bajo categoría 'Insumos' en el CP
+                const cpInsumosExpensesInPeriod = isProductionCenter
+                  ? reportExpenses
+                      .filter((e) => {
+                        const c = (e.category || '').trim().toLowerCase();
+                        return c === 'insumos' || c === 'insumo' || c === 'compra insumo' || c === 'proveedores';
+                      })
+                      .reduce((sum, e) => sum + e.amount, 0)
+                  : 0;
+                const cpTotalRawMaterialPaid = purchaseExpenses + cpInsumosExpensesInPeriod;
 
-              <View style={styles.txRow}>
-                <Text variant="bodySmall">{dividendosTotal > 0 ? '4' : '3'}. Variación neta reinvertida en Stock en este periodo (1 - 2{dividendosTotal > 0 ? ' - 3' : ''}):</Text>
-                <Text variant="bodySmall" style={{ fontWeight: '700', color: '#F57C00' }}>
-                  {formatCOP(Math.max(0, resultadoOperativo - (generalIngresos - generalEgresos) - dividendosTotal))}
-                </Text>
-              </View>
+                // Diferencia entre lo cobrado en recetas/traslados (P&L) y lo desembolsado por inventario en Caja
+                const inventoryTimingDiff = isProductionCenter
+                  ? (soldInventoryCost - cpTotalRawMaterialPaid)
+                  : (soldInventoryCost - cpTransferPaymentsInPeriod);
 
-              <Divider style={{ marginVertical: 8 }} />
-              <View style={styles.txRow}>
-                <Text variant="bodySmall" style={{ fontWeight: '600', color: '#aaa' }}>📦 Stock Total Físico en Bodega Hoy (Saldo Acumulado):</Text>
-                <Text variant="bodySmall" style={{ fontWeight: 'bold', color: '#4CAF50' }}>
-                  {formatCOP(inventoryAssetValue)}
-                </Text>
-              </View>
-              <Text variant="bodySmall" style={{ color: '#888', fontStyle: 'italic', marginTop: 4 }}>
-                💡 En este periodo se compró y pagó en caja más inventario del que se consumió (+{formatCOP(Math.max(0, resultadoOperativo - (generalIngresos - generalEgresos) - dividendosTotal))}), el cual se sumó al saldo de meses anteriores ({formatCOP(Math.max(0, inventoryAssetValue - Math.max(0, resultadoOperativo - (generalIngresos - generalEgresos))))}) dando el Stock Total de {formatCOP(inventoryAssetValue)}.
-              </Text>
+                // Diferencia entre el cambio en inventario pagado y el stock físico actual en bodega
+                // Incluye writeoffInventoryCost para no descontar dos veces las mermas ya aprobadas en el P&L
+                const stockVsPaidDiff = inventoryAssetValue + inventoryTimingDiff + writeoffInventoryCost;
+
+                // Ingresos de capital en la sede (excluyendo los reembolsos que ya entraron al P&L)
+                const capitalInflowForBridge = otherIncomesSum - operatingReimbursementsSum;
+
+                // Las mermas aprobadas (writeoffInventoryCost) restan en P&L como gasto no monetario,
+                // pero su impacto físico ya está reflejado dentro de inventoryAssetValue (Stock Físico).
+                // Por ello se suman de vuelta al cruzar P&L contra Caja + Stock para no restarlas dos veces.
+                const otherReconcilingDiff = netCashFlow - (
+                  resultadoOperativo +
+                  writeoffInventoryCost +
+                  inventoryTimingDiff +
+                  capitalInflowForBridge -
+                  dividendosTotal
+                );
+
+                const carteraActiva = latestTheoreticalCartera || dbCartera;
+                const dineroLiquidoReal = Math.max(0, debeHaberCajaGeneral - carteraActiva);
+
+                return (
+                  <>
+                    {/* PASO 1: ORIGEN DEL PATRIMONIO ACUMULADO */}
+                    <Text variant="labelSmall" style={{ color: '#FFB74D', fontWeight: '700', marginTop: 12, marginBottom: 6 }}>
+                      PASO 1: ¿DE DÓNDE VIENE EL VALOR ACUMULADO EN LA SEDE?
+                    </Text>
+
+                    <View style={[styles.txRow, { paddingLeft: 8 }]}>
+                      <Text variant="bodySmall" style={{ fontWeight: '700', color: '#E8F5E9' }}>
+                        1. (+) Utilidad Neta Final del Negocio (P&L del periodo):
+                      </Text>
+                      <Text variant="bodySmall" style={{ fontWeight: '700', color: resultadoOperativo >= 0 ? '#66BB6A' : '#EF5350' }}>
+                        {resultadoOperativo >= 0 ? '+' : ''}{formatCOP(resultadoOperativo)}
+                      </Text>
+                    </View>
+
+                    {capitalInflowForBridge > 0 && (
+                      <View style={[styles.txRow, { paddingLeft: 8 }]}>
+                        <Text variant="bodySmall" style={{ color: '#ccc', flex: 1, paddingRight: 8 }}>
+                          2. (+) Capital Inicial inyectado ({capitalIncomesList.map((i) => i.description).slice(0, 2).join(' · ')}):
+                        </Text>
+                        <Text variant="bodySmall" style={{ fontWeight: '600', color: '#81C784' }}>
+                          +{formatCOP(capitalInflowForBridge)}
+                        </Text>
+                      </View>
+                    )}
+
+                    {appliedStoreId !== 'consolidado' && baseVigente > 0 && (
+                      <View style={[styles.txRow, { paddingLeft: 8 }]}>
+                        <Text variant="bodySmall" style={{ color: '#ccc' }}>
+                          3. (+) Base de Apertura de Caja vigente (sumada en el Debe Haber):
+                        </Text>
+                        <Text variant="bodySmall" style={{ fontWeight: '600', color: '#81C784' }}>
+                          +{formatCOP(baseVigente)}
+                        </Text>
+                      </View>
+                    )}
+
+                    {dividendosTotal > 0 && (
+                      <View style={[styles.txRow, { paddingLeft: 8 }]}>
+                        <Text variant="bodySmall" style={{ color: '#ccc' }}>
+                          (-) Retiro de Utilidades / Dividendos entregados a Socios:
+                        </Text>
+                        <Text variant="bodySmall" style={{ fontWeight: '600', color: '#EF5350' }}>
+                          -{formatCOP(dividendosTotal)}
+                        </Text>
+                      </View>
+                    )}
+
+                    {!isProductionCenter && appliedStoreId !== 'consolidado' && (
+                      <View style={{ backgroundColor: '#1A1E24', borderRadius: 8, padding: 10, marginTop: 6, marginBottom: 4, marginLeft: 8, borderLeftWidth: 3, borderLeftColor: '#FFB74D' }}>
+                        <View style={styles.txRow}>
+                          <Text variant="bodySmall" style={{ color: '#FFE0B2', fontWeight: '600', flex: 1, paddingRight: 8 }}>
+                            4. (+/-) Variación de Stock / Mermas no registradas / Ajustes de conteo:
+                          </Text>
+                          <Text variant="bodySmall" style={{ fontWeight: '700', color: stockVsPaidDiff >= 0 ? '#66BB6A' : '#FFB74D' }}>
+                            {stockVsPaidDiff >= 0 ? '+' : ''}{formatCOP(stockVsPaidDiff)}
+                          </Text>
+                        </View>
+                        <Text variant="bodySmall" style={{ color: '#90A4AE', fontSize: 11, marginTop: 2 }}>
+                          Detalle: Se pagaron {formatCOP(cpTransferPaymentsInPeriod)} al CP y se consumieron {formatCOP(soldInventoryCost)} en recetas (quedaron {formatCOP(Math.max(0, -inventoryTimingDiff))} pagados para stock). Como hoy hay {formatCOP(inventoryAssetValue)} en stock físico, la diferencia acumulada por conteos/mermas es {formatCOP(stockVsPaidDiff)}.
+                        </Text>
+                      </View>
+                    )}
+
+                    {isProductionCenter && (
+                      <View style={{ backgroundColor: '#1A1E24', borderRadius: 8, padding: 10, marginTop: 6, marginBottom: 4, marginLeft: 8, borderLeftWidth: 3, borderLeftColor: '#FFB74D' }}>
+                        <View style={styles.txRow}>
+                          <Text variant="bodySmall" style={{ color: '#FFE0B2', fontWeight: '600', flex: 1, paddingRight: 8 }}>
+                            4. (+/-) Superávit de Producción y Valorización de Stock en Bodega CP:
+                          </Text>
+                          <Text variant="bodySmall" style={{ fontWeight: '700', color: stockVsPaidDiff >= 0 ? '#66BB6A' : '#FFB74D' }}>
+                            {stockVsPaidDiff >= 0 ? '+' : ''}{formatCOP(stockVsPaidDiff)}
+                          </Text>
+                        </View>
+                        <Text variant="bodySmall" style={{ color: '#90A4AE', fontSize: 11, marginTop: 2 }}>
+                          Detalle: Se compraron {formatCOP(cpTotalRawMaterialPaid)} en materia prima ({formatCOP(purchaseExpenses)} por Compras + {formatCOP(cpInsumosExpensesInPeriod)} por Gastos Insumos) y aún quedan {formatCOP(inventoryAssetValue)} en stock en bodega (consumo real de compras: {formatCOP(Math.max(0, cpTotalRawMaterialPaid - inventoryAssetValue))}), frente a {formatCOP(soldInventoryCost)} descargados a costo estándar en traslados del P&L.
+                        </Text>
+                      </View>
+                    )}
+
+                    {Math.abs(otherReconcilingDiff) > 100 && (
+                      <View style={[styles.txRow, { paddingLeft: 8 }]}>
+                        <Text variant="bodySmall" style={{ color: '#ccc', flex: 1, paddingRight: 8 }}>
+                          {isProductionCenter
+                            ? '5. (+/-) Diferencia por fecha de corte entre orden de despacho y recepción de traslados en tiendas:'
+                            : '5. (+/-) Diferencia menor entre gastos reportados en cierres de turno y soporte de gastos:'}
+                        </Text>
+                        <Text variant="bodySmall" style={{ fontWeight: '600', color: otherReconcilingDiff >= 0 ? '#66BB6A' : '#FFB74D' }}>
+                          {otherReconcilingDiff >= 0 ? '+' : ''}{formatCOP(otherReconcilingDiff)}
+                        </Text>
+                      </View>
+                    )}
+
+                    <View style={[styles.txRow, styles.txSubtotalRow, { marginTop: 8, backgroundColor: '#1E2A22', paddingHorizontal: 10, borderRadius: 8 }]}>
+                      <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#E8F5E9' }}>
+                        (=) TOTAL PATRIMONIO ACUMULADO (CAJA GENERAL + STOCK):
+                      </Text>
+                      <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#66BB6A' }}>
+                        {formatCOP(totalPatrimonioCajaMasStock)}
+                      </Text>
+                    </View>
+
+                    {/* PASO 2: DÓNDE ESTÁN HOY ESOS RECURSOS */}
+                    <Divider style={{ marginVertical: 12 }} />
+                    <Text variant="labelSmall" style={{ color: '#80DEEA', fontWeight: '700', marginBottom: 6 }}>
+                      PASO 2: ¿DÓNDE ESTÁN GUARDADOS HOY ESOS {formatCOP(totalPatrimonioCajaMasStock)}?
+                    </Text>
+
+                    <View style={[styles.txRow, { paddingLeft: 8 }]}>
+                      <Text variant="bodySmall" style={{ fontWeight: '700', color: '#A5D6A7' }}>
+                        1. 📦 En Stock Físico en Bodega / Neveras hoy (Mercancía lista para vender):
+                      </Text>
+                      <Text variant="bodySmall" style={{ fontWeight: '700', color: '#66BB6A' }}>
+                        {formatCOP(inventoryAssetValue)}
+                      </Text>
+                    </View>
+
+                    <View style={[styles.txRow, { paddingLeft: 8, marginTop: 4 }]}>
+                      <Text variant="bodySmall" style={{ fontWeight: '700', color: '#80DEEA' }}>
+                        2. 🏦 En el Debe Haber de Caja General (Flujo Neto {formatCOP(netCashFlow)}{baseVigente > 0 ? ` + Base ${formatCOP(baseVigente)}` : ''}):
+                      </Text>
+                      <Text variant="bodySmall" style={{ fontWeight: '700', color: '#26C6DA' }}>
+                        {formatCOP(debeHaberCajaGeneral)}
+                      </Text>
+                    </View>
+
+                    {appliedStoreId !== 'consolidado' && (
+                      <View style={{ backgroundColor: '#1A1E24', borderRadius: 8, padding: 10, marginTop: 6, marginLeft: 16, borderLeftWidth: 3, borderLeftColor: '#26C6DA' }}>
+                        <Text variant="labelSmall" style={{ color: '#B0BEC5', fontWeight: '700', marginBottom: 4 }}>
+                          Desglose de los {formatCOP(debeHaberCajaGeneral)} del Debe Haber en Caja General:
+                        </Text>
+                        <View style={styles.txRow}>
+                          <Text variant="bodySmall" style={{ color: '#FFF59D', flex: 1, paddingRight: 8 }}>
+                            🤝 En Cuentas por Cobrar / Cartera (Ventas fiadas y adelantos pendientes):
+                          </Text>
+                          <Text variant="bodySmall" style={{ fontWeight: '700', color: '#FFD54F' }}>
+                            {formatCOP(carteraActiva)}
+                          </Text>
+                        </View>
+                        <View style={styles.txRow}>
+                          <Text variant="bodySmall" style={{ color: '#80CBC4', flex: 1, paddingRight: 8 }}>
+                            💵 Dinero Líquido Teórico Disponible (Efectivo + Bancos + Base):
+                          </Text>
+                          <Text variant="bodySmall" style={{ fontWeight: '700', color: '#4DD0E1' }}>
+                            {formatCOP(dineroLiquidoReal)}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+
+                    <View style={[styles.txRow, styles.txSubtotalRow, { marginTop: 10, backgroundColor: '#16222A', paddingHorizontal: 10, borderRadius: 8 }]}>
+                      <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#80DEEA' }}>
+                        (=) SUMA TOTAL (STOCK EN BODEGA + DEBE HABER CAJA GENERAL):
+                      </Text>
+                      <Text variant="bodyMedium" style={{ fontWeight: 'bold', color: '#26C6DA' }}>
+                        {formatCOP(totalPatrimonioCajaMasStock)}
+                      </Text>
+                    </View>
+
+                    {dbCuentasPorPagar > 0 && (
+                      <View style={[styles.txRow, { marginTop: 8, paddingHorizontal: 8 }]}>
+                        <Text variant="bodySmall" style={{ color: '#FFCC80' }}>
+                          📌 Nota informativa — Cuentas por Pagar actuales al Centro de Producción:
+                        </Text>
+                        <Text variant="bodySmall" style={{ fontWeight: '700', color: '#FFA726' }}>
+                          {formatCOP(dbCuentasPorPagar)}
+                        </Text>
+                      </View>
+                    )}
+                  </>
+                );
+              })()}
             </Card.Content>
           </Card>
 

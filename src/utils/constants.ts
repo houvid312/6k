@@ -23,8 +23,12 @@ export const EXPENSE_CATEGORIES: string[] = [
   'Nomina',
   'Proveedores',
   'Insumos',
-  'Transporte',
   'Compra Turno',
+  'Mantenimiento',
+  'Dotación y Personal',
+  'Publicidad / Mercadeo',
+  'Inversión / Equipos',
+  'Transporte',
   'Otro',
   'Dividendos',
 ];
